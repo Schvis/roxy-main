@@ -43,5 +43,5 @@ appImage:
 npmRebuild: true
 publish:
   provider: github
-  owner: roxy-gg
-  repo: roxy
+  owner: Schvis
+  repo: roxy-main

@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
+  AppWindow,
   Check,
   ChevronRight,
   CornerUpLeft,
@@ -17,6 +19,7 @@ import { useRoxyStore } from '../lib/store'
 import { useTranslation, Trans } from 'react-i18next'
 import { formatInterval } from '@shared/format'
 import { cn } from '../lib/cn'
+import { api } from '../lib/api'
 import { CanvasTranscript } from '../canvas/CanvasTranscript'
 import { Composer } from './Composer'
 import { LoopDetailsPane } from './LoopDetailsPane'
@@ -61,7 +64,9 @@ import roxy from '../assets/roxy.png'
  * painter.
  */
 
-export function ChatView(): JSX.Element {
+export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } = {}): JSX.Element {
+  const { pathname } = useLocation()
+  const isOverlay = propIsOverlay ?? pathname === '/overlay'
   const { t } = useTranslation()
   const messages = useRoxyStore((s) => s.messages)
   const messagesChatId = useRoxyStore((s) => s.messagesChatId)
@@ -125,7 +130,24 @@ export function ChatView(): JSX.Element {
   if (!activeChat) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col bg-bg">
-        <div className="titlebar reserve-controls-right h-12 shrink-0" />
+        <header
+          className={cn(
+            'titlebar flex h-12 shrink-0 items-center justify-end px-4',
+            !isOverlay && 'reserve-controls-right'
+          )}
+        >
+          {isOverlay && (
+            <button
+              type="button"
+              onClick={() => void api.showMainWindow()}
+              title={t('chat.goToMainWindow')}
+              aria-label={t('chat.goToMainWindow')}
+              className="press-scale flex h-7 w-7 shrink-0 items-center justify-center sq sq-lg rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+            >
+              <AppWindow className="h-4 w-4" />
+            </button>
+          )}
+        </header>
         <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
           <img
             src={roxy}
@@ -144,7 +166,12 @@ export function ChatView(): JSX.Element {
 
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col bg-bg">
-      <header className="titlebar reserve-controls-right flex h-12 shrink-0 items-center justify-between gap-3 px-4">
+      <header
+        className={cn(
+          'titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4',
+          !isOverlay && 'reserve-controls-right'
+        )}
+      >
         {activeLoop ? (
           <div className="flex min-w-0 items-center gap-2">
             <Repeat className="h-4 w-4 shrink-0 text-text-muted" />
@@ -258,6 +285,17 @@ export function ChatView(): JSX.Element {
             </button>
           )}
           <UsageMeter />
+          {isOverlay && (
+            <button
+              type="button"
+              onClick={() => void api.showMainWindow()}
+              title={t('chat.goToMainWindow')}
+              aria-label={t('chat.goToMainWindow')}
+              className="press-scale flex h-7 w-7 shrink-0 items-center justify-center sq sq-lg rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+            >
+              <AppWindow className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </header>
 

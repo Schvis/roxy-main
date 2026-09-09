@@ -1380,8 +1380,12 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.showMainWindow, () => {
     const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
     if (windows.length > 0) {
-      windows[0].show()
-      windows[0].focus()
+      const win = windows[0]
+      if (win.isMinimized()) win.restore()
+      if (!win.isVisible()) win.show()
+      win.focus()
+    } else {
+      app.emit('activate')
     }
     toggleOverlayState(false)
   })

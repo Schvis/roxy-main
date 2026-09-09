@@ -18,6 +18,7 @@
     "descriptionAndTasks": "Descrição e tarefas",
     "emptyBody": "Escolha uma pasta para iniciar uma sessão de agente.",
     "emptyTitle": "Abrir um espaço de trabalho",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "Não foi possível carregar as mensagens desta sessão.",
     "loopEmpty": "O loop <strong>{{title}}</strong> é executado a cada {{interval}}. Primeiro batimento cardíaco em breve — ou digite para intervir.",
     "loopEvery": "a cada {{interval}} · ",

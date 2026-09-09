@@ -18,6 +18,7 @@
     "descriptionAndTasks": "説明とタスク",
     "emptyBody": "エージェントセッションを開始するにはフォルダーを選択してください。",
     "emptyTitle": "ワークスペースを開く",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "このセッションのメッセージを読み込めませんでした。",
     "loopEmpty": "ループ <strong>{{title}}</strong> は{{interval}}ごとに実行されます。最初のハートビートはまもなく — または介入するためにタイプしてください。",
     "loopEvery": "{{interval}}ごと · ",

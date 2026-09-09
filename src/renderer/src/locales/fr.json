@@ -18,6 +18,7 @@
     "descriptionAndTasks": "Description et tâches",
     "emptyBody": "Choisissez un dossier pour démarrer une session d'agent.",
     "emptyTitle": "Ouvrir un espace de travail",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "Impossible de charger les messages de cette session.",
     "loopEmpty": "La boucle <strong>{{title}}</strong> s'exécute toutes les {{interval}}. Premier battement de cœur bientôt — ou tapez pour intervenir.",
     "loopEvery": "toutes les {{interval}} · ",

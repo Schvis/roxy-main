@@ -18,6 +18,7 @@
     "descriptionAndTasks": "Описание и задачи",
     "emptyBody": "Выберите папку, чтобы начать сессию агента.",
     "emptyTitle": "Открыть рабочее пространство",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "Не удалось загрузить сообщения этой сессии.",
     "loopEmpty": "Цикл <strong>{{title}}</strong> запускается каждые {{interval}}. Первый сигнал скоро — или введите текст, чтобы вмешаться.",
     "loopEvery": "каждые {{interval}} · ",

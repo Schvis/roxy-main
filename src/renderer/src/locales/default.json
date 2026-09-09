@@ -18,6 +18,7 @@
     "descriptionAndTasks": "Description & tasks",
     "emptyBody": "Pick a folder to start an agent session.",
     "emptyTitle": "Open a workspace",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "Couldn't load this session's messages.",
     "loopEmpty": "Loop <strong>{{title}}</strong> runs every {{interval}}. First heartbeat soon — or type to intervene.",
     "loopEvery": "every {{interval}} · ",

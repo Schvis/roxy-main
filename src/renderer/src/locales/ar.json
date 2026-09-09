@@ -18,6 +18,7 @@
     "descriptionAndTasks": "الوصف والمهام",
     "emptyBody": "اختر مجلدًا لبدء جلسة وكيل.",
     "emptyTitle": "فتح مساحة عمل",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "تعذر تحميل رسائل هذه الجلسة.",
     "loopEmpty": "حلقة <strong>{{title}}</strong> تعمل كل {{interval}}. أول نبضة قلب قريبًا — أو اكتب للتدخل.",
     "loopEvery": "كل {{interval}} · ",

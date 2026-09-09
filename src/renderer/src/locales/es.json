@@ -18,6 +18,7 @@
     "descriptionAndTasks": "Descripción y tareas",
     "emptyBody": "Elige una carpeta para empezar una sesión con el agente.",
     "emptyTitle": "Abre un espacio de trabajo",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "No se pudieron cargar los mensajes de esta sesión.",
     "loopEmpty": "El bucle <strong>{{title}}</strong> se ejecuta cada {{interval}}. El primer latido llegará pronto, o escribe para intervenir.",
     "loopEvery": "cada {{interval}} · ",

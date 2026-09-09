@@ -18,6 +18,7 @@
     "descriptionAndTasks": "विवरण और कार्य",
     "emptyBody": "एजेंट सत्र शुरू करने के लिए एक फ़ोल्डर चुनें।",
     "emptyTitle": "एक कार्यक्षेत्र खोलें",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "इस सत्र के संदेश लोड नहीं हो सके।",
     "loopEmpty": "लूप <strong>{{title}}</strong> हर {{interval}} में चलता है। पहली धड़कन जल्द ही — या हस्तक्षेप करने के लिए टाइप करें।",
     "loopEvery": "हर {{interval}} · ",

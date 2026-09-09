@@ -168,7 +168,7 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
 
       {onboarded && overlayVisible && (
         <div className="animate-modal-in absolute inset-2 z-20 flex flex-col overflow-hidden rounded-xl border border-border bg-bg shadow-2xl">
-          <ChatView />
+          <ChatView isOverlay />
           <ResizeHandle />
         </div>
       )}

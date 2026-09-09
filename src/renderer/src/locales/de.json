@@ -18,6 +18,7 @@
     "descriptionAndTasks": "Beschreibung & Aufgaben",
     "emptyBody": "Wählen Sie einen Ordner, um eine Agenten-Sitzung zu starten.",
     "emptyTitle": "Arbeitsbereich öffnen",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "Nachrichten dieser Sitzung konnten nicht geladen werden.",
     "loopEmpty": "Loop <strong>{{title}}</strong> läuft alle {{interval}}. Erster Heartbeat bald – oder tippen Sie, um einzugreifen.",
     "loopEvery": "alle {{interval}} · ",

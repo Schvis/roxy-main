@@ -18,6 +18,7 @@
     "descriptionAndTasks": "描述与任务",
     "emptyBody": "选择一个文件夹以开始代理会话。",
     "emptyTitle": "打开工作区",
+    "goToMainWindow": "Go to main window",
     "loadFailed": "无法加载此会话的消息。",
     "loopEmpty": "循环 <strong>{{title}}</strong> 每 {{interval}} 运行一次。心跳即将开始 — 或输入以介入。",
     "loopEvery": "每 {{interval}} · ",
