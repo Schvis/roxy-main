@@ -30,6 +30,7 @@
     "queued": "في قائمة الانتظار",
     "runsAfterReply": "يعمل بعد هذا الرد",
     "settings": "الإعدادات",
+    "showRoxy": "Show Roxy",
     "working": "يعمل"
   },
   "codeHosts": {
@@ -72,6 +73,7 @@
     "placeholder": "اسأل Roxy عن أي شيء… (الصق الصور أو أفلتها)",
     "queuePlaceholder": "ضع متابعة في قائمة الانتظار…",
     "queuePlaceholderStop": "ضع متابعة في قائمة الانتظار… (Esc للإيقاف)",
+    "readScreen": "Read screen",
     "removeImage": "إزالة الصورة",
     "stop": "إيقاف (Esc)"
   },
@@ -236,8 +238,8 @@
     "title": "خوادم MCP"
   },
   "models": {
-    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "allHidden": "كل النماذج مخفية. أعد بعضها في <settings>الإعدادات ← النماذج</settings>.",
+    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "loadFailed": "تعذر تحميل النماذج من models.dev — لا يزال بإمكانك الإرسال بالنموذج الحالي.",
     "loading": "جارٍ تحميل النماذج…",
     "noMatch": "لا توجد نماذج تطابق \"{{query}}\".",
@@ -274,6 +276,8 @@
     "getRoxyKey": "احصل على مفتاح API من لوحة تحكم roxy.gg الخاصة بك",
     "guidedSoon": "تسجيل الدخول الموجه <strong>{{auth}}</strong> قادم قريبًا. تعمل مفاتيح API والموفرون المحليون (و GitHub Copilot) اليوم.",
     "keysEncrypted": "يتم تشفير المفاتيح باستخدام سلسلة مفاتيح نظام التشغيل الخاص بك وتخزينها محليًا.",
+    "modelId": "Fallback model ID (optional)",
+    "modelIdPlaceholder": "Used only if /models is unavailable",
     "noMatch": "لا يوجد موفرون يطابقون “{{query}}”.",
     "openGitHub": "فتح GitHub",
     "or": "أو",
@@ -380,6 +384,16 @@
     "codeHosts": {
       "heading": "مضيفو التعليمات البرمجية"
     },
+    "customPrompts": {
+      "add": "Add prompt",
+      "content": "Prompt",
+      "contentPlaceholder": "Instructions for the agent…",
+      "create": "Create prompt",
+      "createTitle": "Create system prompt",
+      "creating": "Creating…",
+      "name": "Name",
+      "namePlaceholder": "e.g. Concise coding assistant"
+    },
     "danger": {
       "confirm": "نعم، امسح كل شيء",
       "heading": "منطقة الخطر",
@@ -423,6 +437,13 @@
       "reduced": "مخفض",
       "saveFailed": "تعذر حفظ تفضيل الحركة. حاول مرة أخرى.",
       "system": "اتباع إعدادات النظام"
+    },
+    "overlay": {
+      "heading": "Overlay",
+      "keybindDescription": "The key combination to show or hide Roxy from anywhere.",
+      "keybindTitle": "Global shortcut",
+      "modeDescription": "Keep Roxy running in the background when the window is closed, and toggle it with a global shortcut.",
+      "modeTitle": "Run in background"
     },
     "privacy": {
       "description": "العدد والتوقيتات — تشغيل التطبيق، الأدوار المكتملة، عدد الخطوات والأدوات التي استغرقها الدور، عدد الرموز المميزة التي استخدمها وما يقرب من تكلفتها — مرتبطة بمعرف عشوائي تم إنشاؤه على هذا الجهاز. لا يتم تضمين مطالباتك، أو التعليمات البرمجية الخاصة بك، أو مسارات الملفات، أو أسماء المستودعات، أو أي نص خطأ.",

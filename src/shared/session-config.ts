@@ -36,6 +36,8 @@ export interface SessionConfig {
   reasoningEffort: ReasoningEffort
   /** Context budget in tokens; null = use the model's own default. */
   contextLimit: number | null
+  /** Custom prompt id; null = use the model's own default. */
+  promptId: string | null
 }
 
 /** A partial config update — only the keys present are written. */
@@ -44,7 +46,7 @@ export type SessionConfigPatch = Partial<SessionConfig>
 /** The subset of a Chat this resolver reads (so callers can pass a row or a Chat). */
 export type SessionConfigSource = Pick<
   Chat,
-  'providerId' | 'model' | 'agentId' | 'reasoningEffort' | 'contextLimit'
+  'providerId' | 'model' | 'agentId' | 'reasoningEffort' | 'contextLimit' | 'promptId'
 >
 
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'high'
@@ -105,7 +107,8 @@ export function resolveSessionConfig(
     model: pinned ? pinned.model : (settings?.activeModel ?? null),
     agentId: chat?.agentId ?? DEFAULT_AGENT_ID,
     reasoningEffort: chat?.reasoningEffort ?? settings?.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
-    contextLimit: chat?.contextLimit ?? settings?.contextLimit ?? null
+    contextLimit: chat?.contextLimit ?? settings?.contextLimit ?? null,
+    promptId: chat?.promptId ?? settings?.activePromptId ?? null
   }
 }
 
@@ -120,7 +123,8 @@ export function seedSessionConfig(settings: AppSettings | null | undefined): Ses
     model: settings?.activeModel ?? null,
     agentId: settings?.activeAgentId ?? DEFAULT_AGENT_ID,
     reasoningEffort: settings?.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
-    contextLimit: settings?.contextLimit ?? null
+    contextLimit: settings?.contextLimit ?? null,
+    promptId: settings?.activePromptId ?? null
   }
 }
 

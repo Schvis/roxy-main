@@ -28,6 +28,7 @@ import {
   type ResolvedTheme
 } from '../../shared/theme'
 import { getSettings } from '../db/repo'
+import { isOverlayWindow } from './overlay'
 
 /**
  * Fully-transparent black is special-cased by Electron and falls back to the
@@ -79,7 +80,9 @@ export function backgroundColorFor(theme: ResolvedTheme): string {
 export function applyWindowChrome(win: BrowserWindow, theme: ResolvedTheme): void {
   if (win.isDestroyed()) return
   try {
-    win.setBackgroundColor(backgroundColorFor(theme))
+    if (!isOverlayWindow(win)) {
+      win.setBackgroundColor(backgroundColorFor(theme))
+    }
   } catch {
     // ignore — cosmetic
   }

@@ -185,8 +185,10 @@ function ProviderSetup({
 }): JSX.Element {
   const { t } = useTranslation()
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
+  const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [apiKey, setApiKey] = useState('')
   const [baseURL, setBaseURL] = useState(seed.baseURL ?? '')
+  const [defaultModel, setDefaultModel] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -196,21 +198,24 @@ function ProviderSetup({
   // it is by id, since one sidecar process serves them all.
   const isSubscription = seed.auth === 'subscription'
   const needsKey = seed.auth === 'api-key'
+  const isCustomCompatible = seed.id === 'openai-compatible'
   const needsBaseURL = !seed.baseURL
-  const showBaseURL = needsBaseURL || seed.auth === 'none' || seed.id === 'openai-compatible'
+  const showBaseURL = needsBaseURL || seed.auth === 'none' || isCustomCompatible
   const canConnect =
     isConnectableNow(seed) &&
-    (!needsKey || apiKey.trim().length > 0) &&
+    (!needsKey || isCustomCompatible || apiKey.trim().length > 0) &&
     (!needsBaseURL || baseURL.trim().length > 0)
 
   const connect = async (): Promise<void> => {
     setConnecting(true)
     setError(null)
     try {
+      clearModelCache(seed.id)
       const provider = await api.providers.connect({
         id: seed.id,
         apiKey: apiKey.trim() || undefined,
-        baseURL: baseURL.trim() || undefined
+        baseURL: baseURL.trim() || undefined,
+        defaultModel: defaultModel.trim() || undefined
       })
       // Always auto-pick the provider's latest (tool-capable) model so the
       // composer's picker shows a real model right away and the first send just
@@ -301,6 +306,15 @@ function ProviderSetup({
                     value={baseURL}
                     onChange={(e) => setBaseURL(e.target.value)}
                     placeholder="https://…"
+                  />
+                </Field>
+              )}
+              {isCustomCompatible && (
+                <Field label={t('onboarding.modelId')}>
+                  <Input
+                    value={defaultModel}
+                    onChange={(e) => setDefaultModel(e.target.value)}
+                    placeholder={t('onboarding.modelIdPlaceholder')}
                   />
                 </Field>
               )}

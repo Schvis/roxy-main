@@ -30,6 +30,7 @@
     "queued": "En file d'attente",
     "runsAfterReply": "s'exécute après cette réponse",
     "settings": "Paramètres",
+    "showRoxy": "Show Roxy",
     "working": "travaille"
   },
   "codeHosts": {
@@ -72,6 +73,7 @@
     "placeholder": "Demandez ce que vous voulez à Roxy… (collez ou déposez des images)",
     "queuePlaceholder": "Mettre un message de suivi en file d’attente…",
     "queuePlaceholderStop": "Mettre un message de suivi en file d’attente… (Échap pour arrêter)",
+    "readScreen": "Read screen",
     "removeImage": "Supprimer l'image",
     "stop": "Arrêter (Échap)"
   },
@@ -236,8 +238,8 @@
     "title": "Serveurs MCP"
   },
   "models": {
-    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "allHidden": "Tous les modèles sont masqués. Réactivez-en dans <settings>Paramètres → Modèles</settings>.",
+    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "loadFailed": "Impossible de charger les modèles depuis models.dev — vous pouvez toujours envoyer avec le modèle actuel.",
     "loading": "Chargement des modèles…",
     "noMatch": "Aucun modèle ne correspond à « {{query}} ».",
@@ -274,6 +276,8 @@
     "getRoxyKey": "Obtenez une clé API depuis votre tableau de bord roxy.gg",
     "guidedSoon": "La connexion <strong>{{auth}}</strong> guidée sera bientôt disponible. Les clés API et les fournisseurs locaux (et GitHub Copilot) fonctionnent dès aujourd'hui.",
     "keysEncrypted": "Les clés sont chiffrées avec le trousseau de votre OS et stockées localement.",
+    "modelId": "Fallback model ID (optional)",
+    "modelIdPlaceholder": "Used only if /models is unavailable",
     "noMatch": "Aucun fournisseur ne correspond à « {{query}} ».",
     "openGitHub": "Ouvrir GitHub",
     "or": "ou",
@@ -380,6 +384,16 @@
     "codeHosts": {
       "heading": "Hébergeurs de code"
     },
+    "customPrompts": {
+      "add": "Add prompt",
+      "content": "Prompt",
+      "contentPlaceholder": "Instructions for the agent…",
+      "create": "Create prompt",
+      "createTitle": "Create system prompt",
+      "creating": "Creating…",
+      "name": "Name",
+      "namePlaceholder": "e.g. Concise coding assistant"
+    },
     "danger": {
       "confirm": "Oui, tout effacer",
       "heading": "Zone de danger",
@@ -423,6 +437,13 @@
       "reduced": "Réduit",
       "saveFailed": "Impossible d'enregistrer la préférence de mouvement. Veuillez réessayer.",
       "system": "Suivre le système"
+    },
+    "overlay": {
+      "heading": "Overlay",
+      "keybindDescription": "The key combination to show or hide Roxy from anywhere.",
+      "keybindTitle": "Global shortcut",
+      "modeDescription": "Keep Roxy running in the background when the window is closed, and toggle it with a global shortcut.",
+      "modeTitle": "Run in background"
     },
     "privacy": {
       "description": "Comptes et chronométrages — lancements d'applications, tours terminés, nombre d'étapes et d'outils qu'un tour a pris, nombre de jetons utilisés et coût approximatif — liés à un identifiant aléatoire généré sur cette machine. Jamais vos invites, votre code, les chemins de fichiers, les noms de dépôts ou tout texte d'erreur.",

@@ -30,6 +30,7 @@
     "queued": "キューに入っています",
     "runsAfterReply": "この返信の後に実行",
     "settings": "設定",
+    "showRoxy": "Show Roxy",
     "working": "作業中"
   },
   "codeHosts": {
@@ -72,6 +73,7 @@
     "placeholder": "Roxy に何でも質問…（画像を貼り付けるかドロップ）",
     "queuePlaceholder": "次のメッセージをキューに追加…",
     "queuePlaceholderStop": "次のメッセージをキューに追加…（Esc で停止）",
+    "readScreen": "Read screen",
     "removeImage": "画像を削除",
     "stop": "停止 (Esc)"
   },
@@ -236,8 +238,8 @@
     "title": "MCP サーバー"
   },
   "models": {
-    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "allHidden": "すべてのモデルが非表示になっています。<settings>設定 → モデル</settings>で一部を元に戻してください。",
+    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "loadFailed": "models.dev からモデルを読み込めませんでした — 現在のモデルで送信することはできます。",
     "loading": "モデルを読み込み中…",
     "noMatch": "「{{query}}」に一致するモデルはありません。",
@@ -274,6 +276,8 @@
     "getRoxyKey": "roxy.ggダッシュボードからAPIキーを取得",
     "guidedSoon": "ガイド付き<strong>{{auth}}</strong>サインインは近日公開予定です。APIキーとローカルプロバイダー（およびGitHub Copilot）は現在動作しています。",
     "keysEncrypted": "キーはOSのキーチェーンで暗号化され、ローカルに保存されます。",
+    "modelId": "Fallback model ID (optional)",
+    "modelIdPlaceholder": "Used only if /models is unavailable",
     "noMatch": "「{{query}}」に一致するプロバイダーはありません。",
     "openGitHub": "GitHubを開く",
     "or": "または",
@@ -380,6 +384,16 @@
     "codeHosts": {
       "heading": "コードホスト"
     },
+    "customPrompts": {
+      "add": "Add prompt",
+      "content": "Prompt",
+      "contentPlaceholder": "Instructions for the agent…",
+      "create": "Create prompt",
+      "createTitle": "Create system prompt",
+      "creating": "Creating…",
+      "name": "Name",
+      "namePlaceholder": "e.g. Concise coding assistant"
+    },
     "danger": {
       "confirm": "はい、すべて消去します",
       "heading": "危険ゾーン",
@@ -423,6 +437,13 @@
       "reduced": "軽減",
       "saveFailed": "モーション設定を保存できませんでした。もう一度お試しください。",
       "system": "システムに従う"
+    },
+    "overlay": {
+      "heading": "Overlay",
+      "keybindDescription": "The key combination to show or hide Roxy from anywhere.",
+      "keybindTitle": "Global shortcut",
+      "modeDescription": "Keep Roxy running in the background when the window is closed, and toggle it with a global shortcut.",
+      "modeTitle": "Run in background"
     },
     "privacy": {
       "description": "アプリの起動、完了したターン、ターンにかかったステップとツールの数、使用されたトークンの数、おおよそのコストなど、このマシンで生成されたランダムなIDに関連付けられたカウントとタイミング。プロンプト、コード、ファイルパス、リポジトリ名、エラーテキストは決して含まれません。",

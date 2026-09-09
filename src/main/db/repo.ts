@@ -63,6 +63,7 @@ interface ChatRow {
   agent_id: string | null
   reasoning_effort: string | null
   context_limit: number | null
+  prompt_id: string | null
   workspace_path: string | null
   worktree_path: string | null
   worktree_pending: string | null
@@ -127,7 +128,14 @@ export function getSettings(): AppSettings {
     // than leave the UI rendering raw keys.
     language: normalizeLanguage(map.get('language')),
     motion: normalizeMotion(map.get('motion')),
-    activeThemeId: map.get('active_theme_id') ?? null
+    activeThemeId: map.get('active_theme_id') ?? null,
+    overlayMode: map.get('overlay_mode') === '1',
+    overlayKeybind: map.get('overlay_keybind') ?? 'CommandOrControl+Shift+Space',
+    overlayIconPosition:
+      map.has('overlay_icon_x') && map.has('overlay_icon_y')
+        ? { x: Number(map.get('overlay_icon_x')), y: Number(map.get('overlay_icon_y')) }
+        : null,
+    activePromptId: map.get('active_prompt_id') ?? null
   }
 }
 
@@ -231,6 +239,27 @@ export function setActiveThemeId(id: string | null): AppSettings {
 export function setMotion(value: MotionPreference): AppSettings {
   const motion = normalizeMotion(value)
   setSetting('motion', motion === DEFAULT_MOTION ? null : motion)
+  return getSettings()
+}
+
+export function setActivePromptId(id: string | null): AppSettings {
+  setSetting('active_prompt_id', id)
+  return getSettings()
+}
+
+export function setOverlayMode(enabled: boolean): AppSettings {
+  setSetting('overlay_mode', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setOverlayKeybind(keybind: string): AppSettings {
+  setSetting('overlay_keybind', keybind)
+  return getSettings()
+}
+
+export function setOverlayIconPosition(x: number, y: number): AppSettings {
+  setSetting('overlay_icon_x', String(x))
+  setSetting('overlay_icon_y', String(y))
   return getSettings()
 }
 
@@ -613,6 +642,7 @@ function rowToChat(row: ChatRow): Chat {
     agentId: row.agent_id,
     reasoningEffort: parseReasoningEffort(row.reasoning_effort),
     contextLimit: row.context_limit,
+    promptId: row.prompt_id,
     workspacePath: row.workspace_path,
     worktreePath: row.worktree_path,
     repos: repoLinksOrNull(row.repos),
@@ -801,8 +831,8 @@ export function createChat(input: CreateChatInput = {}): Chat {
   const model = input.model ?? (input.providerId ? null : seed.model)
   getDb()
     .prepare(
-      `INSERT INTO chats(id, title, kind, provider_id, model, agent_id, reasoning_effort, context_limit, workspace_path, worktree_pending, parent_id, sort_order, created_at, updated_at)
-       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO chats(id, title, kind, provider_id, model, agent_id, reasoning_effort, context_limit, prompt_id, workspace_path, worktree_pending, parent_id, sort_order, created_at, updated_at)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -813,6 +843,7 @@ export function createChat(input: CreateChatInput = {}): Chat {
       seed.agentId,
       seed.reasoningEffort,
       seed.contextLimit,
+      seed.promptId,
       input.workspacePath ?? null,
       pending ? JSON.stringify(pending) : null,
       input.parentId ?? null,
@@ -886,8 +917,8 @@ export function forkChat(sourceId: string, input: { title?: string } = {}): Chat
   )
   db.transaction(() => {
     db.prepare(
-      `INSERT INTO chats(id, title, kind, provider_id, model, agent_id, reasoning_effort, context_limit, workspace_path, parent_id, context_summary, context_summary_at, description, sort_order, created_at, updated_at)
-       VALUES(?, ?, 'main', ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO chats(id, title, kind, provider_id, model, agent_id, reasoning_effort, context_limit, prompt_id, workspace_path, parent_id, context_summary, context_summary_at, description, sort_order, created_at, updated_at)
+       VALUES(?, ?, 'main', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       title,
@@ -896,6 +927,7 @@ export function forkChat(sourceId: string, input: { title?: string } = {}): Chat
       source.agentId,
       source.reasoningEffort,
       source.contextLimit,
+      source.promptId,
       workspacePath,
       source.contextSummary,
       source.contextSummaryAt,
@@ -932,6 +964,49 @@ export function removeChat(id: string): void {
   // Drop the project row once its last session/loop is gone so it no longer
   // holds a slot in the order (a folder re-opened later appends at the bottom).
   if (workspace) pruneProjectIfEmpty(workspace)
+}
+
+// ---- Custom Prompts ----------------------------------------------------------
+
+export interface CustomPrompt {
+  id: string
+  name: string
+  content: string
+  createdAt: number
+}
+
+export function listCustomPrompts(): CustomPrompt[] {
+  const rows = getDb().prepare('SELECT * FROM custom_prompts ORDER BY created_at DESC').all() as {
+    id: string
+    name: string
+    content: string
+    created_at: number
+  }[]
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    content: r.content,
+    createdAt: r.created_at
+  }))
+}
+
+export function createCustomPrompt(name: string, content: string): CustomPrompt {
+  const id = randomUUID()
+  const now = Date.now()
+  getDb()
+    .prepare('INSERT INTO custom_prompts(id, name, content, created_at) VALUES(?, ?, ?, ?)')
+    .run(id, name, content, now)
+  return { id, name, content, createdAt: now }
+}
+
+export function updateCustomPrompt(id: string, name: string, content: string): void {
+  getDb()
+    .prepare('UPDATE custom_prompts SET name = ?, content = ? WHERE id = ?')
+    .run(name, content, id)
+}
+
+export function removeCustomPrompt(id: string): void {
+  getDb().prepare('DELETE FROM custom_prompts WHERE id = ?').run(id)
 }
 
 /**
@@ -1022,6 +1097,10 @@ export function setChatConfig(chatId: string, patch: SessionConfigPatch): Chat {
   if ('contextLimit' in patch) {
     sets.push('context_limit = ?')
     vals.push(patch.contextLimit ?? null)
+  }
+  if ('promptId' in patch) {
+    sets.push('prompt_id = ?')
+    vals.push(patch.promptId ?? null)
   }
   if (('providerId' in patch || 'model' in patch) && patch.providerId && patch.model) {
     recordRecentModel(patch.providerId, patch.model)

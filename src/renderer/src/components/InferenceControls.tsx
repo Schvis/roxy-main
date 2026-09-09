@@ -293,6 +293,78 @@ function contextOptions(max: number): number[] {
   return Array.from(new Set(opts))
 }
 
+export function PromptPicker(): JSX.Element {
+  const config = useSessionConfig()
+  const customPrompts = useRoxyStore((s) => s.customPrompts)
+  const setActivePromptId = useRoxyStore((s) => s.setActivePromptId)
+  const { open, setOpen, ref, anchor } = usePopover(POPOVER_W)
+
+  const current = config.promptId
+  const activePrompt = customPrompts.find((p) => p.id === current)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={triggerClass}
+        title="System Prompt"
+      >
+        <span className="truncate max-w-[100px]">
+          {activePrompt ? activePrompt.name : 'Default Prompt'}
+        </span>
+      </button>
+      {open && (
+        <div className={popoverClass} style={anchor}>
+          <div className="shrink-0 border-b border-border px-3 py-2 text-[11px] font-medium text-text-subtle">
+            System Prompt
+          </div>
+          <div className="max-h-64 overflow-y-auto py-1">
+            <button
+              type="button"
+              onClick={() => {
+                void setActivePromptId(null)
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left transition',
+                !current ? 'bg-accent/15' : 'hover:bg-white/5'
+              )}
+            >
+              <Check
+                className={cn('h-3.5 w-3.5 shrink-0', !current ? 'text-accent' : 'opacity-0')}
+              />
+              <span className="text-xs font-medium text-text">Default Prompt</span>
+            </button>
+            {customPrompts.map((p) => {
+              const selected = p.id === current
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    void setActivePromptId(p.id)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-3 py-1.5 text-left transition',
+                    selected ? 'bg-accent/15' : 'hover:bg-white/5'
+                  )}
+                >
+                  <Check
+                    className={cn('h-3.5 w-3.5 shrink-0', selected ? 'text-accent' : 'opacity-0')}
+                  />
+                  <span className="truncate text-xs font-medium text-text">{p.name}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ContextPicker(): JSX.Element | null {
   const { t } = useTranslation()
   const info = useActiveModelInfo()

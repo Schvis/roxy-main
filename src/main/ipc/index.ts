@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell } from 'electron'
 import { CHANNELS } from '../../shared/ipc'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, type MotionPreference } from '../../shared/motion'
@@ -31,6 +31,15 @@ import type {
   ReasoningEffort
 } from '../../shared/types'
 import * as repo from '../db/repo'
+import {
+  updateOverlayShortcut,
+  toggleOverlayState,
+  isOverlayWindow,
+  isFloatingIconWindow,
+  hideForScreenshot,
+  restoreAfterScreenshot
+} from '../services/overlay'
+import { emitMessagesUpdated, getActiveChat, setActiveChat } from '../services/chat-events'
 import * as copilot from '../services/copilot'
 import * as cliproxy from '../services/cliproxy'
 import * as browser from '../services/browser'
@@ -206,6 +215,19 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetAutoWorkstream, (_e, enabled: boolean) =>
     repo.setAutoWorkstream(enabled)
   )
+  ipcMain.handle(CHANNELS.settingsSetOverlayMode, (_e, enabled: boolean) => {
+    const settings = repo.setOverlayMode(enabled)
+    updateOverlayShortcut(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetOverlayKeybind, (_e, keybind: string) => {
+    const settings = repo.setOverlayKeybind(keybind)
+    updateOverlayShortcut(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetActivePromptId, (_e, id: string | null) =>
+    repo.setActivePromptId(id)
+  )
   ipcMain.handle(CHANNELS.settingsSetLanguage, (_e, language: Language) =>
     repo.setLanguage(language)
   )
@@ -354,6 +376,8 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.chatsReorder, (_e, workspacePath: string | null, ids: string[]) =>
     repo.reorderSessions(workspacePath, ids)
   )
+  ipcMain.handle(CHANNELS.chatsSetActive, (_e, id: string) => setActiveChat(id))
+  ipcMain.handle(CHANNELS.chatsGetActive, () => getActiveChat())
 
   // ---- projects (workspace display order) ----
   ipcMain.handle(CHANNELS.projectsListOrder, () => repo.listProjectOrder())
@@ -361,7 +385,11 @@ export function registerIpc(): void {
 
   // ---- messages ----
   ipcMain.handle(CHANNELS.messagesList, (_e, chatId: string) => repo.listMessages(chatId))
-  ipcMain.handle(CHANNELS.messagesAdd, (_e, input: AddMessageInput) => repo.addMessage(input))
+  ipcMain.handle(CHANNELS.messagesAdd, (_e, input: AddMessageInput) => {
+    const message = repo.addMessage(input)
+    emitMessagesUpdated(input.chatId)
+    return message
+  })
 
   // ---- integrations ----
   ipcMain.handle(CHANNELS.integrationsList, () => repo.listIntegrations())
@@ -436,6 +464,16 @@ export function registerIpc(): void {
       skills: await discoverSkillViews(cwd)
     }
   })
+
+  // ---- custom prompts ----
+  ipcMain.handle(CHANNELS.promptsList, () => repo.listCustomPrompts())
+  ipcMain.handle(CHANNELS.promptsCreate, (_e, name: string, content: string) =>
+    repo.createCustomPrompt(name, content)
+  )
+  ipcMain.handle(CHANNELS.promptsUpdate, (_e, id: string, name: string, content: string) => {
+    repo.updateCustomPrompt(id, name, content)
+  })
+  ipcMain.handle(CHANNELS.promptsRemove, (_e, id: string) => repo.removeCustomPrompt(id))
 
   // ---- themes ----
   //
@@ -1337,4 +1375,56 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.remoteStart, (_e, input: RemoteStartInput) => remote.start(input))
   ipcMain.handle(CHANNELS.remoteStop, () => remote.stop())
   ipcMain.handle(CHANNELS.remoteStatus, () => remote.status())
+
+  ipcMain.handle(CHANNELS.toggleOverlay, (_e, forceOpen?: boolean) => toggleOverlayState(forceOpen))
+  ipcMain.handle(CHANNELS.showMainWindow, () => {
+    const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
+    if (windows.length > 0) {
+      windows[0].show()
+      windows[0].focus()
+    }
+    toggleOverlayState(false)
+  })
+  ipcMain.handle(CHANNELS.windowMove, (e, dx: number, dy: number) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (win) {
+      const bounds = win.getBounds()
+      win.setPosition(bounds.x + dx, bounds.y + dy)
+      if (isFloatingIconWindow(win)) {
+        repo.setOverlayIconPosition(bounds.x + dx, bounds.y + dy)
+      }
+    }
+  })
+  ipcMain.handle(CHANNELS.windowResize, (e, width: number, height: number) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (win) {
+      const bounds = win.getBounds()
+      const newWidth = Math.max(300, bounds.width + width)
+      const newHeight = Math.max(400, bounds.height + height)
+      win.setSize(newWidth, newHeight)
+    }
+  })
+
+  ipcMain.handle(CHANNELS.captureScreen, async () => {
+    hideForScreenshot()
+    // Wait a bit for the OS to actually hide the windows before capturing
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 1920, height: 1080 }
+      })
+      if (sources.length > 0) {
+        const source = sources[0]
+        return {
+          dataUrl: source.thumbnail.toDataURL(),
+          name: 'Screenshot.png'
+        }
+      }
+      return null
+    } finally {
+      restoreAfterScreenshot()
+    }
+  })
 }

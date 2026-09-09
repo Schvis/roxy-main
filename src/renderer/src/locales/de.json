@@ -30,6 +30,7 @@
     "queued": "In Warteschlange",
     "runsAfterReply": "läuft nach dieser Antwort",
     "settings": "Einstellungen",
+    "showRoxy": "Show Roxy",
     "working": "arbeitet"
   },
   "codeHosts": {
@@ -72,6 +73,7 @@
     "placeholder": "Frag Roxy alles… (Bilder einfügen oder ablegen)",
     "queuePlaceholder": "Eine Folgeanfrage einreihen…",
     "queuePlaceholderStop": "Eine Folgeanfrage einreihen… (Esc zum Stoppen)",
+    "readScreen": "Read screen",
     "removeImage": "Bild entfernen",
     "stop": "Stopp (Esc)"
   },
@@ -236,8 +238,8 @@
     "title": "MCP-Server"
   },
   "models": {
-    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "allHidden": "Alle Modelle sind ausgeblendet. Blenden Sie einige wieder ein unter <settings>Einstellungen → Modelle</settings>.",
+    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
     "loadFailed": "Modelle konnten nicht von models.dev geladen werden – Sie können weiterhin mit dem aktuellen Modell senden.",
     "loading": "Modelle werden geladen…",
     "noMatch": "Keine Modelle stimmen mit „{{query}}“ überein.",
@@ -274,6 +276,8 @@
     "getRoxyKey": "Holen Sie sich einen API-Schlüssel von Ihrem roxy.gg-Dashboard",
     "guidedSoon": "Geführte <strong>{{auth}}</strong>-Anmeldung kommt bald. API-Schlüssel und lokale Anbieter (und GitHub Copilot) funktionieren heute.",
     "keysEncrypted": "Schlüssel werden mit Ihrem OS-Schlüsselbund verschlüsselt und lokal gespeichert.",
+    "modelId": "Fallback model ID (optional)",
+    "modelIdPlaceholder": "Used only if /models is unavailable",
     "noMatch": "Keine Anbieter passen zu „{{query}}“.",
     "openGitHub": "GitHub öffnen",
     "or": "oder",
@@ -380,6 +384,16 @@
     "codeHosts": {
       "heading": "Code-Hosts"
     },
+    "customPrompts": {
+      "add": "Add prompt",
+      "content": "Prompt",
+      "contentPlaceholder": "Instructions for the agent…",
+      "create": "Create prompt",
+      "createTitle": "Create system prompt",
+      "creating": "Creating…",
+      "name": "Name",
+      "namePlaceholder": "e.g. Concise coding assistant"
+    },
     "danger": {
       "confirm": "Ja, alles löschen",
       "heading": "Gefahrenzone",
@@ -423,6 +437,13 @@
       "reduced": "Reduziert",
       "saveFailed": "Die Bewegungseinstellung konnte nicht gespeichert werden. Versuchen Sie es erneut.",
       "system": "System folgen"
+    },
+    "overlay": {
+      "heading": "Overlay",
+      "keybindDescription": "The key combination to show or hide Roxy from anywhere.",
+      "keybindTitle": "Global shortcut",
+      "modeDescription": "Keep Roxy running in the background when the window is closed, and toggle it with a global shortcut.",
+      "modeTitle": "Run in background"
     },
     "privacy": {
       "description": "Zählungen und Zeitangaben – App-Starts, abgeschlossene Züge, wie viele Schritte und Tools ein Zug benötigte, wie viele Token er verbrauchte und was er ungefähr kostete – verknüpft mit einer zufälligen ID, die auf diesem Gerät generiert wurde. Niemals Ihre Prompts, Ihr Code, Dateipfade, Repo-Namen oder Fehlermeldungen.",

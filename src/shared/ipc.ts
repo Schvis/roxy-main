@@ -6,6 +6,9 @@ export const CHANNELS = {
   settingsSetReasoningEffort: 'settings:setReasoningEffort',
   settingsSetContextLimit: 'settings:setContextLimit',
   settingsSetAutoWorkstream: 'settings:setAutoWorkstream',
+  settingsSetOverlayMode: 'settings:setOverlayMode',
+  settingsSetOverlayKeybind: 'settings:setOverlayKeybind',
+  settingsSetActivePromptId: 'settings:setActivePromptId',
   settingsSetBranchPrefix: 'settings:setBranchPrefix',
   settingsSetLanguage: 'settings:setLanguage',
   settingsSetMotion: 'settings:setMotion',
@@ -40,13 +43,27 @@ export const CHANNELS = {
    * "(pending) / branch pending" until something unrelated happens to refetch.
    */
   chatsUpdated: 'chats:updated',
+  /** Renderer -> main: select the session mirrored by every app window. */
+  chatsSetActive: 'chats:setActive',
+  /** Renderer -> main: read the session currently mirrored by app windows. */
+  chatsGetActive: 'chats:getActive',
+  /** main -> renderer: the mirrored session changed. */
+  chatsActiveChanged: 'chats:activeChanged',
 
-  /** Project (workspace) display order â€” read + drag-to-reorder. */
+  /** Project (workspace) display order — read + drag-to-reorder. */
   projectsListOrder: 'projects:listOrder',
   projectsReorder: 'projects:reorder',
 
   messagesList: 'messages:list',
   messagesAdd: 'messages:add',
+  /** main -> renderer: a persisted transcript changed. */
+  messagesUpdated: 'messages:updated',
+
+  captureScreen: 'captureScreen',
+  toggleOverlay: 'toggleOverlay',
+  showMainWindow: 'showMainWindow',
+  windowMove: 'window:move',
+  windowResize: 'window:resize',
 
   integrationsList: 'integrations:list',
   integrationsSetEnabled: 'integrations:setEnabled',
@@ -64,6 +81,11 @@ export const CHANNELS = {
   skillsUpdate: 'skills:update',
   skillsRemove: 'skills:remove',
   skillsInstall: 'skills:install',
+
+  promptsList: 'prompts:list',
+  promptsCreate: 'prompts:create',
+  promptsUpdate: 'prompts:update',
+  promptsRemove: 'prompts:remove',
 
   /**
    * Themes -- user-authored `theme.json` files that re-point the app's CSS

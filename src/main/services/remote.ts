@@ -38,6 +38,7 @@ import {
   resolveSessionConfig
 } from '../../shared/session-config'
 import * as repo from '../db/repo'
+import { emitMessagesUpdated } from './chat-events'
 import { listModels } from './models'
 import { resolveProviderModel } from '../../shared/models'
 import { runSessionTurn } from './session-turn'
@@ -444,6 +445,7 @@ async function runTurn(
   try {
     // Persist the user's message as if typed locally, then nudge the desktop.
     repo.addMessage({ chatId: sessionId, role: 'user', content: text })
+    emitMessagesUpdated(sessionId)
     bumpFor(active)
     // Announce the prompt text for a drained queue item so the phone shows its
     // bubble (a direct send already echoed it locally). `sendQueue` above already
@@ -535,6 +537,7 @@ async function runTurn(
         content: partsToContent(parts),
         parts
       })
+      emitMessagesUpdated(sessionId)
     }
     bumpFor(active)
   } finally {

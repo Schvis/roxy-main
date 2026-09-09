@@ -1,9 +1,16 @@
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Plus, Square, X } from 'lucide-react'
+import { ArrowUp, Monitor, Plus, Square, X } from 'lucide-react'
 import { ModelPicker } from './ModelPicker'
-import { ContextMeter, ContextPicker, ThinkingPicker, AgentPicker } from './InferenceControls'
+import {
+  ContextMeter,
+  ContextPicker,
+  ThinkingPicker,
+  AgentPicker,
+  PromptPicker
+} from './InferenceControls'
 import { imageFilesFrom, readImageFile, type ComposerImage } from '../lib/images'
+import { api } from '../lib/api'
 import { ImagePreview } from './ImagePreview'
 
 export function Composer({
@@ -184,8 +191,25 @@ export function Composer({
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const screen = await api.captureScreen()
+                if (screen) {
+                  const res = await fetch(screen.dataUrl)
+                  const blob = await res.blob()
+                  const file = new File([blob], screen.name, { type: blob.type })
+                  void addFiles([file])
+                }
+              }}
+              title={t('composer.readScreen')}
+              className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text"
+            >
+              <Monitor className="h-3.5 w-3.5" />
+            </button>
             <ModelPicker />
             <AgentPicker />
+            <PromptPicker />
             <ThinkingPicker />
             <ContextPicker />
             <ContextMeter />

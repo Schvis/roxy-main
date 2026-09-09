@@ -16,6 +16,7 @@ import type {
 import type {
   ChatMessage,
   CreateLoopInput,
+  CustomPrompt,
   LlmEvent,
   LlmResult,
   ModelInfo,
@@ -182,8 +183,10 @@ interface RoxyStore {
   gitBranches: Record<string, string[]>
   /** Token-usage + cost dashboard (last 30 days); null until first fetched. */
   usageStats: UsageStats | null
+  customPrompts: CustomPrompt[]
 
   bootstrap: () => Promise<void>
+  refreshCustomPrompts: () => Promise<void>
   refreshChats: () => Promise<void>
   refreshLoops: () => Promise<void>
   refreshQueue: () => Promise<void>
@@ -207,6 +210,7 @@ interface RoxyStore {
   setSessionConfig: (patch: SessionConfigPatch) => Promise<void>
   selectModel: (providerId: string, model: string) => Promise<void>
   ensureModels: (providerId: string) => Promise<void>
+  clearModelCache: (providerId: string) => void
   ensureRecentModels: (providerId: string) => Promise<void>
   /** Load the pinned-model shortlist once (cached until toggled). */
   ensurePinnedModels: () => Promise<void>
@@ -221,6 +225,9 @@ interface RoxyStore {
   setReasoningEffort: (level: ReasoningEffort) => Promise<void>
   setContextLimit: (limit: number | null) => Promise<void>
   setAutoWorkstream: (enabled: boolean) => Promise<void>
+  setOverlayMode: (enabled: boolean) => Promise<void>
+  setOverlayKeybind: (keybind: string) => Promise<void>
+  setActivePromptId: (id: string | null) => Promise<void>
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
   setBranchPrefix: (prefix: string) => Promise<void>
   setLanguage: (language: Language) => Promise<void>
@@ -375,6 +382,8 @@ let remoteStateSubscribed = false
 let remoteDeltaSubscribed = false
 let subagentDeltaSubscribed = false
 let chatsUpdatedSubscribed = false
+let messagesUpdatedSubscribed = false
+let activeChatSubscribed = false
 /** Routes streamed completion events to the in-flight send for a request id. */
 const deltaHandlers = new Map<string, (event: LlmEvent) => void>()
 /** The active llm request id per chat, so stop() can abort the right stream. */
@@ -918,16 +927,19 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   worktrees: {},
   gitBranches: {},
   usageStats: null,
+  customPrompts: [],
 
   bootstrap: async () => {
-    const [settings, providers, chats, loops, projectOrder, telemetryEnabled] = await Promise.all([
-      api.settings.getAll(),
-      api.providers.listConnected(),
-      api.chats.list(),
-      api.loops.list(),
-      api.projects.listOrder(),
-      api.settings.getTelemetry()
-    ])
+    const [settings, providers, chats, loops, projectOrder, telemetryEnabled, customPrompts] =
+      await Promise.all([
+        api.settings.getAll(),
+        api.providers.listConnected(),
+        api.chats.list(),
+        api.loops.list(),
+        api.projects.listOrder(),
+        api.settings.getTelemetry(),
+        api.prompts.list()
+      ])
     // A factory reset truncates these tables and re-bootstraps, so the load
     // guards have to fall with them or the picker keeps filtering on a
     // deny-list the database no longer has.
@@ -950,6 +962,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       recentModels: {},
       pinnedModels: [],
       hiddenModels: new Set(),
+      customPrompts,
       ready: true
     })
     // Warm the usage/cost dashboard for the titlebar pill (best-effort, async).
@@ -1001,6 +1014,33 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (!chatsUpdatedSubscribed) {
       chatsUpdatedSubscribed = true
       api.chats.onUpdated((payload) => void applySessionsUpdated(payload))
+    }
+
+    if (!messagesUpdatedSubscribed) {
+      messagesUpdatedSubscribed = true
+      api.messages.onUpdated(({ chatId }) => {
+        if (get().activeChatId !== chatId) return
+        void api.messages
+          .list(chatId)
+          .then((messages) => {
+            if (get().activeChatId === chatId) set({ messages, messagesChatId: chatId })
+          })
+          .catch(() => {
+            // Existing transcript remains visible; selection retry handles a later reload.
+          })
+      })
+    }
+
+    if (!activeChatSubscribed) {
+      activeChatSubscribed = true
+      api.chats.onActiveChanged((chatId) => {
+        void (async () => {
+          await get().refreshChats()
+          if (get().activeChatId !== chatId && get().chats.some((chat) => chat.id === chatId)) {
+            await get().selectChat(chatId)
+          }
+        })()
+      })
     }
 
     // Background subagent tasks (Phase 11) report state out-of-band — they can
@@ -1077,9 +1117,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       api.remote.onDelta((payload) => applyRemoteDelta(payload))
     }
 
+    const activeChatId = await api.chats.getActive()
     const firstSession = chats.find((c) => c.kind === 'main')
-    if (!get().activeChatId && firstSession) {
-      await get().selectChat(firstSession.id)
+    if (!get().activeChatId && (activeChatId || firstSession)) {
+      await get().selectChat(activeChatId ?? firstSession!.id)
     }
   },
 
@@ -1509,6 +1550,34 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
+  setOverlayMode: async (enabled) => {
+    const settings = await api.settings.setOverlayMode(enabled)
+    set({ settings })
+  },
+
+  setOverlayKeybind: async (keybind) => {
+    const settings = await api.settings.setOverlayKeybind(keybind)
+    set({ settings })
+  },
+
+  setActivePromptId: async (id) => {
+    const settings = await api.settings.setActivePromptId(id)
+    set({ settings })
+  },
+
+  refreshCustomPrompts: async () => {
+    const customPrompts = await api.prompts.list()
+    set({ customPrompts })
+  },
+
+  clearModelCache: (providerId) => {
+    set((s) => {
+      const next = { ...s.modelCatalog }
+      delete next[providerId]
+      return { modelCatalog: next }
+    })
+  },
+
   setTelemetryEnabled: async (enabled) => {
     // Optimistic: the toggle should move the instant it's pressed, and the main
     // process returns the state it actually settled on, which then wins.
@@ -1545,6 +1614,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
 
   selectChat: async (id) => {
+    void api.chats.setActive(id)
     // Per-chat send state survives switching — just swap which chat is shown.
     // Clear messages/queue first so the previous chat's content never flashes.
     //
@@ -2073,7 +2143,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           // across model switches, so "Max" set on one model would otherwise
           // ride along to a model that only knows `high` and 400 the turn.
           reasoningEffort: clampReasoningEffort(config.reasoningEffort, info?.reasoningEfforts),
-          contextLimit: contextBudget
+          contextLimit: contextBudget,
+          promptId: config.promptId
         })
       } catch (e) {
         result = { ok: false, error: e instanceof Error ? e.message : String(e) }

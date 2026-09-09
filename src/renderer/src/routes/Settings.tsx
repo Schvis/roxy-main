@@ -8,7 +8,7 @@ import { AUTH_LABELS } from '@shared/providers'
 import { LANGUAGES, SOURCE_LANGUAGE, normalizeLanguage } from '@shared/i18n'
 import { api } from '../lib/api'
 import { CodeHosts } from '../components/CodeHosts'
-import { Button, Switch } from '../components/ui'
+import { Button, Input, Switch, Textarea } from '../components/ui'
 import { cn } from '../lib/cn'
 import {
   DEFAULT_BRANCH_PREFIX,
@@ -39,12 +39,16 @@ export default function Settings(): JSX.Element {
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
   const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
-  const telemetryEnabled = useRoxyStore((s) => s.telemetryEnabled)
+  const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
+  const setOverlayKeybind = useRoxyStore((s) => s.setOverlayKeybind)
   const setTelemetryEnabled = useRoxyStore((s) => s.setTelemetryEnabled)
+  const telemetryEnabled = useRoxyStore((s) => s.telemetryEnabled)
   const setBranchPrefix = useRoxyStore((s) => s.setBranchPrefix)
   const setLanguage = useRoxyStore((s) => s.setLanguage)
   const setMotion = useRoxyStore((s) => s.setMotion)
+  const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [prefix, setPrefix] = useState('')
+  const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
   const prefixError = branchPrefixError(prefix)
   // Pinned once per mount: a preview that reshuffled on every keystroke
   // would read as noise rather than as an example.
@@ -58,6 +62,26 @@ export default function Settings(): JSX.Element {
   const [dragProviderId, setDragProviderId] = useState<string | null>(null)
   const [dragOverProviderId, setDragOverProviderId] = useState<string | null>(null)
   const [dropAfterProvider, setDropAfterProvider] = useState(false)
+  const customPrompts = useRoxyStore((s) => s.customPrompts)
+  const refreshCustomPrompts = useRoxyStore((s) => s.refreshCustomPrompts)
+  const [promptDialogOpen, setPromptDialogOpen] = useState(false)
+  const [promptName, setPromptName] = useState('')
+  const [promptContent, setPromptContent] = useState('')
+  const [creatingPrompt, setCreatingPrompt] = useState(false)
+
+  const createPrompt = async (): Promise<void> => {
+    if (!promptName.trim() || !promptContent.trim() || creatingPrompt) return
+    setCreatingPrompt(true)
+    try {
+      await api.prompts.create(promptName.trim(), promptContent.trim())
+      await refreshCustomPrompts()
+      setPromptName('')
+      setPromptContent('')
+      setPromptDialogOpen(false)
+    } finally {
+      setCreatingPrompt(false)
+    }
+  }
 
   const reorderWithinProviders = (
     sourceId: string,
@@ -89,6 +113,10 @@ export default function Settings(): JSX.Element {
   }, [settings?.branchPrefix])
 
   useEffect(() => {
+    setKeybind(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
+  }, [settings?.overlayKeybind])
+
+  useEffect(() => {
     refreshProviders()
     api.system.getVersions().then(setVersions)
     api.updates.getState().then(setUpdate)
@@ -100,6 +128,7 @@ export default function Settings(): JSX.Element {
 
   const disconnect = async (id: string): Promise<void> => {
     await api.providers.disconnect(id)
+    clearModelCache(id)
     await refreshProviders()
   }
 
@@ -131,6 +160,47 @@ export default function Settings(): JSX.Element {
                 : t('settings.about.update.idle')
 
   const language = normalizeLanguage(settings?.language)
+
+  const handleKeybindDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const parts: string[] = []
+    if (e.ctrlKey || e.metaKey) parts.push('CommandOrControl')
+    if (e.altKey) parts.push('Alt')
+    if (e.shiftKey) parts.push('Shift')
+
+    const key = e.key
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) {
+      setKeybind(parts.join('+'))
+      return
+    }
+
+    let keyName = key
+    if (key === ' ') keyName = 'Space'
+    else if (key === '+') keyName = 'Plus'
+    else if (key.length === 1) keyName = key.toUpperCase()
+    else if (key === 'ArrowUp') keyName = 'Up'
+    else if (key === 'ArrowDown') keyName = 'Down'
+    else if (key === 'ArrowLeft') keyName = 'Left'
+    else if (key === 'ArrowRight') keyName = 'Right'
+    else if (key === 'Escape') keyName = 'Esc'
+
+    parts.push(keyName)
+    const finalKeybind = parts.join('+')
+    setKeybind(finalKeybind)
+    void setOverlayKeybind(finalKeybind)
+    e.currentTarget.blur()
+  }
+
+  const handleKeybindUp = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    const key = e.key
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) {
+      setKeybind(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
+    }
+  }
 
   return (
     <PageShell title={t('settings.title')} onBack={() => navigate('/')}>
@@ -399,6 +469,146 @@ export default function Settings(): JSX.Element {
               })}
             </p>
           )}
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>Custom Prompts</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">System Prompts</div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              Create custom system prompts to override the default behavior of the agent.
+            </p>
+          </div>
+          <div className="mt-2 flex flex-col gap-2">
+            {customPrompts.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 p-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-text">{p.name}</div>
+                  <div className="truncate text-xs text-text-muted">{p.content}</div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm('Delete this prompt?')) {
+                      void api.prompts.remove(p.id)
+                      void refreshCustomPrompts()
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="secondary"
+              className="self-start"
+              onClick={() => setPromptDialogOpen(true)}
+            >
+              <Plus className="h-4 w-4" /> {t('settings.customPrompts.add')}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {promptDialogOpen && (
+        <div
+          className="animate-scrim-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+          onClick={() => !creatingPrompt && setPromptDialogOpen(false)}
+        >
+          <form
+            className="animate-modal-in w-full max-w-lg sq sq-2xl sq-ring rounded-2xl border border-border bg-surface p-5"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault()
+              void createPrompt()
+            }}
+          >
+            <h2 className="text-lg font-semibold">{t('settings.customPrompts.createTitle')}</h2>
+            <div className="mt-4 flex flex-col gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-muted">
+                  {t('settings.customPrompts.name')}
+                </span>
+                <Input
+                  value={promptName}
+                  onChange={(event) => setPromptName(event.target.value)}
+                  placeholder={t('settings.customPrompts.namePlaceholder')}
+                  autoFocus
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-muted">
+                  {t('settings.customPrompts.content')}
+                </span>
+                <Textarea
+                  value={promptContent}
+                  onChange={(event) => setPromptContent(event.target.value)}
+                  placeholder={t('settings.customPrompts.contentPlaceholder')}
+                  rows={8}
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setPromptDialogOpen(false)}
+                disabled={creatingPrompt}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!promptName.trim() || !promptContent.trim() || creatingPrompt}
+              >
+                {creatingPrompt
+                  ? t('settings.customPrompts.creating')
+                  : t('settings.customPrompts.create')}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('settings.overlay.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.overlay.modeTitle')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {t('settings.overlay.modeDescription')}
+            </p>
+          </div>
+          <Switch
+            checked={settings?.overlayMode ?? false}
+            onChange={(v) => void setOverlayMode(v)}
+          />
+        </div>
+
+        <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+          <div className="text-sm font-medium text-text">{t('settings.overlay.keybindTitle')}</div>
+          <p className="mt-0.5 text-xs text-text-muted">
+            {t('settings.overlay.keybindDescription')}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              value={keybind}
+              onKeyDown={handleKeybindDown}
+              onKeyUp={handleKeybindUp}
+              onBlur={() => setKeybind(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')}
+              readOnly
+              spellCheck={false}
+              placeholder="Click to record keybind"
+              className="w-64 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)] cursor-pointer"
+            />
+          </div>
         </div>
       </section>
 

@@ -339,6 +339,44 @@ async function getCatalog(): Promise<Record<string, ModelsDevProvider>> {
   return data
 }
 
+/**
+ * Models advertised by a user-supplied OpenAI-compatible endpoint.
+ *
+ * The standard `/models` response only guarantees model ids, not capability
+ * metadata. This provider is explicitly configured as a chat/tool endpoint, so
+ * expose discovered ids as tool-capable and let the user choose the right one.
+ */
+async function listOpenAiCompatibleModels(providerId: string): Promise<ModelInfo[]> {
+  const provider = listConnectedProviders().find((p) => p.id === providerId)
+  if (!provider?.baseURL) return []
+  const base = provider.baseURL.replace(/\/+$/, '')
+  const token = getProviderToken(providerId)
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  try {
+    const res = await fetch(`${base}/models`, {
+      headers,
+      signal: AbortSignal.timeout(10_000)
+    })
+    if (!res.ok) return []
+    const body = (await res.json()) as { data?: unknown }
+    if (!Array.isArray(body.data)) return []
+
+    const ids = new Set<string>()
+    for (const entry of body.data) {
+      if (!entry || typeof entry !== 'object') continue
+      const id = 'id' in entry && typeof entry.id === 'string' ? entry.id.trim() : ''
+      if (id) ids.add(id)
+    }
+    return [...ids]
+      .map((id) => ({ id, name: id, reasoning: false, toolCall: true }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
+}
+
 /** Map a models.dev `cost` block (per 1M tokens) to our ModelCost, dropping empties. */
 function toModelCost(c: ModelsDevModel['cost']): ModelCost | undefined {
   if (!c) return undefined
@@ -355,6 +393,7 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
   if (providerId === 'github-copilot') return listCopilotModels()
   if (providerId === 'roxy') return listRoxyModels()
   if (isCliProxyProvider(providerId)) return listSubscriptionModels(providerId)
+  if (providerId === 'openai-compatible') return listOpenAiCompatibleModels(providerId)
   try {
     const data = await getCatalog()
     const models = data[providerId]?.models

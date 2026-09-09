@@ -42,6 +42,7 @@ import {
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import * as repo from '../db/repo'
+import { emitMessagesUpdated } from '../services/chat-events'
 import { runTool } from './tools'
 import { boundToolOutput } from '../services/tool-output-store'
 import { modelCost } from '../services/models'
@@ -456,9 +457,17 @@ function buildSystemMessage(
   chatId?: string,
   agent?: AgentDef,
   mcpInfo?: string,
-  skillInfo?: string
+  skillInfo?: string,
+  promptId?: string | null
 ): string {
-  const base = promptText[selectPromptName(model)] || promptText.default || FALLBACK_PROMPT
+  let base = promptText[selectPromptName(model)] || promptText.default || FALLBACK_PROMPT
+  if (promptId) {
+    const customPrompts = repo.listCustomPrompts()
+    const custom = customPrompts.find((p) => p.id === promptId)
+    if (custom) {
+      base = custom.content
+    }
+  }
   const gitRoot = cwd ? findGitRoot(cwd) : undefined
   const environment = buildEnvironment({
     cwd: cwd || undefined,
@@ -893,6 +902,8 @@ export interface RunTurnOptions {
   reasoningEffort?: ReasoningEffort
   /** Effective context budget (tokens). */
   contextLimit?: number
+  /** Custom prompt id. */
+  promptId?: string | null
 }
 
 /**
@@ -959,7 +970,8 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<void> {
     emit,
     reasoning,
     reasoningEffort,
-    contextLimit
+    contextLimit,
+    promptId
   } = opts
   const wire =
     providerId === 'github-copilot'
@@ -1027,7 +1039,8 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<void> {
     chatId,
     agent,
     mcpInfo,
-    parentSkillInfo
+    parentSkillInfo,
+    promptId
   )
   const systemMessage: ChatMessage = { role: 'system', content: systemText }
 
@@ -1518,6 +1531,7 @@ async function runSubagent(o: SubagentOptions): Promise<string> {
         content: prompt || description,
         parts: [{ type: 'text', text: prompt || description }]
       })
+      emitMessagesUpdated(subChatId)
     } catch {
       // best-effort — never break the parent turn over sub-session persistence
     }
@@ -1545,6 +1559,7 @@ async function runSubagent(o: SubagentOptions): Promise<string> {
           content: partsToContent(fold.parts),
           parts: fold.parts
         })
+        emitMessagesUpdated(subChatId)
       } catch {
         // best-effort — never break the parent turn over sub-session persistence
       }
@@ -1714,6 +1729,7 @@ async function runSubagent(o: SubagentOptions): Promise<string> {
               }
             ]
           })
+          emitMessagesUpdated(parentChatId)
         } catch {
           // parent may have been deleted mid-run — the broadcast below still fires
         }

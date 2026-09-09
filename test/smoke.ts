@@ -4427,6 +4427,49 @@ async function main(): Promise<void> {
     check('overnight resilience (streamTurn)', false, e instanceof Error ? e.message : String(e))
   }
 
+  // ---- custom OpenAI-compatible model discovery ----
+  try {
+    let requestPath = ''
+    let authorization: string | undefined
+    const server = createServer((req, res) => {
+      requestPath = req.url ?? ''
+      authorization = req.headers.authorization
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          object: 'list',
+          data: [{ id: 'model-b' }, { id: 'model-a' }, { id: 'model-a' }, { id: 42 }]
+        })
+      )
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const addr = server.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+    repo.connectProvider({
+      id: 'openai-compatible',
+      apiKey: 'custom-test-key',
+      baseURL: `http://127.0.0.1:${port}/v1/`
+    })
+    const discovered = await listModels('openai-compatible')
+    check('custom models: requests the standard endpoint', requestPath === '/v1/models')
+    check('custom models: sends optional bearer auth', authorization === 'Bearer custom-test-key')
+    check(
+      'custom models: maps, sorts, and deduplicates ids',
+      discovered.length === 2 &&
+        discovered[0]?.id === 'model-a' &&
+        discovered[1]?.id === 'model-b' &&
+        discovered.every((m) => m.toolCall)
+    )
+    await new Promise<void>((r) => server.close(() => r()))
+    repo.disconnectProvider('openai-compatible')
+  } catch (e) {
+    check(
+      'custom OpenAI-compatible model discovery',
+      false,
+      e instanceof Error ? e.message : String(e)
+    )
+  }
+
   // ---- usage tracking (real HTTP against a local stub) ----
   // Worth booting a server for: the whole point of this module is what lands on
   // the wire, and every failure inside it is swallowed by design. A unit test

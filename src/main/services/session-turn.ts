@@ -193,6 +193,7 @@ async function runTurn(
       reasoning: input.reasoning,
       reasoningEffort: input.reasoningEffort,
       contextLimit: input.contextLimit,
+      promptId: input.promptId,
       cwd,
       chatId: input.sessionId,
       signal,

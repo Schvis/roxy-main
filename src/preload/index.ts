@@ -10,6 +10,7 @@ import type {
   RemoteState,
   RemoteDelta,
   SessionsUpdated,
+  MessagesUpdated,
   SubagentDelta,
   UpdateState
 } from '../shared/api'
@@ -30,6 +31,9 @@ const roxy: RoxyApi = {
     setReasoningEffort: (level) => ipcRenderer.invoke(CHANNELS.settingsSetReasoningEffort, level),
     setContextLimit: (limit) => ipcRenderer.invoke(CHANNELS.settingsSetContextLimit, limit),
     setAutoWorkstream: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetAutoWorkstream, enabled),
+    setOverlayMode: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayMode, enabled),
+    setOverlayKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayKeybind, keybind),
+    setActivePromptId: (id) => ipcRenderer.invoke(CHANNELS.settingsSetActivePromptId, id),
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
     setLanguage: (language) => ipcRenderer.invoke(CHANNELS.settingsSetLanguage, language),
     setMotion: (motion) => ipcRenderer.invoke(CHANNELS.settingsSetMotion, motion),
@@ -58,11 +62,18 @@ const roxy: RoxyApi = {
     remove: (id) => ipcRenderer.invoke(CHANNELS.chatsRemove, id),
     reorder: (workspacePath, ids) => ipcRenderer.invoke(CHANNELS.chatsReorder, workspacePath, ids),
     setConfig: (id, patch) => ipcRenderer.invoke(CHANNELS.chatsSetConfig, id, patch),
+    setActive: (id) => ipcRenderer.invoke(CHANNELS.chatsSetActive, id),
+    getActive: () => ipcRenderer.invoke(CHANNELS.chatsGetActive),
     onUpdated: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: SessionsUpdated): void =>
         callback(payload)
       ipcRenderer.on(CHANNELS.chatsUpdated, handler)
       return () => ipcRenderer.removeListener(CHANNELS.chatsUpdated, handler)
+    },
+    onActiveChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, chatId: string): void => callback(chatId)
+      ipcRenderer.on(CHANNELS.chatsActiveChanged, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.chatsActiveChanged, handler)
     }
   },
   projects: {
@@ -71,8 +82,19 @@ const roxy: RoxyApi = {
   },
   messages: {
     list: (chatId) => ipcRenderer.invoke(CHANNELS.messagesList, chatId),
-    add: (input) => ipcRenderer.invoke(CHANNELS.messagesAdd, input)
+    add: (input) => ipcRenderer.invoke(CHANNELS.messagesAdd, input),
+    onUpdated: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: MessagesUpdated): void =>
+        callback(payload)
+      ipcRenderer.on(CHANNELS.messagesUpdated, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.messagesUpdated, handler)
+    }
   },
+  captureScreen: () => ipcRenderer.invoke(CHANNELS.captureScreen),
+  toggleOverlay: (forceOpen) => ipcRenderer.invoke(CHANNELS.toggleOverlay, forceOpen),
+  showMainWindow: () => ipcRenderer.invoke(CHANNELS.showMainWindow),
+  windowMove: (dx, dy) => ipcRenderer.invoke(CHANNELS.windowMove, dx, dy),
+  windowResize: (width, height) => ipcRenderer.invoke(CHANNELS.windowResize, width, height),
   integrations: {
     list: () => ipcRenderer.invoke(CHANNELS.integrationsList),
     setEnabled: (id, enabled) => ipcRenderer.invoke(CHANNELS.integrationsSetEnabled, id, enabled)
@@ -92,6 +114,12 @@ const roxy: RoxyApi = {
     update: (input, cwd) => ipcRenderer.invoke(CHANNELS.skillsUpdate, input, cwd),
     remove: (name, cwd) => ipcRenderer.invoke(CHANNELS.skillsRemove, name, cwd),
     install: (source, cwd) => ipcRenderer.invoke(CHANNELS.skillsInstall, source, cwd)
+  },
+  prompts: {
+    list: () => ipcRenderer.invoke(CHANNELS.promptsList),
+    create: (name, content) => ipcRenderer.invoke(CHANNELS.promptsCreate, name, content),
+    update: (id, name, content) => ipcRenderer.invoke(CHANNELS.promptsUpdate, id, name, content),
+    remove: (id) => ipcRenderer.invoke(CHANNELS.promptsRemove, id)
   },
   themes: {
     list: () => ipcRenderer.invoke(CHANNELS.themesList),

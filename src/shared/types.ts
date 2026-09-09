@@ -148,6 +148,8 @@ export interface Chat {
   reasoningEffort: ReasoningEffort | null
   /** Context budget in tokens. Null = inherit the global default. */
   contextLimit: number | null
+  /** Custom prompt id. Null = inherit the global default. */
+  promptId: string | null
   workspacePath: string | null
   /**
    * This session's git worktree — an isolated checkout of the project's repo on
@@ -438,6 +440,14 @@ export interface AppSettings {
    * been deleted resolves back to the default rather than failing.
    */
   activeThemeId: string | null
+  /** Whether the app runs in the background and can be invoked via a global shortcut. */
+  overlayMode: boolean
+  /** The global shortcut to invoke the overlay (e.g. 'CommandOrControl+Shift+Space'). */
+  overlayKeybind: string
+  /** The saved position of the floating icon. */
+  overlayIconPosition: { x: number; y: number } | null
+  /** The active custom prompt id. Null means use the default prompt for the model. */
+  activePromptId: string | null
 }
 
 export interface AppVersions {

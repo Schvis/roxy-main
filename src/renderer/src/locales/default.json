@@ -30,6 +30,7 @@
     "queued": "Queued",
     "runsAfterReply": "runs after this reply",
     "settings": "Settings",
+    "showRoxy": "Show Roxy",
     "working": "working"
   },
   "codeHosts": {
@@ -73,6 +74,7 @@
     "placeholder": "Ask Roxy anything… (paste or drop images)",
     "queuePlaceholder": "Queue a follow-up…",
     "queuePlaceholderStop": "Queue a follow-up… (Esc to stop)",
+    "readScreen": "Read screen",
     "stop": "Stop (Esc)"
   },
   "configBackup": {
@@ -250,6 +252,8 @@
     "pointAtEndpoint": "Point Roxy at your local endpoint.",
     "apiKey": "API key",
     "baseUrl": "Base URL",
+    "modelId": "Fallback model ID (optional)",
+    "modelIdPlaceholder": "Used only if /models is unavailable",
     "getRoxyKey": "Get an API key from your roxy.gg dashboard",
     "connecting": "Connecting…",
     "connect": "Connect",
@@ -375,6 +379,23 @@
       "prefixPlaceholder": "no prefix",
       "prefixAriaLabel": "Branch prefix",
       "prefixFootnote": "Only affects new workstreams. Existing branches keep their names — rename one from the bar under the composer."
+    },
+    "overlay": {
+      "heading": "Overlay",
+      "modeTitle": "Run in background",
+      "modeDescription": "Keep Roxy running in the background when the window is closed, and toggle it with a global shortcut.",
+      "keybindTitle": "Global shortcut",
+      "keybindDescription": "The key combination to show or hide Roxy from anywhere."
+    },
+    "customPrompts": {
+      "add": "Add prompt",
+      "createTitle": "Create system prompt",
+      "name": "Name",
+      "namePlaceholder": "e.g. Concise coding assistant",
+      "content": "Prompt",
+      "contentPlaceholder": "Instructions for the agent…",
+      "create": "Create prompt",
+      "creating": "Creating…"
     },
     "browser": {
       "heading": "Browser",

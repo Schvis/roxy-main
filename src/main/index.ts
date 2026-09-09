@@ -29,6 +29,9 @@ import {
 } from './services/window-chrome'
 import { resolveThemeById } from './services/themes'
 import * as repo from './db/repo'
+import { updateOverlayShortcut, isOverlayWindow, setMainWindowVisibility } from './services/overlay'
+
+let isQuitting = false
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin'
@@ -64,6 +67,21 @@ function createWindow(): BrowserWindow {
     mainWindow.show()
   })
 
+  mainWindow.on('close', (event) => {
+    if (repo.getSettings().overlayMode && !isQuitting) {
+      event.preventDefault()
+      mainWindow.hide()
+    }
+  })
+
+  mainWindow.on('show', () => {
+    setMainWindowVisibility(true)
+  })
+
+  mainWindow.on('hide', () => {
+    setMainWindowVisibility(false)
+  })
+
   // Open external links in the user's browser instead of a new Electron window.
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -97,52 +115,78 @@ async function warmCatalogThenBackfill(): Promise<void> {
   backfillUsageFromHistory()
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.roxy.app')
-  // Give the agent's browser window the Roxy icon too (no asset import in the
-  // browser service so the smoke's esbuild bundle stays happy).
-  setAppIcon(icon)
-  // Inject the tuned per-model + per-agent prompt text into the harness (imported
-  // via `?raw` here in the Vite-built entry, so the esbuild smoke bundle never
-  // sees it).
-  setPromptText(PROMPT_TEXT)
-  setAgentPromptText(AGENT_PROMPT_TEXT)
+const gotTheLock = app.requestSingleInstanceLock()
 
-  if (process.platform === 'darwin') {
-    // Use the padded variant so the dock icon matches Apple's size convention
-    // (the full-bleed resources/icon.png would render oversized next to native apps).
-    app.dock?.setIcon(macDockIcon)
-  }
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
+    if (windows.length > 0) {
+      const mainWindow = windows[0]
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
   })
 
-  // Open the database (runs migrations) and wire up IPC before the first window.
-  getDb()
-  registerIpc()
-  // Anonymous usage tracking (opt-out in Settings). Deliberately after the DB
-  // and IPC are up so nothing here can delay the first window, and it owns its
-  // own storage - a failure in it can't touch either.
-  initTracking()
-  startLoopScheduler()
-  // Sweep tool-output spill files older than the retention window (best-effort).
-  void cleanupToolOutputs()
-  // One-time: seed the usage/cost table from existing message history so the
-  // dashboard isn't empty after upgrading. Warm the models.dev catalog first so
-  // backfilled rows can be priced (else they'd all cost $0). Best-effort + async.
-  void warmCatalogThenBackfill()
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId('com.roxy.app')
+    // Give the agent's browser window the Roxy icon too (no asset import in the
+    // browser service so the smoke's esbuild bundle stays happy).
+    setAppIcon(icon)
+    // Inject the tuned per-model + per-agent prompt text into the harness (imported
+    // via `?raw` here in the Vite-built entry, so the esbuild smoke bundle never
+    // sees it).
+    setPromptText(PROMPT_TEXT)
+    setAgentPromptText(AGENT_PROMPT_TEXT)
 
-  const mainWindow = createWindow()
-  initAutoUpdater(mainWindow)
+    if (process.platform === 'darwin') {
+      // Use the padded variant so the dock icon matches Apple's size convention
+      // (the full-bleed resources/icon.png would render oversized next to native apps).
+      app.dock?.setIcon(macDockIcon)
+    }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
+
+    // Open the database (runs migrations) and wire up IPC before the first window.
+    getDb()
+    registerIpc()
+    // Anonymous usage tracking (opt-out in Settings). Deliberately after the DB
+    // and IPC are up so nothing here can delay the first window, and it owns its
+    // own storage - a failure in it can't touch either.
+    initTracking()
+    startLoopScheduler()
+    // Sweep tool-output spill files older than the retention window (best-effort).
+    void cleanupToolOutputs()
+    // One-time: seed the usage/cost table from existing message history so the
+    // dashboard isn't empty after upgrading. Warm the models.dev catalog first so
+    // backfilled rows can be priced (else they'd all cost $0). Best-effort + async.
+    void warmCatalogThenBackfill()
+
+    updateOverlayShortcut(repo.getSettings())
+
+    const mainWindow = createWindow()
+    initAutoUpdater(mainWindow)
+
+    app.on('activate', () => {
+      const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
+      if (windows.length === 0) {
+        createWindow()
+      } else {
+        const win = windows[0]
+        if (win.isMinimized()) win.restore()
+        if (!win.isVisible()) win.show()
+        win.focus()
+      }
+    })
   })
-})
+}
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && !repo.getSettings().overlayMode) {
     app.quit()
   }
 })
@@ -154,6 +198,7 @@ app.on('window-all-closed', () => {
 // start tearing down, which gives the final flush a real (if not guaranteed)
 // window to reach the network. Losing it costs one app_close, nothing more.
 app.on('before-quit', () => {
+  isQuitting = true
   shutdownTracking()
 })
 

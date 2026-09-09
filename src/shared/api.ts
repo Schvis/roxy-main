@@ -378,6 +378,8 @@ export interface LlmStartInput {
   reasoning?: boolean
   /** Effective context-window budget in tokens (drives large-context headers). */
   contextLimit?: number
+  /** Custom prompt id. */
+  promptId?: string | null
 }
 
 export interface LlmResult {
@@ -498,6 +500,11 @@ export interface SessionsUpdated {
    * instead of blanking the strip until the next poll tick.
    */
   statusKey?: string | null
+}
+
+/** A persisted transcript changed. Renderers reload only when viewing this chat. */
+export interface MessagesUpdated {
+  chatId: string
 }
 
 /** A background subagent task's lifecycle state, broadcast to all windows. */
@@ -708,6 +715,13 @@ export interface ConfigImportResult {
   error?: string
 }
 
+export interface CustomPrompt {
+  id: string
+  name: string
+  content: string
+  createdAt: number
+}
+
 export interface RoxyApi {
   settings: {
     getAll(): Promise<AppSettings>
@@ -717,6 +731,9 @@ export interface RoxyApi {
     setReasoningEffort(level: ReasoningEffort): Promise<AppSettings>
     setContextLimit(limit: number | null): Promise<AppSettings>
     setAutoWorkstream(enabled: boolean): Promise<AppSettings>
+    setOverlayMode(enabled: boolean): Promise<AppSettings>
+    setOverlayKeybind(keybind: string): Promise<AppSettings>
+    setActivePromptId(id: string | null): Promise<AppSettings>
     setBranchPrefix(prefix: string): Promise<AppSettings>
     /** Set the UI language. An unknown code falls back to English. */
     setLanguage(language: Language): Promise<AppSettings>
@@ -754,23 +771,33 @@ export interface RoxyApi {
     setConfig(id: string, patch: SessionConfigPatch): Promise<Chat>
     /** Reorder a project's sessions; `ids` is the full project session list, top-to-bottom. */
     reorder(workspacePath: string | null, ids: string[]): Promise<void>
+    /** Set/read session mirrored by main window and overlay. */
+    setActive(id: string): Promise<void>
+    getActive(): Promise<string | null>
     /**
      * Subscribe to session rows changed by MAIN with no renderer call behind
-     * them â€” a worktree materialized on the first turn, a branch renamed under
+     * them — a worktree materialized on the first turn, a branch renamed under
      * it. Returns an unsubscribe fn.
      */
     onUpdated(callback: (payload: SessionsUpdated) => void): () => void
+    onActiveChanged(callback: (chatId: string) => void): () => void
   }
   projects: {
-    /** Workspace paths in sidebar display order, top â†’ bottom. */
+    /** Workspace paths in sidebar display order, top → bottom. */
     listOrder(): Promise<string[]>
-    /** Persist the project order; `paths` is the full list, top â†’ bottom. */
+    /** Persist the project order; `paths` is the full list, top → bottom. */
     reorder(paths: string[]): Promise<void>
   }
   messages: {
     list(chatId: string): Promise<Message[]>
     add(input: AddMessageInput): Promise<Message>
+    onUpdated(callback: (payload: MessagesUpdated) => void): () => void
   }
+  captureScreen(): Promise<{ dataUrl: string; name: string } | null>
+  toggleOverlay(forceOpen?: boolean): Promise<void>
+  showMainWindow(): Promise<void>
+  windowMove(dx: number, dy: number): Promise<void>
+  windowResize(width: number, height: number): Promise<void>
   integrations: {
     list(): Promise<IntegrationConnection[]>
     setEnabled(id: string, enabled: boolean): Promise<void>
@@ -806,6 +833,12 @@ export interface RoxyApi {
      * skills by default (or workspace when a cwd is given).
      */
     install(source: string, cwd?: string): Promise<SkillInstallResult>
+  }
+  prompts: {
+    list(): Promise<CustomPrompt[]>
+    create(name: string, content: string): Promise<CustomPrompt>
+    update(id: string, name: string, content: string): Promise<void>
+    remove(id: string): Promise<void>
   }
   themes: {
     /** Built-in themes followed by user themes found on disk. */

@@ -147,6 +147,12 @@ const REPAIR_SCHEMA_SQL = /* sql */ `
         estimated   INTEGER NOT NULL DEFAULT 0,
         created_at  INTEGER NOT NULL
       );
+  CREATE TABLE IF NOT EXISTS custom_prompts (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        content    TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
   CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_queue_chat ON queue(chat_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_recent_models_provider ON recent_models(provider_id, used_at DESC);
@@ -493,7 +499,20 @@ export const MIGRATIONS: Migration[] = [
       hidden_at   INTEGER NOT NULL,
       PRIMARY KEY (provider_id, model)
     );
-  `
+  `,
+
+  // ---- v24: custom prompts ----
+  (db) => {
+    addColumnIfMissing(db, 'chats', 'prompt_id', 'TEXT')
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS custom_prompts (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        content    TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `)
+  }
 ]
 
 /**
@@ -531,6 +550,16 @@ export function repairSchema(db: Database): void {
   addColumnIfMissing(db, 'chats', 'agent_id', 'TEXT')
   addColumnIfMissing(db, 'chats', 'reasoning_effort', 'TEXT')
   addColumnIfMissing(db, 'chats', 'context_limit', 'INTEGER')
+  // v24's custom prompts.
+  addColumnIfMissing(db, 'chats', 'prompt_id', 'TEXT')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS custom_prompts (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `)
   // v19's provider order and recent-models table.
   addColumnIfMissing(db, 'providers', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   db.exec(`
