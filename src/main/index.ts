@@ -30,6 +30,7 @@ import {
 import { resolveThemeById } from './services/themes'
 import * as repo from './db/repo'
 import { updateOverlayShortcut, isOverlayWindow, setMainWindowVisibility } from './services/overlay'
+import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 
 let isQuitting = false
 
@@ -168,6 +169,11 @@ if (!gotTheLock) {
 
     updateOverlayShortcut(repo.getSettings())
 
+    const initialSettings = repo.getSettings()
+    if (initialSettings.ttsEnabled && initialSettings.ttsAutoStart) {
+      void startLocalTtsServer()
+    }
+
     const mainWindow = createWindow()
     initAutoUpdater(mainWindow)
 
@@ -212,4 +218,5 @@ app.on('will-quit', () => {
   // The Codex sidecar holds the user's subscription tokens - never leave it
   // running (and listening on loopback) after the app that owns it is gone.
   shutdownCliProxy()
+  void stopLocalTtsServer()
 })

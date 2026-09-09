@@ -232,6 +232,13 @@ interface RoxyStore {
   setBranchPrefix: (prefix: string) => Promise<void>
   setLanguage: (language: Language) => Promise<void>
   setMotion: (preference: MotionPreference) => Promise<void>
+  setTtsEnabled: (enabled: boolean) => Promise<void>
+  setTtsAutoStart: (enabled: boolean) => Promise<void>
+  setTtsMode: (mode: 'all' | 'sentence') => Promise<void>
+  setTtsTranslate: (enabled: boolean) => Promise<void>
+  setTtsLang: (lang: string) => Promise<void>
+  setTtsSpeed: (speed: number) => Promise<void>
+  setTtsApiKey: (apiKey: string) => Promise<void>
   selectChat: (id: string) => Promise<void>
   clearActive: () => void
   newSession: () => Promise<void>
@@ -1562,6 +1569,41 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setActivePromptId: async (id) => {
     const settings = await api.settings.setActivePromptId(id)
+    set({ settings })
+  },
+
+  setTtsEnabled: async (enabled) => {
+    const settings = await api.settings.setTtsEnabled(enabled)
+    set({ settings })
+  },
+
+  setTtsAutoStart: async (enabled) => {
+    const settings = await api.settings.setTtsAutoStart(enabled)
+    set({ settings })
+  },
+
+  setTtsMode: async (mode) => {
+    const settings = await api.settings.setTtsMode(mode)
+    set({ settings })
+  },
+
+  setTtsTranslate: async (enabled) => {
+    const settings = await api.settings.setTtsTranslate(enabled)
+    set({ settings })
+  },
+
+  setTtsLang: async (lang) => {
+    const settings = await api.settings.setTtsLang(lang)
+    set({ settings })
+  },
+
+  setTtsSpeed: async (speed) => {
+    const settings = await api.settings.setTtsSpeed(speed)
+    set({ settings })
+  },
+
+  setTtsApiKey: async (apiKey) => {
+    const settings = await api.settings.setTtsApiKey(apiKey)
     set({ settings })
   },
 

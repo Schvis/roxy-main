@@ -13,8 +13,25 @@ export const CHANNELS = {
   settingsSetLanguage: 'settings:setLanguage',
   settingsSetMotion: 'settings:setMotion',
   settingsMotionChanged: 'settings:motionChanged',
+  settingsSetTtsEnabled: 'settings:setTtsEnabled',
+  settingsSetTtsAutoStart: 'settings:setTtsAutoStart',
+  settingsSetTtsMode: 'settings:setTtsMode',
+  settingsSetTtsTranslate: 'settings:setTtsTranslate',
+  settingsSetTtsLang: 'settings:setTtsLang',
+  settingsSetTtsSpeed: 'settings:setTtsSpeed',
+  settingsSetTtsApiKey: 'settings:setTtsApiKey',
   settingsCompleteOnboarding: 'settings:completeOnboarding',
   settingsReset: 'settings:reset',
+
+  ttsGetStatus: 'tts:getStatus',
+  ttsInstallDependencies: 'tts:installDependencies',
+  ttsInstallProgress: 'tts:installProgress',
+  ttsStartServer: 'tts:startServer',
+  ttsStopServer: 'tts:stopServer',
+  ttsServerLog: 'tts:serverLog',
+  ttsGetServerLogs: 'tts:getServerLogs',
+  ttsClearServerLogs: 'tts:clearServerLogs',
+
   // Anonymous usage tracking. Its own pair of channels rather than a field on
   // AppSettings: the flag lives in a file outside the database, so opting out
   // survives a factory reset (which wipes the settings table).

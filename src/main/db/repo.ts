@@ -135,7 +135,14 @@ export function getSettings(): AppSettings {
       map.has('overlay_icon_x') && map.has('overlay_icon_y')
         ? { x: Number(map.get('overlay_icon_x')), y: Number(map.get('overlay_icon_y')) }
         : null,
-    activePromptId: map.get('active_prompt_id') ?? null
+    activePromptId: map.get('active_prompt_id') ?? null,
+    ttsEnabled: map.get('tts_enabled') === '1',
+    ttsAutoStart: map.get('tts_auto_start') === '1',
+    ttsMode: map.get('tts_mode') === 'sentence' ? 'sentence' : 'all',
+    ttsTranslate: map.get('tts_translate') !== '0',
+    ttsLang: map.get('tts_lang') ?? 'ja',
+    ttsSpeed: map.has('tts_speed') ? Number(map.get('tts_speed')) : 15,
+    ttsApiKey: map.get('tts_api_key') ?? ''
   }
 }
 
@@ -266,6 +273,42 @@ export function setOverlayIconPosition(x: number, y: number): AppSettings {
 export function setAutoWorkstream(enabled: boolean): AppSettings {
   // Store only the OFF state; see getSettings for why.
   setSetting('auto_workstream', enabled ? null : '0')
+  return getSettings()
+}
+
+export function setTtsEnabled(enabled: boolean): AppSettings {
+  setSetting('tts_enabled', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setTtsAutoStart(enabled: boolean): AppSettings {
+  setSetting('tts_auto_start', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setTtsMode(mode: 'all' | 'sentence'): AppSettings {
+  setSetting('tts_mode', mode === 'sentence' ? 'sentence' : 'all')
+  return getSettings()
+}
+
+export function setTtsTranslate(enabled: boolean): AppSettings {
+  setSetting('tts_translate', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setTtsLang(lang: string): AppSettings {
+  setSetting('tts_lang', lang.trim() || 'ja')
+  return getSettings()
+}
+
+export function setTtsSpeed(speed: number): AppSettings {
+  const safe = Number.isFinite(speed) ? Math.max(-50, Math.min(100, Math.round(speed))) : 15
+  setSetting('tts_speed', String(safe))
+  return getSettings()
+}
+
+export function setTtsApiKey(apiKey: string): AppSettings {
+  setSetting('tts_api_key', apiKey.trim())
   return getSettings()
 }
 

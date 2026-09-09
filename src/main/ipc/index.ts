@@ -46,6 +46,17 @@ import * as browser from '../services/browser'
 import * as cookies from '../services/cookies'
 import { invalidateCopilotModels, listModels } from '../services/models'
 import { invalidateCopilotToken } from '../services/llm'
+import {
+  createSyncTtsStreamer,
+  stopTts,
+  getLocalTtsStatus,
+  installTtsDependencies,
+  startLocalTtsServer,
+  stopLocalTtsServer,
+  getTtsServerLogs,
+  clearTtsServerLogs,
+  setTtsLogListener
+} from '../services/tts'
 import { pickDefaultModel } from '../../shared/models'
 import { CLIPROXY_PROVIDER_IDS, accountsFor, isCliProxyProvider } from '../../shared/cliproxy'
 import { getUsageStats } from '../services/usage'
@@ -231,6 +242,46 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetLanguage, (_e, language: Language) =>
     repo.setLanguage(language)
   )
+  ipcMain.handle(CHANNELS.settingsSetTtsEnabled, (_e, enabled: boolean) =>
+    repo.setTtsEnabled(enabled)
+  )
+  ipcMain.handle(CHANNELS.settingsSetTtsAutoStart, (_e, enabled: boolean) =>
+    repo.setTtsAutoStart(enabled)
+  )
+  ipcMain.handle(CHANNELS.settingsSetTtsMode, (_e, mode: 'all' | 'sentence') =>
+    repo.setTtsMode(mode)
+  )
+  ipcMain.handle(CHANNELS.settingsSetTtsTranslate, (_e, enabled: boolean) =>
+    repo.setTtsTranslate(enabled)
+  )
+  ipcMain.handle(CHANNELS.settingsSetTtsLang, (_e, lang: string) => repo.setTtsLang(lang))
+  ipcMain.handle(CHANNELS.settingsSetTtsSpeed, (_e, speed: number) => repo.setTtsSpeed(speed))
+  ipcMain.handle(CHANNELS.settingsSetTtsApiKey, (_e, apiKey: string) => repo.setTtsApiKey(apiKey))
+
+  // ---- TTS server & setup ----
+  ipcMain.handle(CHANNELS.ttsGetStatus, () => getLocalTtsStatus())
+  ipcMain.handle(CHANNELS.ttsInstallDependencies, (event) =>
+    installTtsDependencies((chunk) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(CHANNELS.ttsInstallProgress, chunk)
+      }
+    })
+  )
+  ipcMain.handle(CHANNELS.ttsStartServer, () => startLocalTtsServer())
+  ipcMain.handle(CHANNELS.ttsStopServer, () => stopLocalTtsServer())
+  ipcMain.handle(CHANNELS.ttsGetServerLogs, () => getTtsServerLogs())
+  ipcMain.handle(CHANNELS.ttsClearServerLogs, () => {
+    clearTtsServerLogs()
+  })
+
+  setTtsLogListener((chunk) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(CHANNELS.ttsServerLog, chunk)
+      }
+    }
+  })
+
   ipcMain.handle(CHANNELS.settingsSetMotion, (_e, motion: MotionPreference) => {
     const settings = repo.setMotion(motion)
     for (const window of BrowserWindow.getAllWindows())
@@ -845,24 +896,40 @@ export function registerIpc(): void {
     // the bubble it never echoed. `null` when nothing's shared â†’ zero overhead.
     const lastUser = [...input.messages].reverse().find((m) => m.role === 'user')
     const relay = remote.relayLocalTurnStart(input.sessionId, lastUser?.content)
+    const settings = repo.getSettings()
+    const tts = createSyncTtsStreamer((textDelta) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(CHANNELS.llmDelta, {
+          requestId: input.requestId,
+          event: { type: 'text', delta: textDelta }
+        })
+      }
+      if (relay) remote.relayLocalTurnEvent(relay, { type: 'text', delta: textDelta })
+    }, settings)
     try {
       return await runSessionTurn(
         input,
         (llmEvent) => {
-          if (!event.sender.isDestroyed()) {
-            event.sender.send(CHANNELS.llmDelta, { requestId: input.requestId, event: llmEvent })
+          if (llmEvent.type === 'text') {
+            tts.onText(llmEvent.delta)
+          } else {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send(CHANNELS.llmDelta, { requestId: input.requestId, event: llmEvent })
+            }
+            if (relay) remote.relayLocalTurnEvent(relay, llmEvent)
           }
-          if (relay) remote.relayLocalTurnEvent(relay, llmEvent)
         },
         controller.signal
       )
     } finally {
+      await tts.finish()
       llmControllers.delete(input.requestId)
       untrack()
       if (relay) remote.relayLocalTurnEnd(relay)
     }
   })
   ipcMain.handle(CHANNELS.llmAbort, (_e, requestId: string) => {
+    void stopTts()
     llmControllers.get(requestId)?.abort()
   })
   // Stop, as the UI means it: end everything this session has in flight,
@@ -870,6 +937,7 @@ export function registerIpc(): void {
   // turn while it waits on a subagent has to stop the subagent, or the work
   // carries on invisibly after the transcript says it stopped.
   ipcMain.handle(CHANNELS.llmAbortSession, (_e, sessionId: string) => {
+    void stopTts()
     abortSession(sessionId)
     cancelSubagentRunsFor(sessionId)
     // Belt and braces: the turn's own signal already cascades into every call's

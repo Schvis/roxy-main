@@ -448,6 +448,20 @@ export interface AppSettings {
   overlayIconPosition: { x: number; y: number } | null
   /** The active custom prompt id. Null means use the default prompt for the model. */
   activePromptId: string | null
+  /** Whether local RVC TTS voice synthesis is active. */
+  ttsEnabled: boolean
+  /** Whether to automatically start local RVC TTS voice server on app launch. */
+  ttsAutoStart: boolean
+  /** Whether to speak the entire message at once or by sentence parts. */
+  ttsMode: 'all' | 'sentence'
+  /** Whether to translate chat replies before synthesis. Default true. */
+  ttsTranslate: boolean
+  /** Target language for TTS voice synthesis (e.g. 'ja', 'en', 'none'). Default 'ja'. */
+  ttsLang: string
+  /** Speech speed rate percentage adjustment (-50 to 100). Default 15 (+15%). */
+  ttsSpeed: number
+  /** User-provided DeepL translation API key. */
+  ttsApiKey: string
 }
 
 export interface AppVersions {

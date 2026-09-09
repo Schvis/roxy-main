@@ -738,6 +738,13 @@ export interface RoxyApi {
     /** Set the UI language. An unknown code falls back to English. */
     setLanguage(language: Language): Promise<AppSettings>
     setMotion(motion: MotionPreference): Promise<AppSettings>
+    setTtsEnabled(enabled: boolean): Promise<AppSettings>
+    setTtsAutoStart(enabled: boolean): Promise<AppSettings>
+    setTtsMode(mode: 'all' | 'sentence'): Promise<AppSettings>
+    setTtsTranslate(enabled: boolean): Promise<AppSettings>
+    setTtsLang(lang: string): Promise<AppSettings>
+    setTtsSpeed(speed: number): Promise<AppSettings>
+    setTtsApiKey(apiKey: string): Promise<AppSettings>
     /** Keep the app and its browser toolbar in sync; never changes OS preferences. */
     onMotionChanged(callback: (motion: MotionPreference) => void): () => void
     completeOnboarding(): Promise<AppSettings>
@@ -874,6 +881,16 @@ export interface RoxyApi {
   system: {
     getVersions(): Promise<AppVersions>
     openExternal(url: string): Promise<void>
+  }
+  tts: {
+    getStatus(): Promise<{ installed: boolean; running: boolean }>
+    install(): Promise<{ ok: boolean; log: string }>
+    startServer(): Promise<{ ok: boolean; error?: string }>
+    stopServer(): Promise<{ ok: boolean }>
+    onInstallProgress(callback: (chunk: string) => void): () => void
+    getServerLogs(): Promise<string>
+    clearServerLogs(): Promise<void>
+    onServerLog(callback: (chunk: string) => void): () => void
   }
   /**
    * The right-click editing menu's main-process half. The menu itself is drawn

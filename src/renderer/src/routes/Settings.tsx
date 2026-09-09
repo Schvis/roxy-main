@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
 import { GripVertical, Globe, Plus, Trash2 } from 'lucide-react'
@@ -46,9 +46,17 @@ export default function Settings(): JSX.Element {
   const setBranchPrefix = useRoxyStore((s) => s.setBranchPrefix)
   const setLanguage = useRoxyStore((s) => s.setLanguage)
   const setMotion = useRoxyStore((s) => s.setMotion)
+  const setTtsEnabled = useRoxyStore((s) => s.setTtsEnabled)
+  const setTtsAutoStart = useRoxyStore((s) => s.setTtsAutoStart)
+  const setTtsMode = useRoxyStore((s) => s.setTtsMode)
+  const setTtsTranslate = useRoxyStore((s) => s.setTtsTranslate)
+  const setTtsLang = useRoxyStore((s) => s.setTtsLang)
+  const setTtsSpeed = useRoxyStore((s) => s.setTtsSpeed)
+  const setTtsApiKey = useRoxyStore((s) => s.setTtsApiKey)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
+  const [apiKeyInput, setApiKeyInput] = useState(settings?.ttsApiKey ?? '')
   const prefixError = branchPrefixError(prefix)
   // Pinned once per mount: a preview that reshuffled on every keystroke
   // would read as noise rather than as an example.
@@ -201,6 +209,113 @@ export default function Settings(): JSX.Element {
       setKeybind(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
     }
   }
+
+  const [ttsStatus, setTtsStatus] = useState<{ installed: boolean; running: boolean } | null>(null)
+  const [installingTts, setInstallingTts] = useState(false)
+  const [startingServer, setStartingServer] = useState(false)
+  const [setupFeedback, setSetupFeedback] = useState<string | null>(null)
+  const [serverFeedback, setServerFeedback] = useState<string | null>(null)
+  const [installLogs, setInstallLogs] = useState('')
+  const [serverLogs, setServerLogs] = useState('')
+  const consoleEndRef = useRef<HTMLPreElement | null>(null)
+  const serverConsoleEndRef = useRef<HTMLPreElement | null>(null)
+
+  const refreshTtsStatus = async (): Promise<void> => {
+    try {
+      const status = await api.tts.getStatus()
+      setTtsStatus(status)
+    } catch {
+      setTtsStatus(null)
+    }
+  }
+
+  useEffect(() => {
+    void refreshTtsStatus()
+    const timer = setInterval(() => {
+      void refreshTtsStatus()
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    return api.tts.onInstallProgress((chunk) => {
+      setInstallLogs((prev) => prev + chunk)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (consoleEndRef.current) {
+      consoleEndRef.current.scrollTop = consoleEndRef.current.scrollHeight
+    }
+  }, [installLogs])
+
+  useEffect(() => {
+    void api.tts.getServerLogs().then((logs) => {
+      if (logs) setServerLogs(logs)
+    })
+    return api.tts.onServerLog((chunk) => {
+      setServerLogs((prev) => prev + chunk)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (serverConsoleEndRef.current) {
+      serverConsoleEndRef.current.scrollTop = serverConsoleEndRef.current.scrollHeight
+    }
+  }, [serverLogs])
+
+  const handleInstallDependencies = async (): Promise<void> => {
+    setInstallingTts(true)
+    setSetupFeedback(null)
+    setInstallLogs('')
+    try {
+      const res = await api.tts.install()
+      if (res.ok) {
+        setSetupFeedback(t('settings.tts.setupSuccess'))
+      } else {
+        setSetupFeedback(t('settings.tts.setupFailed'))
+      }
+      if (res.log && !installLogs) {
+        setInstallLogs(res.log)
+      }
+      await refreshTtsStatus()
+    } catch {
+      setSetupFeedback(t('settings.tts.setupFailed'))
+    } finally {
+      setInstallingTts(false)
+    }
+  }
+
+  const handleToggleServer = async (): Promise<void> => {
+    setServerFeedback(null)
+    if (ttsStatus?.running) {
+      await api.tts.stopServer()
+    } else {
+      setStartingServer(true)
+      try {
+        const res = await api.tts.startServer()
+        if (!res.ok && res.error) {
+          setServerFeedback(res.error)
+        }
+      } catch (e) {
+        setServerFeedback(e instanceof Error ? e.message : String(e))
+      } finally {
+        setStartingServer(false)
+      }
+    }
+    await refreshTtsStatus()
+  }
+
+  useEffect(() => {
+    setApiKeyInput(settings?.ttsApiKey ?? '')
+  }, [settings?.ttsApiKey])
+
+  const ttsEnabled = settings?.ttsEnabled ?? false
+  const ttsAutoStart = settings?.ttsAutoStart ?? false
+  const ttsMode = settings?.ttsMode ?? 'all'
+  const ttsTranslate = settings?.ttsTranslate ?? true
+  const ttsLang = settings?.ttsLang ?? 'ja'
+  const ttsSpeed = settings?.ttsSpeed ?? 15
 
   return (
     <PageShell title={t('settings.title')} onBack={() => navigate('/')}>
@@ -610,6 +725,288 @@ export default function Settings(): JSX.Element {
             />
           </div>
         </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('settings.tts.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.tts.enableTitle')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">{t('settings.tts.enableDescription')}</p>
+          </div>
+          <Switch checked={ttsEnabled} onChange={(v) => void setTtsEnabled(v)} />
+        </div>
+
+        {ttsEnabled && (
+          <>
+            <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.tts.serverTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.tts.serverDescription')}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'inline-block h-2 w-2 rounded-full',
+                        ttsStatus?.running
+                          ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
+                          : 'bg-text-subtle'
+                      )}
+                    />
+                    <span className="text-xs font-medium text-text-subtle">
+                      {ttsStatus?.running
+                        ? t('settings.tts.serverRunning')
+                        : t('settings.tts.serverStopped')}
+                    </span>
+                  </div>
+                  {serverFeedback && (
+                    <p className="mt-2 text-xs font-medium text-accent">{serverFeedback}</p>
+                  )}
+                </div>
+                <Button
+                  variant={ttsStatus?.running ? 'ghost' : 'primary'}
+                  onClick={() => void handleToggleServer()}
+                  disabled={startingServer}
+                  className="shrink-0"
+                >
+                  {startingServer
+                    ? t('settings.tts.startingServer')
+                    : ttsStatus?.running
+                      ? t('settings.tts.stopServer')
+                      : t('settings.tts.startServer')}
+                </Button>
+              </div>
+
+              {(startingServer || serverLogs) && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
+                  <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
+                    <span>{t('settings.tts.serverConsoleTitle')}</span>
+                    {serverLogs && !startingServer && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setServerLogs('')
+                          void api.tts.clearServerLogs()
+                        }}
+                        className="text-xs text-text-subtle hover:text-text transition-colors"
+                      >
+                        {t('settings.tts.clearConsole')}
+                      </button>
+                    )}
+                  </div>
+                  <pre
+                    ref={serverConsoleEndRef}
+                    className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
+                  >
+                    {serverLogs || t('settings.tts.startingServer')}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-text">
+                  {t('settings.tts.autoStartTitle')}
+                </div>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t('settings.tts.autoStartDescription')}
+                </p>
+              </div>
+              <Switch
+                checked={ttsAutoStart}
+                onChange={(v) => {
+                  void setTtsAutoStart(v)
+                  if (v && !ttsStatus?.running) {
+                    void handleToggleServer()
+                  }
+                }}
+              />
+            </div>
+
+            <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.tts.setupTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.tts.setupDescription')}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'inline-block h-2 w-2 rounded-full',
+                        ttsStatus?.installed
+                          ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
+                          : 'bg-text-subtle'
+                      )}
+                    />
+                    <span className="text-xs font-medium text-text-subtle">
+                      {ttsStatus?.installed
+                        ? t('settings.tts.requirementsMet')
+                        : t('settings.tts.requirementsNotMet')}
+                    </span>
+                  </div>
+                  {setupFeedback && (
+                    <p className="mt-2 text-xs font-medium text-accent">{setupFeedback}</p>
+                  )}
+                </div>
+                <Button
+                  variant={ttsStatus?.installed ? 'ghost' : 'secondary'}
+                  onClick={() => void handleInstallDependencies()}
+                  disabled={installingTts}
+                  className="shrink-0"
+                >
+                  {installingTts
+                    ? t('settings.tts.setupInstalling')
+                    : ttsStatus?.installed
+                      ? t('settings.tts.reinstallButton')
+                      : t('settings.tts.setupButton')}
+                </Button>
+              </div>
+
+              {(installingTts || installLogs) && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
+                  <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
+                    <span>{t('settings.tts.consoleTitle')}</span>
+                    {installLogs && !installingTts && (
+                      <button
+                        type="button"
+                        onClick={() => setInstallLogs('')}
+                        className="text-xs text-text-subtle hover:text-text transition-colors"
+                      >
+                        {t('settings.tts.clearConsole')}
+                      </button>
+                    )}
+                  </div>
+                  <pre
+                    ref={consoleEndRef}
+                    className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
+                  >
+                    {installLogs || t('settings.tts.setupInstalling')}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-text">
+                  {t('settings.tts.translateTitle')}
+                </div>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t('settings.tts.translateDescription')}
+                </p>
+              </div>
+              <Switch checked={ttsTranslate} onChange={(v) => void setTtsTranslate(v)} />
+            </div>
+
+            {ttsTranslate && (
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">{t('settings.tts.langTitle')}</div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.tts.langDescription')}
+                  </p>
+                </div>
+                <select
+                  value={ttsLang}
+                  onChange={(e) => void setTtsLang(e.target.value)}
+                  className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
+                >
+                  <option value="ja">{t('settings.tts.langJa')}</option>
+                  <option value="none">{t('settings.tts.langNone')}</option>
+                  <option value="en">{t('settings.tts.langEn')}</option>
+                  <option value="zh">{t('settings.tts.langZh')}</option>
+                  <option value="ko">{t('settings.tts.langKo')}</option>
+                  <option value="es">{t('settings.tts.langEs')}</option>
+                  <option value="fr">{t('settings.tts.langFr')}</option>
+                  <option value="de">{t('settings.tts.langDe')}</option>
+                </select>
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-text">{t('settings.tts.modeTitle')}</div>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t('settings.tts.modeDescription')}
+                </p>
+              </div>
+              <select
+                value={ttsMode}
+                onChange={(e) => void setTtsMode(e.target.value as 'all' | 'sentence')}
+                className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
+              >
+                <option value="all">{t('settings.tts.modeAll')}</option>
+                <option value="sentence">{t('settings.tts.modeSentence')}</option>
+              </select>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.tts.speedTitle')}
+                  </div>
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-accent">
+                    {ttsSpeed >= 0 ? `+${ttsSpeed}%` : `${ttsSpeed}%`}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t('settings.tts.speedDescription')}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <input
+                  type="range"
+                  min={-50}
+                  max={100}
+                  step={5}
+                  value={ttsSpeed}
+                  onChange={(e) => void setTtsSpeed(Number(e.target.value))}
+                  className="h-2 w-36 cursor-pointer accent-accent"
+                />
+                {ttsSpeed !== 15 && (
+                  <button
+                    type="button"
+                    onClick={() => void setTtsSpeed(15)}
+                    className="text-xs text-text-subtle hover:text-text transition-colors whitespace-nowrap"
+                  >
+                    {t('settings.tts.resetSpeed')}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+              <div className="text-sm font-medium text-text">{t('settings.tts.apiKeyTitle')}</div>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {t('settings.tts.apiKeyDescription')}
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder={t('settings.tts.apiKeyPlaceholder')}
+                  className="w-80 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)]"
+                />
+                <Button
+                  onClick={() => void setTtsApiKey(apiKeyInput)}
+                  disabled={apiKeyInput === (settings?.ttsApiKey ?? '')}
+                >
+                  {t('settings.tts.saveApiKey')}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="mt-8">

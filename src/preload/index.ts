@@ -37,6 +37,13 @@ const roxy: RoxyApi = {
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
     setLanguage: (language) => ipcRenderer.invoke(CHANNELS.settingsSetLanguage, language),
     setMotion: (motion) => ipcRenderer.invoke(CHANNELS.settingsSetMotion, motion),
+    setTtsEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsEnabled, enabled),
+    setTtsAutoStart: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsAutoStart, enabled),
+    setTtsMode: (mode) => ipcRenderer.invoke(CHANNELS.settingsSetTtsMode, mode),
+    setTtsTranslate: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsTranslate, enabled),
+    setTtsLang: (lang) => ipcRenderer.invoke(CHANNELS.settingsSetTtsLang, lang),
+    setTtsSpeed: (speed) => ipcRenderer.invoke(CHANNELS.settingsSetTtsSpeed, speed),
+    setTtsApiKey: (apiKey) => ipcRenderer.invoke(CHANNELS.settingsSetTtsApiKey, apiKey),
     onMotionChanged: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, motion: MotionPreference): void =>
         callback(motion)
@@ -141,6 +148,24 @@ const roxy: RoxyApi = {
   system: {
     getVersions: () => ipcRenderer.invoke(CHANNELS.systemGetVersions),
     openExternal: (url) => ipcRenderer.invoke(CHANNELS.systemOpenExternal, url)
+  },
+  tts: {
+    getStatus: () => ipcRenderer.invoke(CHANNELS.ttsGetStatus),
+    install: () => ipcRenderer.invoke(CHANNELS.ttsInstallDependencies),
+    startServer: () => ipcRenderer.invoke(CHANNELS.ttsStartServer),
+    stopServer: () => ipcRenderer.invoke(CHANNELS.ttsStopServer),
+    getServerLogs: () => ipcRenderer.invoke(CHANNELS.ttsGetServerLogs),
+    clearServerLogs: () => ipcRenderer.invoke(CHANNELS.ttsClearServerLogs),
+    onInstallProgress: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
+      ipcRenderer.on(CHANNELS.ttsInstallProgress, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.ttsInstallProgress, handler)
+    },
+    onServerLog: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
+      ipcRenderer.on(CHANNELS.ttsServerLog, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.ttsServerLog, handler)
+    }
   },
   clipboard: {
     hasContent: () => ipcRenderer.invoke(CHANNELS.clipboardHasContent),

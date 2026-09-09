@@ -9,8 +9,17 @@ files:
   - '!{.eslintignore,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,bun.lockb}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+extraResources:
+  - from: RoxyMigurdia
+    to: RoxyMigurdia
+  - from: script/rvc_tts_server.py
+    to: script/rvc_tts_server.py
+  - from: script/setup_tts_env.py
+    to: script/setup_tts_env.py
 asarUnpack:
   - resources/**
+  - RoxyMigurdia/**
+  - script/**
 win:
   executableName: roxy
 nsis:
