@@ -1,36 +1,23 @@
 name: Release
 
-# Auto-release on a version bump. When a push to `main` changes package.json,
-# a release tag (`v*`) is pushed, or workflow_dispatch is triggered, this
-# builds installers for Windows, macOS and Linux, uploads them to a DRAFT
-# GitHub Release, and — once builds succeed — flips the release to published
-# so users and the auto-updater can download it.
+# Auto-release on a version bump. When a push to `main` changes package.json and
+# that version hasn't been published yet, this builds installers for Windows,
+# macOS and Linux, uploads them to a DRAFT GitHub Release, and — only once ALL
+# three platforms succeed — flips the release to published so the auto-updater
+# and users can download it. Typical flow:
+#
+#   npm version patch     # bumps package.json to the next version
+#   git push              # merge to main → this workflow runs and releases it
+#
+# No version change → no release (the guard below skips it). You can also run it
+# by hand from the Actions tab (workflow_dispatch) for whatever version is in
+# package.json.
 
 on:
   push:
     branches: [main]
     paths: ['package.json']
-    tags: ['v*']
   workflow_dispatch:
-    inputs:
-      platform:
-        description: 'Platforms to build (all, windows, macos, linux)'
-        required: false
-        default: 'windows'
-        type: choice
-        options:
-          - all
-          - windows
-          - macos
-          - linux
-      force:
-        description: 'Force release even if already published'
-        type: boolean
-        default: false
-      draft:
-        description: 'Keep release as draft'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -44,45 +31,26 @@ jobs:
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
-      is_draft: ${{ steps.check.outputs.is_draft }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          FORCE: ${{ inputs.force }}
-          DRAFT_ONLY: ${{ inputs.draft }}
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION=$(node -p "require('./package.json').version")
-          fi
+          VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "is_draft=${DRAFT_ONLY:-false}" >> "$GITHUB_OUTPUT"
-
-          if [ "$FORCE" = "true" ]; then
-            echo "Force release requested for v$VERSION."
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if gh release view "v$VERSION" --repo "$GH_REPO" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q '^false$'; then
-            echo "v$VERSION is already published in $GH_REPO — nothing to do."
+          if gh release view "v$VERSION" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q '^false$'; then
+            echo "v$VERSION is already published — nothing to do."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Releasing v$VERSION for $GH_REPO."
+            echo "Releasing v$VERSION."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
   # Build + upload each OS's installers to the (draft) release for this version.
   build:
     needs: guard
-    if: |
-      needs.guard.outputs.should_release == 'true'
+    if: needs.guard.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -94,37 +62,14 @@ jobs:
         os: [windows-2022, macos-15, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Check platform filter
-        id: filter
-        shell: bash
-        run: |
-          TARGET="${{ inputs.platform }}"
-          RUNNER_OS="${{ matrix.os }}"
-          if [ -z "$TARGET" ] || [ "$TARGET" = "all" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$TARGET" = "windows" ] && [ "$RUNNER_OS" = "windows-2022" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$TARGET" = "macos" ] && [ "$RUNNER_OS" = "macos-15" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$TARGET" = "linux" ] && [ "$RUNNER_OS" = "ubuntu-latest" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
-        if: steps.filter.outputs.run == 'true'
-        with:
-          lfs: true
 
       - uses: actions/setup-node@v4
-        if: steps.filter.outputs.run == 'true'
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
       - name: Install dependencies
-        if: steps.filter.outputs.run == 'true'
         # --ignore-scripts skips native postinstall builds (better-sqlite3 tries
         # to compile for Node here and fails: npm's bundled node-gyp can't detect
         # the runner's newest Visual Studio). We don't need a Node-ABI binary —
@@ -133,11 +78,15 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Build renderer + main
-        if: steps.filter.outputs.run == 'true'
         run: npm run build
 
       - name: Verify macOS signing secrets
-        if: steps.filter.outputs.run == 'true' && runner.os == 'macOS'
+        # Fail fast (in ~1s) with a clear message if the mac signing/notarization
+        # secrets are misconfigured, instead of dying 60s deep in electron-builder
+        # with a cryptic "APPLE_* env var needs to be set". All five must be set
+        # together (or none, for unsigned fork builds); a partial set is the usual
+        # mistake — e.g. `gh secret set X` that stored an empty value.
+        if: runner.os == 'macOS'
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -150,71 +99,58 @@ jobs:
             [ -z "${!v}" ] && missing+=("$v")
           done
           if [ "${#missing[@]}" -eq 5 ]; then
-            echo "::notice::No macOS signing secrets set — building UNSIGNED."
+            echo "::notice::No macOS signing secrets set — building UNSIGNED (ok for forks/PRs)."
             exit 0
           fi
           if [ "${#missing[@]}" -ne 0 ]; then
-            echo "::warning::macOS signing/notarization is partially configured. Building unsigned."
-            exit 0
+            echo "::error::macOS signing/notarization is partially configured. Empty/missing secret(s): ${missing[*]}"
+            echo "Re-set each blank secret (they are write-only, so an empty 'gh secret set' looks 'set' but isn't):"
+            for v in "${missing[@]}"; do
+              case "$v" in
+                CSC_LINK)            echo "    gh secret set MAC_CSC_LINK          # base64 of the Developer ID .p12";;
+                CSC_KEY_PASSWORD)    echo "    gh secret set MAC_CSC_KEY_PASSWORD  # the .p12 export password";;
+                *)                   echo "    gh secret set $v";;
+              esac
+            done
+            echo "Or run the helper:  bash script/setup-mac-ci-secrets.sh   (see SIGNING.md)"
+            exit 1
           fi
           echo "✓ All 5 macOS signing/notarization secrets are present."
 
       - name: Package & upload to the draft release
-        if: steps.filter.outputs.run == 'true'
-        shell: bash
-        run: |
-          EXTRA_FLAGS=""
-          if [ "$RUNNER_OS" = "macOS" ] && [ -z "$MAC_CSC_LINK" ]; then
-            echo "Building unsigned macOS binaries (disabling notarization and signing identity)"
-            EXTRA_FLAGS="-c.mac.identity=null -c.mac.notarize=false"
-          fi
-          npx --no-install electron-builder --publish always $EXTRA_FLAGS
+        run: npx --no-install electron-builder --publish always
         env:
           # Provided automatically by Actions; lets electron-builder upload assets.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
 
           # ----- macOS signing + notarization (Apple Developer ID) -----
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          # Scoped to the macOS runner on purpose: CSC_LINK is ALSO the Windows
+          # signing variable, so exposing the mac .p12 to the Windows job would
+          # make it try to sign the .exe with a mac cert and fail. The APPLE_*
+          # trio drives notarytool (all three must be set together or the mac
+          # build errors; if none are set, notarization is skipped with a warning).
+          # Set these once via `bash script/setup-mac-ci-secrets.sh` — see SIGNING.md.
           CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false
 
-  # Publish the release once build jobs finish. Runs even if a non-fatal runner
-  # issue occurred, as long as the run wasn't cancelled.
+          # ----- Windows code signing (Azure Artifact Signing) — TODO -----
+          # AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          # AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          # AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+  # Every platform uploaded successfully → make the release live (creates the
+  # vX.Y.Z tag and lets the auto-updater pick it up). If any build failed, the
+  # release stays a draft so a half-finished version never ships.
   publish:
     needs: [guard, build]
-    if: |
-      always() &&
-      needs.guard.outputs.should_release == 'true' &&
-      needs.guard.outputs.is_draft != 'true' &&
-      needs.build.result != 'cancelled' &&
-      needs.build.result != 'skipped'
+    if: needs.guard.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          VERSION="v${{ needs.guard.outputs.version }}"
-          echo "Publishing release $VERSION in $GH_REPO..."
-          if gh release view "$VERSION" --repo "$GH_REPO" 2>/dev/null; then
-            gh release edit "$VERSION" --repo "$GH_REPO" --draft=false --latest
-            echo "✓ Release $VERSION published successfully."
-          else
-            echo "Release $VERSION not found by exact tag. Checking draft releases in $GH_REPO..."
-            DRAFT_TAG=$(gh release list --repo "$GH_REPO" --json tagName,isDraft --jq '.[] | select(.isDraft == true) | .tagName' | head -n 1)
-            if [ -n "$DRAFT_TAG" ]; then
-              echo "Publishing draft release $DRAFT_TAG..."
-              gh release edit "$DRAFT_TAG" --repo "$GH_REPO" --draft=false --latest
-              echo "✓ Draft release $DRAFT_TAG published successfully."
-            else
-              echo "::error::No draft release found to publish in $GH_REPO."
-              exit 1
-            fi
-          fi
+        run: gh release edit "v${{ needs.guard.outputs.version }}" --draft=false --latest
