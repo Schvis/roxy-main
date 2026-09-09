@@ -1,23 +1,26 @@
 name: Release
 
-# Auto-release on a version bump. When a push to `main` changes package.json and
-# that version hasn't been published yet, this builds installers for Windows,
-# macOS and Linux, uploads them to a DRAFT GitHub Release, and — only once ALL
-# three platforms succeed — flips the release to published so the auto-updater
-# and users can download it. Typical flow:
-#
-#   npm version patch     # bumps package.json to the next version
-#   git push              # merge to main → this workflow runs and releases it
-#
-# No version change → no release (the guard below skips it). You can also run it
-# by hand from the Actions tab (workflow_dispatch) for whatever version is in
-# package.json.
+# Auto-release on a version bump. When a push to `main` changes package.json,
+# a release tag (`v*`) is pushed, or workflow_dispatch is triggered, this
+# builds installers for Windows, macOS and Linux, uploads them to a DRAFT
+# GitHub Release, and — only once ALL three platforms succeed — flips the
+# release to published so the auto-updater and users can download it.
 
 on:
   push:
     branches: [main]
     paths: ['package.json']
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force release even if already published'
+        type: boolean
+        default: false
+      draft:
+        description: 'Keep release as draft'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -31,19 +34,37 @@ jobs:
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
+      is_draft: ${{ steps.check.outputs.is_draft }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          FORCE: ${{ inputs.force }}
+          DRAFT_ONLY: ${{ inputs.draft }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if gh release view "v$VERSION" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q '^false$'; then
-            echo "v$VERSION is already published — nothing to do."
+          echo "is_draft=${DRAFT_ONLY:-false}" >> "$GITHUB_OUTPUT"
+
+          if [ "$FORCE" = "true" ]; then
+            echo "Force release requested for v$VERSION."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if gh release view "v$VERSION" --repo "$GH_REPO" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q '^false$'; then
+            echo "v$VERSION is already published in $GH_REPO — nothing to do."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Releasing v$VERSION."
+            echo "Releasing v$VERSION for $GH_REPO."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -63,10 +84,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -122,6 +145,7 @@ jobs:
         env:
           # Provided automatically by Actions; lets electron-builder upload assets.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
           # ----- macOS signing + notarization (Apple Developer ID) -----
           # Scoped to the macOS runner on purpose: CSC_LINK is ALSO the Windows
@@ -146,11 +170,12 @@ jobs:
   # release stays a draft so a half-finished version never ships.
   publish:
     needs: [guard, build]
-    if: needs.guard.outputs.should_release == 'true'
+    if: needs.guard.outputs.should_release == 'true' && needs.guard.outputs.is_draft != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ needs.guard.outputs.version }}" --draft=false --latest
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "v${{ needs.guard.outputs.version }}" --repo "$GH_REPO" --draft=false --latest
