@@ -237,6 +237,19 @@ async function main(): Promise<void> {
   repo.setTtsApiKey('test-key:fx')
   check('setTtsApiKey persists', repo.getSettings().ttsApiKey === 'test-key:fx')
 
+  check('tts provider defaults to local', repo.getSettings().ttsProvider === 'local')
+  repo.setTtsProvider('fish')
+  check('setTtsProvider persists', repo.getSettings().ttsProvider === 'fish')
+  check('fish audio api key defaults to empty', repo.getSettings().fishAudioApiKey === '')
+  repo.setFishAudioApiKey('fish_secret_123')
+  check('setFishAudioApiKey persists', repo.getSettings().fishAudioApiKey === 'fish_secret_123')
+  check('fish audio model defaults to s2.1-pro', repo.getSettings().fishAudioModel === 's2.1-pro')
+  repo.setFishAudioModel('s2.1-pro-free')
+  check('setFishAudioModel persists', repo.getSettings().fishAudioModel === 's2.1-pro-free')
+  check('fish audio voice defaults to empty', repo.getSettings().fishAudioVoice === '')
+  repo.setFishAudioVoice('voice_ref_abc')
+  check('setFishAudioVoice persists', repo.getSettings().fishAudioVoice === 'voice_ref_abc')
+
   check('vtuber disabled by default', repo.getSettings().vtuberEnabled === false)
   check(
     'vtuber model path defaults to roxy',

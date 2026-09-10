@@ -167,6 +167,10 @@ export function getSettings(): AppSettings {
     ttsLang: map.get('tts_lang') ?? 'ja',
     ttsSpeed: map.has('tts_speed') ? Number(map.get('tts_speed')) : 15,
     ttsApiKey: map.get('tts_api_key') ?? '',
+    ttsProvider: map.get('tts_provider') === 'fish' ? 'fish' : 'local',
+    fishAudioApiKey: map.get('fish_audio_api_key') ?? '',
+    fishAudioModel: map.get('fish_audio_model') ?? 's2.1-pro',
+    fishAudioVoice: map.get('fish_audio_voice') ?? '',
     vtuberEnabled: map.get('vtuber_enabled') === '1',
     vtuberModelPath:
       map.get('vtuber_model_path') && !map.get('vtuber_model_path')?.includes('roxy')
@@ -400,6 +404,26 @@ export function setTtsSpeed(speed: number): AppSettings {
 
 export function setTtsApiKey(apiKey: string): AppSettings {
   setSetting('tts_api_key', apiKey.trim())
+  return getSettings()
+}
+
+export function setTtsProvider(provider: 'local' | 'fish'): AppSettings {
+  setSetting('tts_provider', provider === 'fish' ? 'fish' : 'local')
+  return getSettings()
+}
+
+export function setFishAudioApiKey(apiKey: string): AppSettings {
+  setSetting('fish_audio_api_key', apiKey.trim())
+  return getSettings()
+}
+
+export function setFishAudioModel(model: string): AppSettings {
+  setSetting('fish_audio_model', model.trim() || 's2.1-pro')
+  return getSettings()
+}
+
+export function setFishAudioVoice(voice: string): AppSettings {
+  setSetting('fish_audio_voice', voice.trim())
   return getSettings()
 }
 

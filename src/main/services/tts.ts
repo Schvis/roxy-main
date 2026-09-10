@@ -6,8 +6,9 @@
  */
 import type { LlmEvent } from '../../shared/api'
 import type { AppSettings } from '../../shared/types'
+import { CHANNELS } from '../../shared/ipc'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { getSettings } from '../db/repo'
@@ -529,7 +530,180 @@ export async function translateText(text: string, targetLang: string): Promise<s
   }
 }
 
-/** Send sentence to background RVC voice daemon. */
+interface PendingPlayback {
+  id: string
+  resolveReady: (duration: number) => void
+  resolveEnded: () => void
+  timer?: NodeJS.Timeout
+}
+
+const pendingPlaybacks = new Map<string, PendingPlayback>()
+
+export function handleAudioReady(id: string, duration: number): void {
+  const p = pendingPlaybacks.get(id)
+  if (p) {
+    p.resolveReady(duration)
+  }
+}
+
+export function handleAudioEnded(id: string): void {
+  const p = pendingPlaybacks.get(id)
+  if (p) {
+    if (p.timer) clearTimeout(p.timer)
+    p.resolveEnded()
+    pendingPlaybacks.delete(id)
+  }
+}
+
+export function stopRendererAudio(): void {
+  for (const [, p] of pendingPlaybacks) {
+    if (p.timer) clearTimeout(p.timer)
+    p.resolveEnded()
+  }
+  pendingPlaybacks.clear()
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(CHANNELS.ttsStopAudio)
+    }
+  }
+}
+
+export async function playAudioBufferInRenderer(
+  buffer: Buffer,
+  format = 'audio/mp3',
+  text?: string,
+  signal?: AbortSignal
+): Promise<{ duration: number; serverOk: boolean }> {
+  if (signal?.aborted) return { duration: 0, serverOk: false }
+
+  const id = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const fallbackDuration = Math.max(1, Math.round((buffer.length / 16000) * 10) / 10)
+
+  const windows = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed())
+  if (windows.length === 0) {
+    appendTtsServerLog('[TTS Player] No active window available for audio playback.\n')
+    return { duration: fallbackDuration, serverOk: false }
+  }
+
+  const targetWin = windows.find((w) => w.isVisible() && !w.isMinimized()) || windows[0]
+
+  return new Promise<{ duration: number; serverOk: boolean }>((resolve) => {
+    let resolved = false
+
+    const cleanup = () => {
+      signal?.removeEventListener('abort', onAbort)
+      const p = pendingPlaybacks.get(id)
+      if (p?.timer) clearTimeout(p.timer)
+      pendingPlaybacks.delete(id)
+    }
+
+    const onAbort = () => {
+      if (resolved) return
+      resolved = true
+      cleanup()
+      stopRendererAudio()
+      resolve({ duration: 0, serverOk: false })
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+
+    const timeoutTimer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        signal?.removeEventListener('abort', onAbort)
+        notifySpeaking(true, text)
+        resolve({ duration: fallbackDuration, serverOk: true })
+      }
+    }, 3500)
+
+    pendingPlaybacks.set(id, {
+      id,
+      timer: timeoutTimer,
+      resolveReady: (duration) => {
+        if (!resolved) {
+          resolved = true
+          clearTimeout(timeoutTimer)
+          signal?.removeEventListener('abort', onAbort)
+          const actualDuration =
+            Number.isFinite(duration) && duration > 0 ? duration : fallbackDuration
+          notifySpeaking(true, text)
+          resolve({ duration: actualDuration, serverOk: true })
+        }
+      },
+      resolveEnded: () => {
+        // audio completed
+      }
+    })
+
+    targetWin.webContents.send(CHANNELS.ttsPlayAudio, {
+      id,
+      audioBase64: buffer.toString('base64'),
+      format,
+      text
+    })
+  })
+}
+
+export async function synthesizeFishAudio(
+  text: string,
+  settings: AppSettings,
+  signal?: AbortSignal
+): Promise<Buffer> {
+  const apiKey = settings.fishAudioApiKey?.trim()
+  if (!apiKey) {
+    throw new Error('Fish Audio API key is not configured in Settings.')
+  }
+
+  const model = settings.fishAudioModel?.trim() || 's2.1-pro'
+  const voiceId = settings.fishAudioVoice?.trim() || undefined
+  const speed = settings.ttsSpeed ?? 15
+  const speedMultiplier = Math.max(0.5, Math.min(2.0, Math.round((1 + speed / 100) * 100) / 100))
+
+  const body: Record<string, unknown> = {
+    text,
+    format: 'mp3',
+    prosody: {
+      speed: speedMultiplier
+    }
+  }
+  if (voiceId) {
+    body.reference_id = voiceId
+  }
+
+  appendTtsServerLog(`[Fish Audio] Synthesizing (${model}): "${text.slice(0, 50)}..."\n`)
+
+  const res = await fetch('https://api.fish.audio/v1/tts', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      model
+    },
+    body: JSON.stringify(body),
+    signal
+  })
+
+  if (!res.ok) {
+    let errorDetail = res.statusText
+    try {
+      const errData = (await res.json()) as { message?: string; reason?: string }
+      if (errData?.message) {
+        errorDetail = errData.message + (errData.reason ? ` (${errData.reason})` : '')
+      }
+    } catch {
+      // ignore
+    }
+    const errMsg = `Fish Audio request failed (${res.status}): ${errorDetail}`
+    appendTtsServerLog(`[Fish Audio ERROR] ${errMsg}\n`)
+    throw new Error(errMsg)
+  }
+
+  const arrayBuffer = await res.arrayBuffer()
+  return Buffer.from(arrayBuffer)
+}
+
+/** Send sentence to voice system (local RVC daemon or Fish Audio API). */
 export async function speakSentence(
   text: string,
   targetLang?: string,
@@ -537,6 +711,12 @@ export async function speakSentence(
 ): Promise<void> {
   const trimmed = text.trim()
   if (!trimmed) return
+
+  const settings = getSettings()
+  if (settings.ttsProvider === 'fish') {
+    void speakSentenceAndWait(trimmed, undefined, targetLang, speed, undefined, settings)
+    return
+  }
 
   const lang = targetLang || TTS_LANG || 'ja'
   const rate = formatRate(speed)
@@ -553,16 +733,36 @@ export async function speakSentence(
   }
 }
 
-/** Send sentence to voice daemon and wait until audio generation is ready and playing. Returns audio duration in seconds. */
+/** Send sentence to voice system and wait until audio generation is ready and playing. Returns audio duration in seconds. */
 export async function speakSentenceAndWait(
   text: string,
   apiKey?: string,
   targetLang?: string,
   speed?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  customSettings?: AppSettings
 ): Promise<{ duration: number; serverOk: boolean }> {
   const trimmed = text.trim()
   if (!trimmed || signal?.aborted) return { duration: 0, serverOk: false }
+
+  const settings = customSettings || getSettings()
+
+  if (settings.ttsProvider === 'fish') {
+    try {
+      let textToSynthesize = trimmed
+      const lang =
+        targetLang || (settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja')
+      if (settings.ttsTranslate && lang !== 'none') {
+        textToSynthesize = await translateText(trimmed, lang)
+      }
+      const audioBuffer = await synthesizeFishAudio(textToSynthesize, settings, signal)
+      return await playAudioBufferInRenderer(audioBuffer, 'audio/mp3', trimmed, signal)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      appendTtsServerLog(`[Fish Audio] Failed: ${msg}\n`)
+      return { duration: 0, serverOk: false }
+    }
+  }
 
   const lang = targetLang || TTS_LANG || 'ja'
   const rate = formatRate(speed)
@@ -610,6 +810,7 @@ export async function speakSentenceAndWait(
 /** Stop audio playback immediately and clear queue. */
 export async function stopTts(): Promise<void> {
   notifySpeaking(false)
+  stopRendererAudio()
   try {
     await fetch(`${TTS_URL}/stop`, {
       method: 'POST',
@@ -618,6 +819,35 @@ export async function stopTts(): Promise<void> {
   } catch {
     // Ignore
   }
+}
+
+/** Test voice synthesis for current settings. */
+export async function testTtsVoice(sampleText?: string): Promise<{ ok: boolean; error?: string }> {
+  const settings = getSettings()
+  if (settings.ttsProvider === 'fish') {
+    if (!settings.fishAudioApiKey?.trim()) {
+      return { ok: false, error: 'Fish Audio API key is not configured.' }
+    }
+    try {
+      let text = sampleText?.trim() || 'Hello! Welcome to Fish Audio on Roxy.'
+      const lang = settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja'
+      if (settings.ttsTranslate && lang !== 'none') {
+        text = await translateText(text, lang)
+      }
+      const audioBuffer = await synthesizeFishAudio(text, settings)
+      const res = await playAudioBufferInRenderer(audioBuffer, 'audio/mp3', text)
+      return { ok: res.serverOk }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  if (!(await isTtsServerAlive())) {
+    return { ok: false, error: 'Local TTS server is offline. Start it first.' }
+  }
+  const text = sampleText?.trim() || 'Roxy local voice server is operational.'
+  await speakSentence(text)
+  return { ok: true }
 }
 
 /** Check if RVC voice server is responding. */
@@ -732,7 +962,8 @@ export class SyncTtsStreamer {
         this.settings.ttsApiKey,
         effectiveLang,
         this.settings.ttsSpeed,
-        this.abortController.signal
+        this.abortController.signal,
+        this.settings
       )
       // 2. Server is ready! Display message in chat at exact moment it plays
       if (!this.aborted) {
@@ -771,7 +1002,8 @@ export class SyncTtsStreamer {
           this.settings.ttsApiKey,
           effectiveLang,
           this.settings.ttsSpeed,
-          this.abortController.signal
+          this.abortController.signal,
+          this.settings
         )
         if (!this.aborted && entireText) {
           this.onDisplay(entireText)

@@ -1,4 +1,13 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  screen,
+  shell
+} from 'electron'
 import { CHANNELS } from '../../shared/ipc'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, type MotionPreference } from '../../shared/motion'
@@ -74,7 +83,10 @@ import {
   setSpeakingStateListener,
   getAvailableTtsModels,
   getTtsModelsDir,
-  setServerTtsModel
+  setServerTtsModel,
+  testTtsVoice,
+  handleAudioReady,
+  handleAudioEnded
 } from '../services/tts'
 import {
   transcribeAudio,
@@ -316,6 +328,18 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetTtsLang, (_e, lang: string) => repo.setTtsLang(lang))
   ipcMain.handle(CHANNELS.settingsSetTtsSpeed, (_e, speed: number) => repo.setTtsSpeed(speed))
   ipcMain.handle(CHANNELS.settingsSetTtsApiKey, (_e, apiKey: string) => repo.setTtsApiKey(apiKey))
+  ipcMain.handle(CHANNELS.settingsSetTtsProvider, (_e, provider: 'local' | 'fish') =>
+    repo.setTtsProvider(provider)
+  )
+  ipcMain.handle(CHANNELS.settingsSetFishAudioApiKey, (_e, apiKey: string) =>
+    repo.setFishAudioApiKey(apiKey)
+  )
+  ipcMain.handle(CHANNELS.settingsSetFishAudioModel, (_e, model: string) =>
+    repo.setFishAudioModel(model)
+  )
+  ipcMain.handle(CHANNELS.settingsSetFishAudioVoice, (_e, voice: string) =>
+    repo.setFishAudioVoice(voice)
+  )
   function broadcastSettings(settings: AppSettings): void {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
@@ -401,6 +425,13 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.ttsOpenModelsFolder, async () => {
     const dir = getTtsModelsDir()
     await shell.openPath(dir)
+  })
+  ipcMain.handle(CHANNELS.ttsTestVoice, (_e, text?: string) => testTtsVoice(text))
+  ipcMain.handle(CHANNELS.ttsAudioReady, (_e, id: string, duration: number) => {
+    handleAudioReady(id, duration)
+  })
+  ipcMain.handle(CHANNELS.ttsAudioEnded, (_e, id: string) => {
+    handleAudioEnded(id)
   })
 
   ipcMain.handle(
@@ -839,6 +870,9 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.clipboardExec, (event, action: ClipboardAction, linkUrl?: string) =>
     runClipboardAction(event.sender, action, linkUrl)
   )
+  ipcMain.handle(CHANNELS.clipboardWriteText, (_event, text: string) => {
+    clipboard.writeText(text)
+  })
 
   // ---- auto-update (GitHub Releases) ----
   ipcMain.handle(CHANNELS.updateCheck, () => checkForUpdates())

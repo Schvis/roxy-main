@@ -754,6 +754,10 @@ export interface RoxyApi {
     setTtsLang(lang: string): Promise<AppSettings>
     setTtsSpeed(speed: number): Promise<AppSettings>
     setTtsApiKey(apiKey: string): Promise<AppSettings>
+    setTtsProvider(provider: 'local' | 'fish'): Promise<AppSettings>
+    setFishAudioApiKey(apiKey: string): Promise<AppSettings>
+    setFishAudioModel(model: string): Promise<AppSettings>
+    setFishAudioVoice(voice: string): Promise<AppSettings>
     setVtuberEnabled(enabled: boolean): Promise<AppSettings>
     setVtuberModelPath(path: string): Promise<AppSettings>
     setVtuberVisionEnabled(enabled: boolean): Promise<AppSettings>
@@ -936,6 +940,18 @@ export interface RoxyApi {
     }>
     openModelsFolder(): Promise<void>
     onSpeakingState(callback: (state: { speaking: boolean; text?: string }) => void): () => void
+    testVoice(text?: string): Promise<{ ok: boolean; error?: string }>
+    onPlayAudio(
+      callback: (payload: {
+        id: string
+        audioBase64: string
+        format: string
+        text?: string
+      }) => void
+    ): () => void
+    onStopAudio(callback: () => void): () => void
+    notifyAudioReady(id: string, duration: number): Promise<void>
+    notifyAudioEnded(id: string): Promise<void>
   }
   vtuber: {
     openWindow(): Promise<void>
@@ -995,6 +1011,11 @@ export interface RoxyApi {
      * the keyboard shortcut would have done.
      */
     exec(action: ClipboardAction, linkUrl?: string): Promise<void>
+    /**
+     * Write text directly to the OS clipboard via the native clipboard API,
+     * bypassing web focus and permission requirements.
+     */
+    writeText(text: string): Promise<void>
   }
   updates: {
     /** Manually trigger an update check. */

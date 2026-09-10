@@ -25,6 +25,7 @@ import { CanvasMenu, type CanvasMenuItem } from './CanvasMenu'
 import { openLink } from './links'
 import { diffPatch } from '../components/diff/model'
 import { prefersReducedMotion, subscribeMotion } from '../lib/motion'
+import { writeClipboardText } from '../lib/clipboard'
 import { PromptHistoryRail } from './PromptHistoryRail'
 import { activePrompt, PROMPT_OFFSET, type PromptAnchor, type PromptEntry } from './prompt-history'
 
@@ -509,10 +510,9 @@ export function CanvasSurface({
   }, [size])
 
   const copy = (value: string): void => {
-    void navigator.clipboard.writeText(value).then(
-      () => setStatus(t('chat.copied')),
-      () => setStatus(t('transcript.copyFailed'))
-    )
+    void writeClipboardText(value).then((ok) => {
+      setStatus(ok ? t('chat.copied') : t('transcript.copyFailed'))
+    })
   }
   const selectAll = (): void => {
     const rows = scene.current.blocks.flatMap((block) => block.selectable)

@@ -163,7 +163,10 @@ function layoutMessage(
     )
   }
   const height = cursor - y + SPACE.messagePadY
-  return { ...builder.finish(message.id, y, height), copyText: () => partsText(message.parts) }
+  return {
+    ...builder.finish(message.id, y, height),
+    copyText: () => partsText(message.parts) || message.content || ''
+  }
 }
 
 export function layoutMessageHeader(

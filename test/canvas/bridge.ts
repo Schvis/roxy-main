@@ -81,7 +81,13 @@ window.roxy = {
       window.__canvasTest.opened.push(url)
     }
   },
-  clipboard: { hasContent: async () => false, exec: async () => {} }
+  clipboard: {
+    hasContent: async () => false,
+    exec: async () => {},
+    writeText: async (text: string) => {
+      window.__canvasTest.copied.push(text)
+    }
+  }
 } as unknown as typeof window.roxy
 Object.defineProperty(navigator.clipboard, 'writeText', {
   value: async (text: string) => {

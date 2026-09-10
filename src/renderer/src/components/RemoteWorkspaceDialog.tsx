@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy, Loader2, MonitorSmartphone, ShieldCheck, Smartphone, X } from 'lucide-react'
 import { useRoxyStore } from '../lib/store'
+import { writeClipboardText } from '../lib/clipboard'
 import { Button } from './ui'
 
 /**
@@ -55,12 +56,10 @@ export function RemoteWorkspaceDialog({ onClose }: { onClose: () => void }): JSX
 
   const copyUrl = async (): Promise<void> => {
     if (!remote.url) return
-    try {
-      await navigator.clipboard.writeText(remote.url)
+    const ok = await writeClipboardText(remote.url)
+    if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard can be denied — the URL is still visible to copy manually.
     }
   }
 

@@ -14,6 +14,7 @@ import { AUTH_LABELS, SEED_PROVIDERS, isConnectableNow, resolveSeed } from '@sha
 import { pickDefaultModel } from '@shared/models'
 import type { DeviceFlowStart, SeedProvider } from '@shared/types'
 import { api } from '../../lib/api'
+import { writeClipboardText } from '../../lib/clipboard'
 import { useRoxyStore } from '../../lib/store'
 import { Button, Input } from '../../components/ui'
 import { ProviderLogo } from '../../lib/providerLogos'
@@ -378,9 +379,11 @@ function CopilotSetup({ onConnected }: { onConnected: () => void }): JSX.Element
 
   const copyCode = async (): Promise<void> => {
     if (!flow) return
-    await navigator.clipboard.writeText(flow.userCode)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    const ok = await writeClipboardText(flow.userCode)
+    if (ok) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
   }
 
   if (status === 'idle') {

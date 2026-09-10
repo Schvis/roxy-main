@@ -89,6 +89,10 @@ export default function Settings(): JSX.Element {
   const setTtsLang = useRoxyStore((s) => s.setTtsLang)
   const setTtsSpeed = useRoxyStore((s) => s.setTtsSpeed)
   const setTtsApiKey = useRoxyStore((s) => s.setTtsApiKey)
+  const setTtsProvider = useRoxyStore((s) => s.setTtsProvider)
+  const setFishAudioApiKey = useRoxyStore((s) => s.setFishAudioApiKey)
+  const setFishAudioModel = useRoxyStore((s) => s.setFishAudioModel)
+  const setFishAudioVoice = useRoxyStore((s) => s.setFishAudioVoice)
   const setVtuberEnabled = useRoxyStore((s) => s.setVtuberEnabled)
   const setVtuberModelPath = useRoxyStore((s) => s.setVtuberModelPath)
   const setVtuberVisionEnabled = useRoxyStore((s) => s.setVtuberVisionEnabled)
@@ -109,6 +113,10 @@ export default function Settings(): JSX.Element {
   const [sampleStatus, setSampleStatus] = useState<string | null>(null)
   const [newWakeWord, setNewWakeWord] = useState('')
   const [apiKeyInput, setApiKeyInput] = useState(settings?.ttsApiKey ?? '')
+  const [fishApiKeyInput, setFishApiKeyInput] = useState(settings?.fishAudioApiKey ?? '')
+  const [fishVoiceInput, setFishVoiceInput] = useState(settings?.fishAudioVoice ?? '')
+  const [testingVoice, setTestingVoice] = useState(false)
+  const [testVoiceFeedback, setTestVoiceFeedback] = useState<string | null>(null)
   const [cameraList, setCameraList] = useState<{ deviceId: string; label: string }[]>([])
   const [modelPathInput, setModelPathInput] = useState(settings?.vtuberModelPath ?? '')
   const prefixError = branchPrefixError(prefix)
@@ -654,6 +662,35 @@ export default function Settings(): JSX.Element {
     setApiKeyInput(settings?.ttsApiKey ?? '')
   }, [settings?.ttsApiKey])
 
+  useEffect(() => {
+    setFishApiKeyInput(settings?.fishAudioApiKey ?? '')
+  }, [settings?.fishAudioApiKey])
+
+  useEffect(() => {
+    setFishVoiceInput(settings?.fishAudioVoice ?? '')
+  }, [settings?.fishAudioVoice])
+
+  const handleTestVoice = async (): Promise<void> => {
+    setTestingVoice(true)
+    setTestVoiceFeedback(null)
+    try {
+      const res = await api.tts.testVoice()
+      if (res.ok) {
+        setTestVoiceFeedback(t('settings.tts.testVoiceSuccess'))
+      } else {
+        setTestVoiceFeedback(
+          res.error
+            ? `${t('settings.tts.testVoiceFailed')}: ${res.error}`
+            : t('settings.tts.testVoiceFailed')
+        )
+      }
+    } catch (err) {
+      setTestVoiceFeedback(err instanceof Error ? err.message : t('settings.tts.testVoiceFailed'))
+    } finally {
+      setTestingVoice(false)
+    }
+  }
+
   const ttsEnabled = settings?.ttsEnabled ?? false
   const ttsAutoStart = settings?.ttsAutoStart ?? false
   const ttsModel = settings?.ttsModel ?? 'roxy_e660_s4620.pth'
@@ -661,6 +698,8 @@ export default function Settings(): JSX.Element {
   const ttsTranslate = settings?.ttsTranslate ?? true
   const ttsLang = settings?.ttsLang ?? 'ja'
   const ttsSpeed = settings?.ttsSpeed ?? 15
+  const ttsProvider = settings?.ttsProvider ?? 'local'
+  const fishAudioModel = settings?.fishAudioModel ?? 's2.1-pro'
 
   const renderGeneral = (): JSX.Element => (
     <>
@@ -1507,160 +1546,315 @@ export default function Settings(): JSX.Element {
 
             {ttsEnabled && (
               <>
-                <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text">
-                        {t('settings.tts.serverTitle')}
-                      </div>
-                      <p className="mt-0.5 text-xs text-text-muted">
-                        {t('settings.tts.serverDescription')}
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'inline-block h-2 w-2 rounded-full',
-                            ttsStatus?.running
-                              ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
-                              : 'bg-text-subtle'
-                          )}
-                        />
-                        <span className="text-xs font-medium text-text-subtle">
-                          {ttsStatus?.running
-                            ? t('settings.tts.serverRunning')
-                            : t('settings.tts.serverStopped')}
-                        </span>
-                      </div>
-                      {serverFeedback && (
-                        <p className="mt-2 text-xs font-medium text-accent">{serverFeedback}</p>
-                      )}
-                    </div>
-                    <Button
-                      variant={ttsStatus?.running ? 'ghost' : 'primary'}
-                      onClick={() => void handleToggleServer()}
-                      disabled={startingServer}
-                      className="shrink-0"
-                    >
-                      {startingServer
-                        ? t('settings.tts.startingServer')
-                        : ttsStatus?.running
-                          ? t('settings.tts.stopServer')
-                          : t('settings.tts.startServer')}
-                    </Button>
-                  </div>
-
-                  {(startingServer || serverLogs) && (
-                    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
-                      <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
-                        <span>{t('settings.tts.serverConsoleTitle')}</span>
-                        {serverLogs && !startingServer && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setServerLogs('')
-                              void api.tts.clearServerLogs()
-                            }}
-                            className="text-xs text-text-subtle hover:text-text transition-colors"
-                          >
-                            {t('settings.tts.clearConsole')}
-                          </button>
-                        )}
-                      </div>
-                      <pre
-                        ref={serverConsoleEndRef}
-                        className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
-                      >
-                        {serverLogs || t('settings.tts.startingServer')}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-
                 <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-text">
-                      {t('settings.tts.autoStartTitle')}
+                      {t('settings.tts.providerTitle')}
                     </div>
                     <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.tts.autoStartDescription')}
+                      {t('settings.tts.providerDescription')}
                     </p>
                   </div>
-                  <Switch
-                    checked={ttsAutoStart}
-                    onChange={(v) => {
-                      void setTtsAutoStart(v)
-                      if (v && !ttsStatus?.running) {
-                        void handleToggleServer()
-                      }
-                    }}
-                  />
+                  <select
+                    value={ttsProvider}
+                    onChange={(e) => void setTtsProvider(e.target.value as 'local' | 'fish')}
+                    className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
+                  >
+                    <option value="local">{t('settings.tts.providerLocal')}</option>
+                    <option value="fish">{t('settings.tts.providerFish')}</option>
+                  </select>
                 </div>
 
-                <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
+                {ttsProvider === 'fish' ? (
+                  <>
+                    <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
                       <div className="text-sm font-medium text-text">
-                        {t('settings.tts.setupTitle')}
+                        {t('settings.tts.fishApiKeyTitle')}
                       </div>
                       <p className="mt-0.5 text-xs text-text-muted">
-                        {t('settings.tts.setupDescription')}
+                        {t('settings.tts.fishApiKeyDescription')}
                       </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'inline-block h-2 w-2 rounded-full',
-                            ttsStatus?.installed
-                              ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
-                              : 'bg-text-subtle'
-                          )}
+                      <div className="mt-3 flex items-center gap-2">
+                        <input
+                          type="password"
+                          value={fishApiKeyInput}
+                          onChange={(e) => setFishApiKeyInput(e.target.value)}
+                          placeholder={t('settings.tts.fishApiKeyPlaceholder')}
+                          className="w-80 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)]"
                         />
-                        <span className="text-xs font-medium text-text-subtle">
-                          {ttsStatus?.installed
-                            ? t('settings.tts.requirementsMet')
-                            : t('settings.tts.requirementsNotMet')}
-                        </span>
+                        <Button
+                          onClick={() => void setFishAudioApiKey(fishApiKeyInput)}
+                          disabled={fishApiKeyInput === (settings?.fishAudioApiKey ?? '')}
+                        >
+                          {t('settings.tts.saveFishApiKey')}
+                        </Button>
                       </div>
-                      {setupFeedback && (
-                        <p className="mt-2 text-xs font-medium text-accent">{setupFeedback}</p>
-                      )}
                     </div>
-                    <Button
-                      variant={ttsStatus?.installed ? 'ghost' : 'secondary'}
-                      onClick={() => void handleInstallDependencies()}
-                      disabled={installingTts}
-                      className="shrink-0"
-                    >
-                      {installingTts
-                        ? t('settings.tts.setupInstalling')
-                        : ttsStatus?.installed
-                          ? t('settings.tts.reinstallButton')
-                          : t('settings.tts.setupButton')}
-                    </Button>
-                  </div>
 
-                  {(installingTts || installLogs) && (
-                    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
-                      <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
-                        <span>{t('settings.tts.consoleTitle')}</span>
-                        {installLogs && !installingTts && (
-                          <button
-                            type="button"
-                            onClick={() => setInstallLogs('')}
-                            className="text-xs text-text-subtle hover:text-text transition-colors"
-                          >
-                            {t('settings.tts.clearConsole')}
-                          </button>
+                    <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text">
+                          {t('settings.tts.fishModelTitle')}
+                        </div>
+                        <p className="mt-0.5 text-xs text-text-muted">
+                          {t('settings.tts.fishModelDescription')}
+                        </p>
+                      </div>
+                      <select
+                        value={fishAudioModel}
+                        onChange={(e) => void setFishAudioModel(e.target.value)}
+                        className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
+                      >
+                        <option value="s2.1-pro">s2.1-pro</option>
+                        <option value="s2.1-pro-free">s2.1-pro-free</option>
+                        <option value="s2-pro">s2-pro</option>
+                        <option value="drama-3-preview">drama-3-preview</option>
+                        <option value="s1">s1</option>
+                      </select>
+                    </div>
+
+                    <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                      <div className="text-sm font-medium text-text">
+                        {t('settings.tts.fishVoiceTitle')}
+                      </div>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        {t('settings.tts.fishVoiceDescription')}
+                      </p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={fishVoiceInput}
+                          onChange={(e) => setFishVoiceInput(e.target.value)}
+                          placeholder={t('settings.tts.fishVoicePlaceholder')}
+                          className="w-80 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)] font-mono text-xs"
+                        />
+                        <Button
+                          onClick={() => void setFishAudioVoice(fishVoiceInput)}
+                          disabled={fishVoiceInput === (settings?.fishAudioVoice ?? '')}
+                        >
+                          {t('settings.tts.saveFishVoice')}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text">
+                          {t('settings.tts.testVoiceButton')}
+                        </div>
+                        {testVoiceFeedback && (
+                          <p className="mt-1 text-xs font-medium text-accent">
+                            {testVoiceFeedback}
+                          </p>
                         )}
                       </div>
-                      <pre
-                        ref={consoleEndRef}
-                        className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
+                      <Button
+                        variant="secondary"
+                        onClick={() => void handleTestVoice()}
+                        disabled={testingVoice || !settings?.fishAudioApiKey}
+                        className="shrink-0"
                       >
-                        {installLogs || t('settings.tts.setupInstalling')}
-                      </pre>
+                        {testingVoice
+                          ? t('settings.tts.testingVoice')
+                          : t('settings.tts.testVoiceButton')}
+                      </Button>
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-text">
+                            {t('settings.tts.serverTitle')}
+                          </div>
+                          <p className="mt-0.5 text-xs text-text-muted">
+                            {t('settings.tts.serverDescription')}
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span
+                              className={cn(
+                                'inline-block h-2 w-2 rounded-full',
+                                ttsStatus?.running
+                                  ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
+                                  : 'bg-text-subtle'
+                              )}
+                            />
+                            <span className="text-xs font-medium text-text-subtle">
+                              {ttsStatus?.running
+                                ? t('settings.tts.serverRunning')
+                                : t('settings.tts.serverStopped')}
+                            </span>
+                          </div>
+                          {serverFeedback && (
+                            <p className="mt-2 text-xs font-medium text-accent">{serverFeedback}</p>
+                          )}
+                        </div>
+                        <Button
+                          variant={ttsStatus?.running ? 'ghost' : 'primary'}
+                          onClick={() => void handleToggleServer()}
+                          disabled={startingServer}
+                          className="shrink-0"
+                        >
+                          {startingServer
+                            ? t('settings.tts.startingServer')
+                            : ttsStatus?.running
+                              ? t('settings.tts.stopServer')
+                              : t('settings.tts.startServer')}
+                        </Button>
+                      </div>
+
+                      {(startingServer || serverLogs) && (
+                        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
+                          <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
+                            <span>{t('settings.tts.serverConsoleTitle')}</span>
+                            {serverLogs && !startingServer && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setServerLogs('')
+                                  void api.tts.clearServerLogs()
+                                }}
+                                className="text-xs text-text-subtle hover:text-text transition-colors"
+                              >
+                                {t('settings.tts.clearConsole')}
+                              </button>
+                            )}
+                          </div>
+                          <pre
+                            ref={serverConsoleEndRef}
+                            className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
+                          >
+                            {serverLogs || t('settings.tts.startingServer')}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text">
+                          {t('settings.tts.autoStartTitle')}
+                        </div>
+                        <p className="mt-0.5 text-xs text-text-muted">
+                          {t('settings.tts.autoStartDescription')}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={ttsAutoStart}
+                        onChange={(v) => {
+                          void setTtsAutoStart(v)
+                          if (v && !ttsStatus?.running) {
+                            void handleToggleServer()
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-text">
+                            {t('settings.tts.setupTitle')}
+                          </div>
+                          <p className="mt-0.5 text-xs text-text-muted">
+                            {t('settings.tts.setupDescription')}
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span
+                              className={cn(
+                                'inline-block h-2 w-2 rounded-full',
+                                ttsStatus?.installed
+                                  ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
+                                  : 'bg-text-subtle'
+                              )}
+                            />
+                            <span className="text-xs font-medium text-text-subtle">
+                              {ttsStatus?.installed
+                                ? t('settings.tts.requirementsMet')
+                                : t('settings.tts.requirementsNotMet')}
+                            </span>
+                          </div>
+                          {setupFeedback && (
+                            <p className="mt-2 text-xs font-medium text-accent">{setupFeedback}</p>
+                          )}
+                        </div>
+                        <Button
+                          variant={ttsStatus?.installed ? 'ghost' : 'secondary'}
+                          onClick={() => void handleInstallDependencies()}
+                          disabled={installingTts}
+                          className="shrink-0"
+                        >
+                          {installingTts
+                            ? t('settings.tts.setupInstalling')
+                            : ttsStatus?.installed
+                              ? t('settings.tts.reinstallButton')
+                              : t('settings.tts.setupButton')}
+                        </Button>
+                      </div>
+
+                      {(installingTts || installLogs) && (
+                        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
+                          <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
+                            <span>{t('settings.tts.consoleTitle')}</span>
+                            {installLogs && !installingTts && (
+                              <button
+                                type="button"
+                                onClick={() => setInstallLogs('')}
+                                className="text-xs text-text-subtle hover:text-text transition-colors"
+                              >
+                                {t('settings.tts.clearConsole')}
+                              </button>
+                            )}
+                          </div>
+                          <pre
+                            ref={consoleEndRef}
+                            className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
+                          >
+                            {installLogs || t('settings.tts.setupInstalling')}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-medium text-text">
+                            {t('settings.tts.modelTitle')}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              void api.tts.openModelsFolder()
+                              void refreshTtsModels()
+                            }}
+                            className="h-6 gap-1 px-2 text-xs text-text-muted hover:text-text"
+                            title={t('settings.tts.openModelsFolder')}
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" />
+                            <span>{t('settings.tts.openFolder')}</span>
+                          </Button>
+                        </div>
+                        <p className="mt-0.5 text-xs text-text-muted">
+                          {t('settings.tts.modelDescription')}
+                        </p>
+                      </div>
+                      <select
+                        value={ttsModel}
+                        onChange={(e) => void setTtsModel(e.target.value)}
+                        className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
+                      >
+                        {Array.from(new Set([ttsModel, ...availableTtsModels])).map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
 
                 <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
@@ -1700,43 +1894,6 @@ export default function Settings(): JSX.Element {
                     </select>
                   </div>
                 )}
-
-                <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium text-text">
-                        {t('settings.tts.modelTitle')}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          void api.tts.openModelsFolder()
-                          void refreshTtsModels()
-                        }}
-                        className="h-6 gap-1 px-2 text-xs text-text-muted hover:text-text"
-                        title={t('settings.tts.openModelsFolder')}
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                        <span>{t('settings.tts.openFolder')}</span>
-                      </Button>
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.tts.modelDescription')}
-                    </p>
-                  </div>
-                  <select
-                    value={ttsModel}
-                    onChange={(e) => void setTtsModel(e.target.value)}
-                    className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
-                  >
-                    {Array.from(new Set([ttsModel, ...availableTtsModels])).map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </div>
 
                 <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">

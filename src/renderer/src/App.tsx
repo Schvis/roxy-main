@@ -13,6 +13,7 @@ import { ChatView } from './components/ChatView'
 import { VtuberStandalone } from './components/VtuberStandalone'
 import { cn } from './lib/cn'
 import { api } from './lib/api'
+import { initTtsPlayer } from './lib/tts-player'
 
 function FloatingIcon(): JSX.Element {
   const [isDragging, setIsDragging] = useState(false)
@@ -224,6 +225,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     bootstrap()
+    initTtsPlayer()
   }, [bootstrap])
 
   useEffect(() => {

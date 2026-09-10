@@ -55,6 +55,10 @@ const roxy: RoxyApi = {
     setTtsLang: (lang) => ipcRenderer.invoke(CHANNELS.settingsSetTtsLang, lang),
     setTtsSpeed: (speed) => ipcRenderer.invoke(CHANNELS.settingsSetTtsSpeed, speed),
     setTtsApiKey: (apiKey) => ipcRenderer.invoke(CHANNELS.settingsSetTtsApiKey, apiKey),
+    setTtsProvider: (provider) => ipcRenderer.invoke(CHANNELS.settingsSetTtsProvider, provider),
+    setFishAudioApiKey: (apiKey) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioApiKey, apiKey),
+    setFishAudioModel: (model) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioModel, model),
+    setFishAudioVoice: (voice) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioVoice, voice),
     setVtuberEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberEnabled, enabled),
     setVtuberModelPath: (path) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberModelPath, path),
     setVtuberVisionEnabled: (enabled) =>
@@ -231,7 +235,23 @@ const roxy: RoxyApi = {
       ): void => callback(state)
       ipcRenderer.on(CHANNELS.ttsSpeakingState, handler)
       return () => ipcRenderer.removeListener(CHANNELS.ttsSpeakingState, handler)
-    }
+    },
+    testVoice: (text) => ipcRenderer.invoke(CHANNELS.ttsTestVoice, text),
+    onPlayAudio: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: { id: string; audioBase64: string; format: string; text?: string }
+      ): void => callback(payload)
+      ipcRenderer.on(CHANNELS.ttsPlayAudio, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.ttsPlayAudio, handler)
+    },
+    onStopAudio: (callback) => {
+      const handler = (): void => callback()
+      ipcRenderer.on(CHANNELS.ttsStopAudio, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.ttsStopAudio, handler)
+    },
+    notifyAudioReady: (id, duration) => ipcRenderer.invoke(CHANNELS.ttsAudioReady, id, duration),
+    notifyAudioEnded: (id) => ipcRenderer.invoke(CHANNELS.ttsAudioEnded, id)
   },
   vtuber: {
     openWindow: () => ipcRenderer.invoke(CHANNELS.vtuberOpenWindow),
@@ -287,7 +307,8 @@ const roxy: RoxyApi = {
   },
   clipboard: {
     hasContent: () => ipcRenderer.invoke(CHANNELS.clipboardHasContent),
-    exec: (action, linkUrl) => ipcRenderer.invoke(CHANNELS.clipboardExec, action, linkUrl)
+    exec: (action, linkUrl) => ipcRenderer.invoke(CHANNELS.clipboardExec, action, linkUrl),
+    writeText: (text) => ipcRenderer.invoke(CHANNELS.clipboardWriteText, text)
   },
   updates: {
     check: () => ipcRenderer.invoke(CHANNELS.updateCheck),

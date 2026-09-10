@@ -24,6 +24,7 @@ import {
 } from '@shared/theme'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
+import { writeClipboardText } from '../lib/clipboard'
 import { Button, Textarea } from '../components/ui'
 import { PageShell } from '../components/PageShell'
 
@@ -525,12 +526,10 @@ function ThemeReference({
   )
 
   const copyPrompt = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(buildThemePrompt())
+    const ok = await writeClipboardText(buildThemePrompt())
+    if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard denied — leave the label alone rather than claim success.
     }
   }
 

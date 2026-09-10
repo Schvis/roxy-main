@@ -338,7 +338,7 @@ export class TranscriptWindow {
       selectable: [],
       scrollRegions: [],
       animated: false,
-      copyText: () => partsText(message.parts)
+      copyText: () => partsText(message.parts) || message.content || ''
     }))
     let lineIndex = 0
     for (const index of [...measured.keys()].sort((a, b) => a - b)) {
@@ -377,7 +377,8 @@ export class TranscriptWindow {
         end: last === this.items.length ? total() : this.offsets[last],
         scrollTop: top
       },
-      copyText: () => messages.map((message) => partsText(message.parts)).join('\n\n')
+      copyText: () =>
+        messages.map((message) => partsText(message.parts) || message.content || '').join('\n\n')
     }
   }
 

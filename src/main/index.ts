@@ -165,16 +165,24 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window)
     })
 
-    // Grant media (microphone) permissions for voice-to-text dictation
+    // Grant media (microphone) and clipboard permissions
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      if (permission === 'media') {
+      if (
+        permission === 'media' ||
+        permission === 'clipboard-read' ||
+        permission === 'clipboard-sanitized-write'
+      ) {
         callback(true)
         return
       }
       callback(false)
     })
     session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-      return permission === 'media'
+      return (
+        permission === 'media' ||
+        permission === 'clipboard-read' ||
+        permission === 'clipboard-sanitized-write'
+      )
     })
 
     // Open the database (runs migrations) and wire up IPC before the first window.
@@ -196,7 +204,11 @@ if (!gotTheLock) {
     updateVoiceShortcut(repo.getSettings())
 
     const initialSettings = repo.getSettings()
-    if (initialSettings.ttsEnabled && initialSettings.ttsAutoStart) {
+    if (
+      initialSettings.ttsEnabled &&
+      initialSettings.ttsAutoStart &&
+      initialSettings.ttsProvider !== 'fish'
+    ) {
       void startLocalTtsServer()
     }
 

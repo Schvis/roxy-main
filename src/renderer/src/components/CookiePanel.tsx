@@ -5,6 +5,7 @@ import { Check, ClipboardPaste, Copy, Plus, RotateCw, Search, Trash2, X } from '
 import type { CookieRow } from '@shared/api'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
+import { writeClipboardText } from '../lib/clipboard'
 
 /** A blank cookie scoped to the host you're looking at â€” what "Add" starts from. */
 function blankCookie(host: string): CookieRow {
@@ -122,11 +123,13 @@ export function CookiePanel({
   }
 
   const copyAll = async (): Promise<void> => {
-    // Cookie-Editor's export is a bare array, pretty-printed â€” match it exactly
+    // Cookie-Editor's export is a bare array, pretty-printed — match it exactly
     // so what lands on the clipboard pastes into that extension unchanged.
-    await navigator.clipboard.writeText(JSON.stringify(shown, null, 2))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    const ok = await writeClipboardText(JSON.stringify(shown, null, 2))
+    if (ok) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
   }
 
   const runImport = async (): Promise<void> => {

@@ -20,6 +20,7 @@ import { useTranslation, Trans } from 'react-i18next'
 import { formatInterval } from '@shared/format'
 import { cn } from '../lib/cn'
 import { api } from '../lib/api'
+import { writeClipboardText } from '../lib/clipboard'
 import { CanvasTranscript } from '../canvas/CanvasTranscript'
 import { Composer } from './Composer'
 import { LoopDetailsPane } from './LoopDetailsPane'
@@ -450,12 +451,8 @@ function WorkspacePath({ chat }: { chat: Chat }): JSX.Element | null {
   if (!path) return null
 
   const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(path)
-      setCopied((n) => n + 1)
-    } catch {
-      // Clipboard can be denied; the path stays readable in the tooltip.
-    }
+    const ok = await writeClipboardText(path)
+    if (ok) setCopied((n) => n + 1)
   }
 
   // For a multi-repo session this path is a COMPOSITE root: not a checkout

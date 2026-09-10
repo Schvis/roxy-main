@@ -248,6 +248,10 @@ interface RoxyStore {
   setTtsLang: (lang: string) => Promise<void>
   setTtsSpeed: (speed: number) => Promise<void>
   setTtsApiKey: (apiKey: string) => Promise<void>
+  setTtsProvider: (provider: 'local' | 'fish') => Promise<void>
+  setFishAudioApiKey: (apiKey: string) => Promise<void>
+  setFishAudioModel: (model: string) => Promise<void>
+  setFishAudioVoice: (voice: string) => Promise<void>
   setVtuberEnabled: (enabled: boolean) => Promise<void>
   setVtuberModelPath: (path: string) => Promise<void>
   setVtuberVisionEnabled: (enabled: boolean) => Promise<void>
@@ -1695,6 +1699,26 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setTtsApiKey: async (apiKey) => {
     const settings = await api.settings.setTtsApiKey(apiKey)
+    set({ settings })
+  },
+
+  setTtsProvider: async (provider) => {
+    const settings = await api.settings.setTtsProvider(provider)
+    set({ settings })
+  },
+
+  setFishAudioApiKey: async (apiKey) => {
+    const settings = await api.settings.setFishAudioApiKey(apiKey)
+    set({ settings })
+  },
+
+  setFishAudioModel: async (model) => {
+    const settings = await api.settings.setFishAudioModel(model)
+    set({ settings })
+  },
+
+  setFishAudioVoice: async (voice) => {
+    const settings = await api.settings.setFishAudioVoice(voice)
     set({ settings })
   },
 

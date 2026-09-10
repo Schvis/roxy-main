@@ -29,6 +29,10 @@ export const CHANNELS = {
   settingsSetTtsLang: 'settings:setTtsLang',
   settingsSetTtsSpeed: 'settings:setTtsSpeed',
   settingsSetTtsApiKey: 'settings:setTtsApiKey',
+  settingsSetTtsProvider: 'settings:setTtsProvider',
+  settingsSetFishAudioApiKey: 'settings:setFishAudioApiKey',
+  settingsSetFishAudioModel: 'settings:setFishAudioModel',
+  settingsSetFishAudioVoice: 'settings:setFishAudioVoice',
   settingsSetVtuberEnabled: 'settings:setVtuberEnabled',
   settingsSetVtuberModelPath: 'settings:setVtuberModelPath',
   settingsSetVtuberVisionEnabled: 'settings:setVtuberVisionEnabled',
@@ -61,6 +65,11 @@ export const CHANNELS = {
   ttsClearServerLogs: 'tts:clearServerLogs',
   ttsGetModels: 'tts:getModels',
   ttsOpenModelsFolder: 'tts:openModelsFolder',
+  ttsPlayAudio: 'tts:playAudio',
+  ttsStopAudio: 'tts:stopAudio',
+  ttsAudioReady: 'tts:audioReady',
+  ttsAudioEnded: 'tts:audioEnded',
+  ttsTestVoice: 'tts:testVoice',
 
   sttTranscribe: 'stt:transcribe',
   sttGetStatus: 'stt:getStatus',
@@ -290,6 +299,8 @@ export const CHANNELS = {
   clipboardHasContent: 'clipboard:has-content',
   /** Run cut/copy/paste/selectAll as a real editing command on the sender. */
   clipboardExec: 'clipboard:exec',
+  /** Write plain text directly to the system clipboard. */
+  clipboardWriteText: 'clipboard:writeText',
 
   browserOpen: 'browser:open',
   browserNavigate: 'browser:navigate',

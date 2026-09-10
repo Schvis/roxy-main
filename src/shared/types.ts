@@ -480,6 +480,14 @@ export interface AppSettings {
   ttsSpeed: number
   /** User-provided DeepL translation API key. */
   ttsApiKey: string
+  /** TTS provider engine: 'local' (RVC) or 'fish' (Fish Audio API). Default 'local'. */
+  ttsProvider: 'local' | 'fish'
+  /** User-provided Fish Audio API key. */
+  fishAudioApiKey: string
+  /** Selected Fish Audio model (e.g. 's2.1-pro', 's2.1-pro-free'). Default 's2.1-pro'. */
+  fishAudioModel: string
+  /** Selected Fish Audio voice reference ID (model ID from fish.audio or empty for default). */
+  fishAudioVoice: string
   /** Whether Vixevia Live2D VTuber avatar is active. */
   vtuberEnabled: boolean
   /** Live2D model URL or local path. */
