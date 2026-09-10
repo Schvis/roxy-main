@@ -126,10 +126,63 @@ export class Live2dModelController {
   private panX: number = 0
   private panY: number = 0
   private currentMouthOpenY = 0
+  private followCursor = true
+  private onHeadMoveCallback:
+    | ((pos: { x: number; y: number; width: number; height: number }) => void)
+    | null = null
 
   constructor(app: any, modelPath: string) {
     this.app = app
     this.modelPath = modelPath
+  }
+
+  setOnHeadMove(
+    callback: ((pos: { x: number; y: number; width: number; height: number }) => void) | null
+  ): void {
+    this.onHeadMoveCallback = callback
+    this.notifyHeadPosition()
+  }
+
+  notifyHeadPosition(): void {
+    if (!this.onHeadMoveCallback) return
+    const pos = this.getHeadPosition()
+    this.onHeadMoveCallback(pos)
+  }
+
+  getHeadPosition(): { x: number; y: number; width: number; height: number } {
+    const width = this.app?.renderer?.width || this.app?.view?.width || 340
+    const height = this.app?.renderer?.height || this.app?.view?.height || 440
+
+    if (this.model) {
+      try {
+        const bounds = this.model.getBounds()
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          return {
+            x: bounds.x + bounds.width * 0.5,
+            y: bounds.y,
+            width: Math.min(bounds.width * 0.45, bounds.width),
+            height: bounds.height * 0.25
+          }
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    const origWidth = this.model?.internalModel?.width || this.model?.width || 1000
+    const origHeight = this.model?.internalModel?.height || this.model?.height || 1400
+    const headroom = 55
+    const availableHeight = Math.max(100, height - headroom)
+    const baseScale = Math.min(width / origWidth, availableHeight / origHeight) * 0.95
+    const scale = baseScale * this.zoom
+    const centerX = width / 2 + this.panX
+    const modelTopY = headroom + availableHeight / 2 + this.panY - origHeight * scale * 0.5
+    return {
+      x: centerX,
+      y: modelTopY,
+      width: origWidth * scale * 0.4,
+      height: origHeight * scale * 0.25
+    }
   }
 
   getZoom(): number {
@@ -144,10 +197,12 @@ export class Live2dModelController {
     const width = this.app?.renderer?.width || this.app?.view?.width || 320
     const height = this.app?.renderer?.height || this.app?.view?.height || 380
     const ratio = newZoom / oldZoom
+    const headroom = 55
+    const availableHeight = Math.max(100, height - headroom)
 
     if (cx !== undefined && cy !== undefined) {
       const baseCenterX = width / 2
-      const baseCenterY = height / 2 + 10
+      const baseCenterY = headroom + availableHeight / 2
       this.panX = cx - baseCenterX - (cx - baseCenterX - this.panX) * ratio
       this.panY = cy - baseCenterY - (cy - baseCenterY - this.panY) * ratio
     } else {
@@ -157,12 +212,14 @@ export class Live2dModelController {
 
     this.zoom = newZoom
     this.resize()
+    this.notifyHeadPosition()
   }
 
   pan(dx: number, dy: number): void {
     this.panX += dx
     this.panY += dy
     this.resize()
+    this.notifyHeadPosition()
   }
 
   resetZoomAndPan(): void {
@@ -170,6 +227,7 @@ export class Live2dModelController {
     this.panX = 0
     this.panY = 0
     this.resize()
+    this.notifyHeadPosition()
   }
 
   async load(): Promise<boolean> {
@@ -185,8 +243,14 @@ export class Live2dModelController {
         this.model = null
       }
 
-      this.model = await w.PIXI.live2d.Live2DModel.from(targetUrl)
+      this.model = await w.PIXI.live2d.Live2DModel.from(targetUrl, {
+        autoInteract: this.followCursor
+      })
       this.app.stage.addChild(this.model)
+
+      if (!this.followCursor) {
+        this.setFollowCursor(false)
+      }
 
       // Ensure EyeBlink does not hijack mouth parameters in case model3.json still had it
       try {
@@ -208,6 +272,13 @@ export class Live2dModelController {
             if (core) {
               core.setParameterValueById?.('ParamMouthOpenY', this.currentMouthOpenY)
               core.setParameterValueById?.('ParamMouthForm', 1)
+              if (!this.followCursor) {
+                core.setParameterValueById?.('ParamEyeBallX', 0)
+                core.setParameterValueById?.('ParamEyeBallY', 0)
+                core.setParameterValueById?.('ParamAngleX', 0)
+                core.setParameterValueById?.('ParamAngleY', 0)
+                core.setParameterValueById?.('ParamBodyAngleX', 0)
+              }
             }
           } catch {
             // ignore
@@ -225,6 +296,7 @@ export class Live2dModelController {
       }
 
       this.resize()
+      this.notifyHeadPosition()
       this.startBlinking()
       this.startBreathing()
       return true
@@ -242,13 +314,16 @@ export class Live2dModelController {
     const origWidth = this.model.internalModel?.width || this.model.width || 1
     const origHeight = this.model.internalModel?.height || this.model.height || 1
 
-    const baseScale = Math.min(width / origWidth, height / origHeight) * 0.95
+    const headroom = 55
+    const availableHeight = Math.max(100, height - headroom)
+    const baseScale = Math.min(width / origWidth, availableHeight / origHeight) * 0.95
     const scale = baseScale * this.zoom
     this.model.scale.set(scale, scale)
     if (this.model.anchor?.set) {
       this.model.anchor.set(0.5, 0.5)
     }
-    this.model.position.set(width / 2 + this.panX, height / 2 + 10 + this.panY)
+    this.model.position.set(width / 2 + this.panX, headroom + availableHeight / 2 + this.panY)
+    this.notifyHeadPosition()
   }
 
   setMouthOpenY(value: number): void {
@@ -273,8 +348,11 @@ export class Live2dModelController {
   }
 
   setGaze(targetX: number, targetY: number): void {
-    if (!this.model?.internalModel?.coreModel) return
+    if (!this.model?.internalModel?.coreModel || !this.followCursor) return
     try {
+      if (this.model.internalModel?.focusController) {
+        this.model.internalModel.focusController.focus(targetX, targetY)
+      }
       // targetX, targetY normalized -1 to +1
       this.model.internalModel.coreModel.setParameterValueById('ParamEyeBallX', targetX)
       this.model.internalModel.coreModel.setParameterValueById('ParamEyeBallY', targetY)
@@ -282,6 +360,43 @@ export class Live2dModelController {
       this.model.internalModel.coreModel.setParameterValueById('ParamAngleY', targetY * 15)
     } catch {
       // ignore
+    }
+  }
+
+  setFollowCursor(enabled: boolean): void {
+    this.followCursor = enabled
+    if (this.model) {
+      try {
+        this.model.autoInteract = enabled
+        this.model.interactive = enabled
+        if (!enabled) {
+          this.model.unregisterInteraction?.()
+          const fc = this.model.internalModel?.focusController
+          if (fc) {
+            fc.focus?.(0, 0, true)
+            fc.x = 0
+            fc.y = 0
+            fc.vx = 0
+            fc.vy = 0
+          }
+          this.setGaze(0, 0)
+          const core = this.model?.internalModel?.coreModel
+          if (core) {
+            core.setParameterValueById?.('ParamEyeBallX', 0)
+            core.setParameterValueById?.('ParamEyeBallY', 0)
+            core.setParameterValueById?.('ParamAngleX', 0)
+            core.setParameterValueById?.('ParamAngleY', 0)
+            core.setParameterValueById?.('ParamBodyAngleX', 0)
+          }
+        } else {
+          const interaction = this.app?.renderer?.plugins?.interaction || this.app?.renderer?.events
+          if (interaction) {
+            this.model.registerInteraction?.(interaction)
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 

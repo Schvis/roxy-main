@@ -183,7 +183,7 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
       )}
 
       {vtuberVisible && (
-        <div className="absolute inset-0 z-30 flex h-full w-full items-center justify-center bg-transparent overflow-hidden">
+        <div className="absolute inset-0 z-30 flex h-full w-full items-center justify-center bg-transparent overflow-visible">
           <VtuberStandalone />
         </div>
       )}

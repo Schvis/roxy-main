@@ -17,6 +17,7 @@ import type {
 import type { CliProxyState } from '../shared/cliproxy'
 import type { ResolvedTheme } from '../shared/theme'
 import type { MotionPreference } from '../shared/motion'
+import type { AppSettings } from '../shared/types'
 
 /**
  * The typed bridge exposed to the renderer as `window.roxy`. Every method maps
@@ -64,6 +65,17 @@ const roxy: RoxyApi = {
       ipcRenderer.invoke(CHANNELS.settingsSetVtuberVadEnabled, enabled),
     setVtuberDetached: (detached) =>
       ipcRenderer.invoke(CHANNELS.settingsSetVtuberDetached, detached),
+    setVtuberShowChatBubble: (show) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVtuberShowChatBubble, show),
+    setVtuberShowStatus: (show) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberShowStatus, show),
+    setVtuberFollowCursor: (follow) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVtuberFollowCursor, follow),
+    onChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, settings: AppSettings): void =>
+        callback(settings)
+      ipcRenderer.on(CHANNELS.settingsChanged, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.settingsChanged, handler)
+    },
     onMotionChanged: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, motion: MotionPreference): void =>
         callback(motion)
@@ -224,6 +236,17 @@ const roxy: RoxyApi = {
   vtuber: {
     openWindow: () => ipcRenderer.invoke(CHANNELS.vtuberOpenWindow),
     closeWindow: () => ipcRenderer.invoke(CHANNELS.vtuberCloseWindow)
+  },
+  screen: {
+    getCursorPosition: () => ipcRenderer.invoke(CHANNELS.screenGetCursorPosition),
+    startCursorTracking: () => ipcRenderer.invoke(CHANNELS.screenStartCursorTracking),
+    stopCursorTracking: () => ipcRenderer.invoke(CHANNELS.screenStopCursorTracking),
+    onCursorPosition: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, pt: { x: number; y: number }): void =>
+        callback(pt)
+      ipcRenderer.on(CHANNELS.screenCursorPosition, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.screenCursorPosition, handler)
+    }
   },
   stt: {
     transcribe: (

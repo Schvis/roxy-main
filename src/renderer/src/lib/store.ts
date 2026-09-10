@@ -254,6 +254,9 @@ interface RoxyStore {
   setVtuberCameraDevice: (deviceId: string) => Promise<void>
   setVtuberVadEnabled: (enabled: boolean) => Promise<void>
   setVtuberDetached: (detached: boolean) => Promise<void>
+  setVtuberShowChatBubble: (show: boolean) => Promise<void>
+  setVtuberShowStatus: (show: boolean) => Promise<void>
+  setVtuberFollowCursor: (follow: boolean) => Promise<void>
   selectChat: (id: string) => Promise<void>
   clearActive: () => void
   newSession: () => Promise<void>
@@ -407,6 +410,7 @@ let chatsUpdatedSubscribed = false
 let messagesUpdatedSubscribed = false
 let activeChatSubscribed = false
 let promptSubmitSubscribed = false
+let settingsSubscribed = false
 let lastSubmittedPrompt = { chatId: '', text: '', at: 0 }
 /** Routes streamed completion events to the in-flight send for a request id. */
 const deltaHandlers = new Map<string, (event: LlmEvent) => void>()
@@ -1085,6 +1089,13 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       })
     }
 
+    if (!settingsSubscribed && api.settings?.onChanged) {
+      settingsSubscribed = true
+      api.settings.onChanged((settings) => {
+        set({ settings })
+      })
+    }
+
     // Background subagent tasks (Phase 11) report state out-of-band — they can
     // finish long after the launching turn's request has ended, so this global
     // subscription (not the per-request delta handler) keeps the UI live: it
@@ -1714,6 +1725,21 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setVtuberDetached: async (detached) => {
     const settings = await api.settings.setVtuberDetached(detached)
+    set({ settings })
+  },
+
+  setVtuberShowChatBubble: async (show) => {
+    const settings = await api.settings.setVtuberShowChatBubble(show)
+    set({ settings })
+  },
+
+  setVtuberShowStatus: async (show) => {
+    const settings = await api.settings.setVtuberShowStatus(show)
+    set({ settings })
+  },
+
+  setVtuberFollowCursor: async (follow) => {
+    const settings = await api.settings.setVtuberFollowCursor(follow)
     set({ settings })
   },
 

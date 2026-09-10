@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ensureLive2dLoaded, Live2dModelController, resolveModelUrl } from '../lib/live2d-loader'
 import { LipSyncController } from '../lib/lip-sync'
+import { api } from '../lib/api'
 
 // Default Roxy Live2D model bundled locally
 export const DEFAULT_LIVE2D_MODEL = './models/live2d/roxy/Roxy_V1.model3.json'
@@ -14,12 +15,16 @@ interface Live2dCanvasProps {
   modelPath?: string
   speaking?: boolean
   className?: string
+  followCursor?: boolean
+  onHeadMove?: (pos: { x: number; y: number; width: number; height: number }) => void
 }
 
 export function Live2dCanvas({
   modelPath,
   speaking = false,
-  className = ''
+  className = '',
+  followCursor = true,
+  onHeadMove
 }: Live2dCanvasProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -123,11 +128,20 @@ export function Live2dCanvas({
       return
     }
 
+    if (!followCursor) return
     if (!containerRef.current || !controllerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-    const y = ((e.clientY - rect.top) / rect.height) * 2 - 1
-    controllerRef.current.setGaze(x, -y)
+    const head = controllerRef.current.getHeadPosition()
+    const dx = e.clientX - rect.left - head.x
+    const dy = e.clientY - rect.top - head.y
+    const distance = Math.hypot(dx, dy)
+    if (distance < 2) {
+      controllerRef.current.setGaze(0, 0)
+      return
+    }
+    const maxRadius = Math.max(160, rect.width * 0.5)
+    const factor = Math.min(1.0, distance / maxRadius)
+    controllerRef.current.setGaze((dx / distance) * factor, -((dy / distance) * factor))
   }
 
   const handleMouseUp = (): void => {
@@ -137,6 +151,51 @@ export function Live2dCanvas({
   const handleContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault()
   }
+
+  useEffect(() => {
+    controllerRef.current?.setFollowCursor(followCursor)
+  }, [followCursor])
+
+  // Screen-wide cursor tracking across entire monitor / multi-monitor desktop
+  useEffect(() => {
+    if (!followCursor || !api?.screen?.onCursorPosition) return
+
+    void api.screen.startCursorTracking?.()
+
+    const unlisten = api.screen.onCursorPosition((point) => {
+      if (!containerRef.current || !controllerRef.current) return
+      if (isPanning.current) return
+
+      const rect = containerRef.current.getBoundingClientRect()
+      const winX = window.screenX ?? (window as any).screenLeft ?? 0
+      const winY = window.screenY ?? (window as any).screenTop ?? 0
+
+      const head = controllerRef.current.getHeadPosition()
+      const centerX = winX + rect.left + head.x
+      const centerY = winY + rect.top + head.y
+
+      const dx = point.x - centerX
+      const dy = point.y - centerY
+      const distance = Math.hypot(dx, dy)
+
+      if (distance < 2) {
+        controllerRef.current.setGaze(0, 0)
+        return
+      }
+
+      const maxRadius = 550
+      const factor = Math.min(1.0, distance / maxRadius)
+      const targetX = (dx / distance) * factor
+      const targetY = -((dy / distance) * factor)
+
+      controllerRef.current.setGaze(targetX, targetY)
+    })
+
+    return () => {
+      unlisten()
+      void api.screen.stopCursorTracking?.()
+    }
+  }, [followCursor])
 
   // Load Live2D model when possible
   useEffect(() => {
@@ -169,6 +228,8 @@ export function Live2dCanvas({
         }
 
         const controller = new Live2dModelController(pixiAppRef.current, activePath)
+        controller.setOnHeadMove(onHeadMove ?? null)
+        controller.setFollowCursor(followCursor)
         const success = await controller.load()
         if (unmounted) {
           controller.destroy()
@@ -198,6 +259,23 @@ export function Live2dCanvas({
       }
     }
   }, [modelPath])
+
+  useEffect(() => {
+    controllerRef.current?.setOnHeadMove(onHeadMove ?? null)
+  }, [onHeadMove])
+
+  // Fallback avatar head position sync
+  useEffect(() => {
+    if (modelLoaded || !onHeadMove) return
+    const w = containerRef.current?.clientWidth || 340
+    const h = containerRef.current?.clientHeight || 440
+    onHeadMove({
+      x: w / 2 + fallbackPan.x,
+      y: h / 2 + fallbackPan.y - 120 * fallbackZoom,
+      width: 120 * fallbackZoom,
+      height: 80 * fallbackZoom
+    })
+  }, [modelLoaded, fallbackZoom, fallbackPan, onHeadMove])
 
   // Handle container and window resize
   useEffect(() => {

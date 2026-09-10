@@ -11,7 +11,8 @@ import {
   FolderOpen,
   SlidersHorizontal,
   Cpu,
-  Briefcase
+  Briefcase,
+  Sparkles
 } from 'lucide-react'
 import type { AppVersions, ConnectedProvider } from '@shared/types'
 import type { UpdateInfo } from '@shared/api'
@@ -46,6 +47,7 @@ const TABS = [
   { id: 'general', labelKey: 'settings.tabs.general', icon: SlidersHorizontal },
   { id: 'providers', labelKey: 'settings.tabs.providers', icon: Cpu },
   { id: 'voice', labelKey: 'settings.tabs.voice', icon: Mic },
+  { id: 'vtuber', labelKey: 'settings.tabs.vtuber', icon: Sparkles },
   { id: 'workspace', labelKey: 'settings.tabs.workspace', icon: Briefcase }
 ] as const
 
@@ -92,6 +94,9 @@ export default function Settings(): JSX.Element {
   const setVtuberVisionEnabled = useRoxyStore((s) => s.setVtuberVisionEnabled)
   const setVtuberCameraDevice = useRoxyStore((s) => s.setVtuberCameraDevice)
   const setVtuberVadEnabled = useRoxyStore((s) => s.setVtuberVadEnabled)
+  const setVtuberShowChatBubble = useRoxyStore((s) => s.setVtuberShowChatBubble)
+  const setVtuberShowStatus = useRoxyStore((s) => s.setVtuberShowStatus)
+  const setVtuberFollowCursor = useRoxyStore((s) => s.setVtuberFollowCursor)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
@@ -1814,113 +1819,162 @@ export default function Settings(): JSX.Element {
               </>
             )}
           </section>
+        </>
+      )}
 
-          {/* ---- VTuber & Vision (Vixevia) ---- */}
-          <section className="mb-8">
-            <h2 className={SECTION_HEADING}>{t('settings.vtuber.heading')}</h2>
-            <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
+      {currentTab === 'vtuber' && (
+        <section className="mb-8">
+          <h2 className={SECTION_HEADING}>{t('settings.vtuber.heading')}</h2>
+          <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-text">
+                {t('settings.vtuber.enableTitle')}
+              </div>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {t('settings.vtuber.enableDescription')}
+              </p>
+            </div>
+            <Switch
+              checked={settings?.vtuberEnabled ?? false}
+              onChange={(v) => void setVtuberEnabled(v)}
+            />
+          </div>
+
+          {settings?.vtuberEnabled && (
+            <>
+              {/* Live2D Model Path */}
+              <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
                 <div className="text-sm font-medium text-text">
-                  {t('settings.vtuber.enableTitle')}
+                  {t('settings.vtuber.modelTitle')}
                 </div>
                 <p className="mt-0.5 text-xs text-text-muted">
-                  {t('settings.vtuber.enableDescription')}
+                  {t('settings.vtuber.modelDescription')}
                 </p>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={modelPathInput}
+                    onChange={(e) => setModelPathInput(e.target.value)}
+                    placeholder={t('settings.vtuber.modelPlaceholder')}
+                    className="flex-1 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)]"
+                  />
+                  <Button
+                    onClick={() => void setVtuberModelPath(modelPathInput)}
+                    disabled={modelPathInput === (settings?.vtuberModelPath ?? '')}
+                  >
+                    {t('settings.vtuber.saveModel')}
+                  </Button>
+                </div>
               </div>
-              <Switch
-                checked={settings?.vtuberEnabled ?? false}
-                onChange={(v) => void setVtuberEnabled(v)}
-              />
-            </div>
 
-            {settings?.vtuberEnabled && (
-              <>
-                {/* Live2D Model Path */}
-                <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+              {/* Follow Cursor Toggle */}
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <div className="text-sm font-medium text-text">
-                    {t('settings.vtuber.modelTitle')}
+                    {t('settings.vtuber.followCursorTitle')}
                   </div>
                   <p className="mt-0.5 text-xs text-text-muted">
-                    {t('settings.vtuber.modelDescription')}
+                    {t('settings.vtuber.followCursorDescription')}
                   </p>
-                  <div className="mt-3 flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={modelPathInput}
-                      onChange={(e) => setModelPathInput(e.target.value)}
-                      placeholder={t('settings.vtuber.modelPlaceholder')}
-                      className="flex-1 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)]"
-                    />
-                    <Button
-                      onClick={() => void setVtuberModelPath(modelPathInput)}
-                      disabled={modelPathInput === (settings?.vtuberModelPath ?? '')}
-                    >
-                      {t('settings.vtuber.saveModel')}
-                    </Button>
-                  </div>
                 </div>
+                <Switch
+                  checked={settings?.vtuberFollowCursor ?? true}
+                  onChange={(v) => void setVtuberFollowCursor(v)}
+                />
+              </div>
 
-                {/* Computer Vision / Webcam */}
+              {/* Chat Bubbles Toggle */}
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.vtuber.chatBubbleTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.vtuber.chatBubbleDescription')}
+                  </p>
+                </div>
+                <Switch
+                  checked={settings?.vtuberShowChatBubble ?? true}
+                  onChange={(v) => void setVtuberShowChatBubble(v)}
+                />
+              </div>
+
+              {/* Status Indicator Toggle */}
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.vtuber.statusTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.vtuber.statusDescription')}
+                  </p>
+                </div>
+                <Switch
+                  checked={settings?.vtuberShowStatus ?? true}
+                  onChange={(v) => void setVtuberShowStatus(v)}
+                />
+              </div>
+
+              {/* Continuous Mic VAD Voice Conversation */}
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.vtuber.vadTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.vtuber.vadDescription')}
+                  </p>
+                </div>
+                <Switch
+                  checked={settings?.vtuberVadEnabled ?? false}
+                  onChange={(v) => void setVtuberVadEnabled(v)}
+                />
+              </div>
+
+              {/* Computer Vision / Webcam */}
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.vtuber.visionTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.vtuber.visionDescription')}
+                  </p>
+                </div>
+                <Switch
+                  checked={settings?.vtuberVisionEnabled ?? false}
+                  onChange={(v) => void setVtuberVisionEnabled(v)}
+                />
+              </div>
+
+              {/* Camera device picker */}
+              {settings?.vtuberVisionEnabled && cameraList.length > 0 && (
                 <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-text">
-                      {t('settings.vtuber.visionTitle')}
+                      {t('settings.vtuber.cameraTitle')}
                     </div>
                     <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.vtuber.visionDescription')}
+                      {t('settings.vtuber.cameraDescription')}
                     </p>
                   </div>
-                  <Switch
-                    checked={settings?.vtuberVisionEnabled ?? false}
-                    onChange={(v) => void setVtuberVisionEnabled(v)}
-                  />
+                  <select
+                    value={settings?.vtuberCameraDevice || 'default'}
+                    onChange={(e) => void setVtuberCameraDevice(e.target.value)}
+                    className="h-9 min-w-48 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none focus:border-accent"
+                  >
+                    <option value="default">{t('settings.vtuber.defaultCamera')}</option>
+                    {cameraList.map((cam) => (
+                      <option key={cam.deviceId} value={cam.deviceId}>
+                        {cam.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-
-                {/* Camera device picker */}
-                {settings?.vtuberVisionEnabled && cameraList.length > 0 && (
-                  <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text">
-                        {t('settings.vtuber.cameraTitle')}
-                      </div>
-                      <p className="mt-0.5 text-xs text-text-muted">
-                        {t('settings.vtuber.cameraDescription')}
-                      </p>
-                    </div>
-                    <select
-                      value={settings?.vtuberCameraDevice || 'default'}
-                      onChange={(e) => void setVtuberCameraDevice(e.target.value)}
-                      className="h-9 min-w-48 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none focus:border-accent"
-                    >
-                      <option value="default">{t('settings.vtuber.defaultCamera')}</option>
-                      {cameraList.map((cam) => (
-                        <option key={cam.deviceId} value={cam.deviceId}>
-                          {cam.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Continuous Mic VAD Voice Conversation */}
-                <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-text">
-                      {t('settings.vtuber.vadTitle')}
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.vtuber.vadDescription')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={settings?.vtuberVadEnabled ?? false}
-                    onChange={(v) => void setVtuberVadEnabled(v)}
-                  />
-                </div>
-              </>
-            )}
-          </section>
-        </>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       {promptDialogOpen && (

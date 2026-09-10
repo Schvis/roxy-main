@@ -336,6 +336,7 @@
       "general": "General",
       "providers": "Providers & Models",
       "voice": "Voice & Audio",
+      "vtuber": "VTuber",
       "workspace": "Workspace"
     },
     "motion": {
@@ -552,7 +553,13 @@
       "vadTitle": "Hands-free voice loop (Mic VAD)",
       "vadDescription": "Continuously listen for speech bursts and reply automatically without wake words.",
       "detachedTitle": "Detach window (Float on desktop)",
-      "detachedDescription": "Float the avatar outside the main Roxy window anywhere across your screens with transparent background."
+      "detachedDescription": "Float the avatar outside the main Roxy window anywhere across your screens with transparent background.",
+      "chatBubbleTitle": "Show chat bubbles",
+      "chatBubbleDescription": "Display reply speech bubbles on the avatar window.",
+      "statusTitle": "Show status badge",
+      "statusDescription": "Display status badge (speaking, hearing you, thinking) on the avatar window.",
+      "followCursorTitle": "Follow cursor",
+      "followCursorDescription": "Model eyes and head follow the mouse pointer."
     },
     "privacy": {
       "heading": "Privacy",
@@ -914,6 +921,15 @@
     "snapshot": "Take camera snapshot",
     "see": "See this",
     "snapshotQuery": "Look at what is in front of the camera and describe or react to it.",
+    "bubbleEnable": "Show chat bubble",
+    "bubbleDisable": "Hide chat bubble",
+    "bubbleLabel": "Bubble",
+    "statusEnable": "Show status badge",
+    "statusDisable": "Hide status badge",
+    "statusLabel": "Status",
+    "followCursorEnable": "Enable follow cursor",
+    "followCursorDisable": "Disable follow cursor",
+    "followCursorLabel": "Follow",
     "resize": "Drag to resize"
   }
 }

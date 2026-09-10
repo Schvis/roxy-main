@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, shell } from 'electron'
 import { CHANNELS } from '../../shared/ipc'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, type MotionPreference } from '../../shared/motion'
@@ -26,6 +26,7 @@ import type {
 } from '../../shared/api'
 import type {
   AddMessageInput,
+  AppSettings,
   ConnectProviderInput,
   QueueImage,
   ReasoningEffort
@@ -315,6 +316,14 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetTtsLang, (_e, lang: string) => repo.setTtsLang(lang))
   ipcMain.handle(CHANNELS.settingsSetTtsSpeed, (_e, speed: number) => repo.setTtsSpeed(speed))
   ipcMain.handle(CHANNELS.settingsSetTtsApiKey, (_e, apiKey: string) => repo.setTtsApiKey(apiKey))
+  function broadcastSettings(settings: AppSettings): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(CHANNELS.settingsChanged, settings)
+      }
+    }
+  }
+
   ipcMain.handle(CHANNELS.settingsSetVtuberEnabled, (_e, enabled: boolean) => {
     const settings = repo.setVtuberEnabled(enabled)
     if (enabled) {
@@ -322,20 +331,29 @@ export function registerIpc(): void {
     } else {
       closeVtuberWindow()
     }
+    broadcastSettings(settings)
     return settings
   })
-  ipcMain.handle(CHANNELS.settingsSetVtuberModelPath, (_e, path: string) =>
-    repo.setVtuberModelPath(path)
-  )
-  ipcMain.handle(CHANNELS.settingsSetVtuberVisionEnabled, (_e, enabled: boolean) =>
-    repo.setVtuberVisionEnabled(enabled)
-  )
-  ipcMain.handle(CHANNELS.settingsSetVtuberCameraDevice, (_e, deviceId: string) =>
-    repo.setVtuberCameraDevice(deviceId)
-  )
-  ipcMain.handle(CHANNELS.settingsSetVtuberVadEnabled, (_e, enabled: boolean) =>
-    repo.setVtuberVadEnabled(enabled)
-  )
+  ipcMain.handle(CHANNELS.settingsSetVtuberModelPath, (_e, path: string) => {
+    const settings = repo.setVtuberModelPath(path)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberVisionEnabled, (_e, enabled: boolean) => {
+    const settings = repo.setVtuberVisionEnabled(enabled)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberCameraDevice, (_e, deviceId: string) => {
+    const settings = repo.setVtuberCameraDevice(deviceId)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberVadEnabled, (_e, enabled: boolean) => {
+    const settings = repo.setVtuberVadEnabled(enabled)
+    broadcastSettings(settings)
+    return settings
+  })
   ipcMain.handle(CHANNELS.settingsSetVtuberDetached, (_e, detached: boolean) => {
     const settings = repo.setVtuberDetached(detached)
     if (detached && settings.vtuberEnabled) {
@@ -343,6 +361,22 @@ export function registerIpc(): void {
     } else {
       closeVtuberWindow()
     }
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberShowChatBubble, (_e, show: boolean) => {
+    const settings = repo.setVtuberShowChatBubble(show)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberShowStatus, (_e, show: boolean) => {
+    const settings = repo.setVtuberShowStatus(show)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberFollowCursor, (_e, follow: boolean) => {
+    const settings = repo.setVtuberFollowCursor(follow)
+    broadcastSettings(settings)
     return settings
   })
   ipcMain.handle(CHANNELS.vtuberOpenWindow, () => openVtuberWindow())
@@ -1666,6 +1700,37 @@ export function registerIpc(): void {
       if (isVtuber) {
         repo.setVtuberWindowBounds(newWidth, newHeight, bounds.x, bounds.y)
       }
+    }
+  })
+
+  let cursorTrackingInterval: NodeJS.Timeout | null = null
+  let lastCursorPoint = { x: -1, y: -1 }
+
+  ipcMain.handle(CHANNELS.screenGetCursorPosition, () => {
+    return screen.getCursorScreenPoint()
+  })
+
+  ipcMain.handle(CHANNELS.screenStartCursorTracking, () => {
+    if (!cursorTrackingInterval) {
+      cursorTrackingInterval = setInterval(() => {
+        const pt = screen.getCursorScreenPoint()
+        if (pt.x !== lastCursorPoint.x || pt.y !== lastCursorPoint.y) {
+          lastCursorPoint = pt
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed() && isVtuberWindow(win) && win.isVisible()) {
+              win.webContents.send(CHANNELS.screenCursorPosition, pt)
+            }
+          }
+        }
+      }, 33)
+    }
+  })
+
+  ipcMain.handle(CHANNELS.screenStopCursorTracking, () => {
+    if (cursorTrackingInterval) {
+      clearInterval(cursorTrackingInterval)
+      cursorTrackingInterval = null
+      lastCursorPoint = { x: -1, y: -1 }
     }
   })
 

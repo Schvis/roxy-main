@@ -492,6 +492,12 @@ export interface AppSettings {
   vtuberVadEnabled: boolean
   /** Whether VTuber window is detached to float outside main window. */
   vtuberDetached: boolean
+  /** Whether to show speech chat bubble on the VTuber window. Default true. */
+  vtuberShowChatBubble: boolean
+  /** Whether to show the status pill (speaking, hearing you, thinking) on the VTuber window. Default true. */
+  vtuberShowStatus: boolean
+  /** Whether the Live2D model eyes and head follow the mouse cursor. Default true. */
+  vtuberFollowCursor: boolean
   /** Saved position and dimensions of the standalone VTuber window. */
   vtuberWindowBounds: { width: number; height: number; x?: number; y?: number } | null
 }

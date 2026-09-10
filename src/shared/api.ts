@@ -760,6 +760,10 @@ export interface RoxyApi {
     setVtuberCameraDevice(deviceId: string): Promise<AppSettings>
     setVtuberVadEnabled(enabled: boolean): Promise<AppSettings>
     setVtuberDetached(detached: boolean): Promise<AppSettings>
+    setVtuberShowChatBubble(show: boolean): Promise<AppSettings>
+    setVtuberShowStatus(show: boolean): Promise<AppSettings>
+    setVtuberFollowCursor(follow: boolean): Promise<AppSettings>
+    onChanged(callback: (settings: AppSettings) => void): () => void
     /** Keep the app and its browser toolbar in sync; never changes OS preferences. */
     onMotionChanged(callback: (motion: MotionPreference) => void): () => void
     completeOnboarding(): Promise<AppSettings>
@@ -936,6 +940,12 @@ export interface RoxyApi {
   vtuber: {
     openWindow(): Promise<void>
     closeWindow(): Promise<void>
+  }
+  screen: {
+    getCursorPosition(): Promise<{ x: number; y: number }>
+    startCursorTracking(): Promise<void>
+    stopCursorTracking(): Promise<void>
+    onCursorPosition(callback: (point: { x: number; y: number }) => void): () => void
   }
   stt: {
     /** Transcribe audio buffer/bytes to text using local faster-whisper. */

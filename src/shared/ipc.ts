@@ -35,8 +35,17 @@ export const CHANNELS = {
   settingsSetVtuberCameraDevice: 'settings:setVtuberCameraDevice',
   settingsSetVtuberVadEnabled: 'settings:setVtuberVadEnabled',
   settingsSetVtuberDetached: 'settings:setVtuberDetached',
+  settingsSetVtuberShowChatBubble: 'settings:setVtuberShowChatBubble',
+  settingsSetVtuberShowStatus: 'settings:setVtuberShowStatus',
+  settingsSetVtuberFollowCursor: 'settings:setVtuberFollowCursor',
+  settingsChanged: 'settings:changed',
   settingsCompleteOnboarding: 'settings:completeOnboarding',
   settingsReset: 'settings:reset',
+
+  screenGetCursorPosition: 'screen:getCursorPosition',
+  screenStartCursorTracking: 'screen:startCursorTracking',
+  screenStopCursorTracking: 'screen:stopCursorTracking',
+  screenCursorPosition: 'screen:cursorPosition',
 
   vtuberOpenWindow: 'vtuber:openWindow',
   vtuberCloseWindow: 'vtuber:closeWindow',

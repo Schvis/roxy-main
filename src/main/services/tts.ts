@@ -558,17 +558,25 @@ export async function speakSentenceAndWait(
   text: string,
   apiKey?: string,
   targetLang?: string,
-  speed?: number
-): Promise<{ duration: number }> {
+  speed?: number,
+  signal?: AbortSignal
+): Promise<{ duration: number; serverOk: boolean }> {
   const trimmed = text.trim()
-  if (!trimmed) return { duration: 0 }
+  if (!trimmed || signal?.aborted) return { duration: 0, serverOk: false }
 
   const lang = targetLang || TTS_LANG || 'ja'
   const rate = formatRate(speed)
 
-  notifySpeaking(true, trimmed)
   let duration = 0
+  let serverOk = false
   try {
+    const timeoutSignal = AbortSignal.timeout(60000)
+    const combinedSignal = signal
+      ? typeof AbortSignal.any === 'function'
+        ? AbortSignal.any([timeoutSignal, signal])
+        : signal
+      : timeoutSignal
+
     const res = await fetch(`${TTS_URL}/speak`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -579,16 +587,24 @@ export async function speakSentenceAndWait(
         lang,
         rate
       }),
-      signal: AbortSignal.timeout(60000)
+      signal: combinedSignal
     })
     if (res.ok) {
       const data = (await res.json()) as { duration?: number }
       duration = typeof data.duration === 'number' ? data.duration : 0
+      serverOk = true
     }
   } catch {
     // Voice daemon offline or timed out — silently proceed
   }
-  return { duration }
+
+  // Audio has finished generating and has begun playing in the Python voice daemon.
+  // Notify speaking state now so text, speech bubble, and lip-sync sync to exact audio playback start.
+  if (serverOk && !signal?.aborted) {
+    notifySpeaking(true, trimmed)
+  }
+
+  return { duration, serverOk }
 }
 
 /** Stop audio playback immediately and clear queue. */
@@ -625,6 +641,7 @@ export class SyncTtsStreamer {
   private backtickCount = 0
   private queue: Promise<void> = Promise.resolve()
   private aborted = false
+  private abortController = new AbortController()
   private onDisplay: (text: string) => void
   private settings: AppSettings
 
@@ -710,15 +727,23 @@ export class SyncTtsStreamer {
       // 1. Send to server and wait until audio is ready and starts playing
       const effectiveLang =
         this.settings.ttsTranslate === false ? 'none' : this.settings.ttsLang || 'ja'
-      const { duration } = await speakSentenceAndWait(
+      const { duration, serverOk } = await speakSentenceAndWait(
         textToSpeak,
         this.settings.ttsApiKey,
         effectiveLang,
-        this.settings.ttsSpeed
+        this.settings.ttsSpeed,
+        this.abortController.signal
       )
       // 2. Server is ready! Display message in chat at exact moment it plays
       if (!this.aborted) {
         this.onDisplay(textToSpeak)
+      }
+      // If server was offline, still notify speaking briefly so bubble/display works
+      if (!serverOk && !this.aborted && textToSpeak.trim()) {
+        notifySpeaking(true, textToSpeak.trim())
+        await new Promise<void>((resolve) => setTimeout(resolve, 3000))
+        if (!this.aborted) notifySpeaking(false)
+        return
       }
       // 3. Keep speaking state active during audio playback duration
       if (duration > 0 && !this.aborted) {
@@ -741,14 +766,21 @@ export class SyncTtsStreamer {
       if (entireText.trim()) {
         const effectiveLang =
           this.settings.ttsTranslate === false ? 'none' : this.settings.ttsLang || 'ja'
-        const { duration } = await speakSentenceAndWait(
+        const { duration, serverOk } = await speakSentenceAndWait(
           entireText,
           this.settings.ttsApiKey,
           effectiveLang,
-          this.settings.ttsSpeed
+          this.settings.ttsSpeed,
+          this.abortController.signal
         )
         if (!this.aborted && entireText) {
           this.onDisplay(entireText)
+        }
+        if (!serverOk && !this.aborted && entireText.trim()) {
+          notifySpeaking(true, entireText.trim())
+          await new Promise<void>((resolve) => setTimeout(resolve, 3000))
+          if (!this.aborted) notifySpeaking(false)
+          return
         }
         if (duration > 0 && !this.aborted) {
           await new Promise<void>((resolve) => setTimeout(resolve, Math.ceil(duration * 1000)))
@@ -767,6 +799,7 @@ export class SyncTtsStreamer {
 
   abort(): void {
     this.aborted = true
+    this.abortController.abort()
     notifySpeaking(false)
     if (this.buffer) {
       this.onDisplay(this.buffer)

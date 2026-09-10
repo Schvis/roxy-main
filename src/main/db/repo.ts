@@ -176,6 +176,9 @@ export function getSettings(): AppSettings {
     vtuberCameraDevice: map.get('vtuber_camera_device') ?? 'default',
     vtuberVadEnabled: map.get('vtuber_vad_enabled') === '1',
     vtuberDetached: map.get('vtuber_detached') !== '0',
+    vtuberShowChatBubble: map.get('vtuber_show_chat_bubble') !== '0',
+    vtuberShowStatus: map.get('vtuber_show_status') !== '0',
+    vtuberFollowCursor: map.get('vtuber_follow_cursor') !== '0',
     vtuberWindowBounds:
       map.has('vtuber_window_w') && map.has('vtuber_window_h')
         ? {
@@ -427,6 +430,21 @@ export function setVtuberVadEnabled(enabled: boolean): AppSettings {
 
 export function setVtuberDetached(detached: boolean): AppSettings {
   setSetting('vtuber_detached', detached ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberShowChatBubble(show: boolean): AppSettings {
+  setSetting('vtuber_show_chat_bubble', show ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberShowStatus(show: boolean): AppSettings {
+  setSetting('vtuber_show_status', show ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberFollowCursor(follow: boolean): AppSettings {
+  setSetting('vtuber_follow_cursor', follow ? '1' : '0')
   return getSettings()
 }
 
