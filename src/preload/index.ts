@@ -33,12 +33,22 @@ const roxy: RoxyApi = {
     setAutoWorkstream: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetAutoWorkstream, enabled),
     setOverlayMode: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayMode, enabled),
     setOverlayKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayKeybind, keybind),
+    setVoiceKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceKeybind, keybind),
+    setVoiceAutoSend: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceAutoSend, enabled),
+    setVoiceLang: (lang) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceLang, lang),
+    setVoiceModel: (model) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceModel, model),
+    setVoiceInputDevice: (deviceId) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVoiceInputDevice, deviceId),
+    setVoiceWakeWord: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceWakeWord, enabled),
+    setVoiceWakeWords: (words) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceWakeWords, words),
     setActivePromptId: (id) => ipcRenderer.invoke(CHANNELS.settingsSetActivePromptId, id),
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
     setLanguage: (language) => ipcRenderer.invoke(CHANNELS.settingsSetLanguage, language),
     setMotion: (motion) => ipcRenderer.invoke(CHANNELS.settingsSetMotion, motion),
     setTtsEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsEnabled, enabled),
     setTtsAutoStart: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsAutoStart, enabled),
+    setTtsModel: (model) => ipcRenderer.invoke(CHANNELS.settingsSetTtsModel, model),
+    setTtsIndex: (index) => ipcRenderer.invoke(CHANNELS.settingsSetTtsIndex, index),
     setTtsMode: (mode) => ipcRenderer.invoke(CHANNELS.settingsSetTtsMode, mode),
     setTtsTranslate: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsTranslate, enabled),
     setTtsLang: (lang) => ipcRenderer.invoke(CHANNELS.settingsSetTtsLang, lang),
@@ -147,7 +157,8 @@ const roxy: RoxyApi = {
   },
   system: {
     getVersions: () => ipcRenderer.invoke(CHANNELS.systemGetVersions),
-    openExternal: (url) => ipcRenderer.invoke(CHANNELS.systemOpenExternal, url)
+    openExternal: (url) => ipcRenderer.invoke(CHANNELS.systemOpenExternal, url),
+    openMicrophoneSettings: () => ipcRenderer.invoke(CHANNELS.systemOpenMicrophoneSettings)
   },
   tts: {
     getStatus: () => ipcRenderer.invoke(CHANNELS.ttsGetStatus),
@@ -156,6 +167,8 @@ const roxy: RoxyApi = {
     stopServer: () => ipcRenderer.invoke(CHANNELS.ttsStopServer),
     getServerLogs: () => ipcRenderer.invoke(CHANNELS.ttsGetServerLogs),
     clearServerLogs: () => ipcRenderer.invoke(CHANNELS.ttsClearServerLogs),
+    getModels: () => ipcRenderer.invoke(CHANNELS.ttsGetModels),
+    openModelsFolder: () => ipcRenderer.invoke(CHANNELS.ttsOpenModelsFolder),
     onInstallProgress: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
       ipcRenderer.on(CHANNELS.ttsInstallProgress, handler)
@@ -165,6 +178,29 @@ const roxy: RoxyApi = {
       const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
       ipcRenderer.on(CHANNELS.ttsServerLog, handler)
       return () => ipcRenderer.removeListener(CHANNELS.ttsServerLog, handler)
+    }
+  },
+  stt: {
+    transcribe: (
+      audio: ArrayBuffer | Uint8Array,
+      options?: { language?: string; model?: string; task?: string }
+    ) => ipcRenderer.invoke(CHANNELS.sttTranscribe, audio, options),
+    getStatus: () => ipcRenderer.invoke(CHANNELS.sttGetStatus),
+    installDependencies: () => ipcRenderer.invoke(CHANNELS.sttInstallDependencies),
+    onInstallProgress: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
+      ipcRenderer.on(CHANNELS.sttInstallProgress, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.sttInstallProgress, handler)
+    },
+    getInstalledModels: () => ipcRenderer.invoke(CHANNELS.sttGetInstalledModels),
+    downloadModel: (model: string) => ipcRenderer.invoke(CHANNELS.sttDownloadModel, model),
+    onDownloadProgress: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        progress: { model: string; percent: number; current: number; total: number }
+      ): void => callback(progress)
+      ipcRenderer.on(CHANNELS.sttDownloadProgress, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.sttDownloadProgress, handler)
     }
   },
   clipboard: {

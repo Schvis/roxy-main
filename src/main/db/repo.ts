@@ -131,6 +131,28 @@ export function getSettings(): AppSettings {
     activeThemeId: map.get('active_theme_id') ?? null,
     overlayMode: map.get('overlay_mode') === '1',
     overlayKeybind: map.get('overlay_keybind') ?? 'CommandOrControl+Shift+Space',
+    voiceKeybind: map.get('voice_keybind') ?? 'Alt+V',
+    voiceAutoSend: map.get('voice_auto_send') === '1',
+    voiceLang: map.get('voice_lang') ?? 'auto',
+    voiceModel: map.get('voice_model') ?? 'base',
+    voiceInputDevice: map.get('voice_input_device') ?? 'default',
+    voiceWakeWord: map.get('voice_wake_word') === '1',
+    voiceWakeWords: (() => {
+      const raw = map.get('voice_wake_words')
+      if (!raw) return ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
+      try {
+        const parsed = JSON.parse(raw)
+        return Array.isArray(parsed) && parsed.length > 0
+          ? parsed
+          : ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
+      } catch {
+        const list = raw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+        return list.length > 0 ? list : ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
+      }
+    })(),
     overlayIconPosition:
       map.has('overlay_icon_x') && map.has('overlay_icon_y')
         ? { x: Number(map.get('overlay_icon_x')), y: Number(map.get('overlay_icon_y')) }
@@ -138,6 +160,8 @@ export function getSettings(): AppSettings {
     activePromptId: map.get('active_prompt_id') ?? null,
     ttsEnabled: map.get('tts_enabled') === '1',
     ttsAutoStart: map.get('tts_auto_start') === '1',
+    ttsModel: map.get('tts_model') ?? 'roxy_e660_s4620.pth',
+    ttsIndex: map.get('tts_index') ?? 'auto',
     ttsMode: map.get('tts_mode') === 'sentence' ? 'sentence' : 'all',
     ttsTranslate: map.get('tts_translate') !== '0',
     ttsLang: map.get('tts_lang') ?? 'ja',
@@ -264,6 +288,42 @@ export function setOverlayKeybind(keybind: string): AppSettings {
   return getSettings()
 }
 
+export function setVoiceKeybind(keybind: string): AppSettings {
+  setSetting('voice_keybind', keybind)
+  return getSettings()
+}
+
+export function setVoiceAutoSend(enabled: boolean): AppSettings {
+  setSetting('voice_auto_send', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setVoiceLang(lang: string): AppSettings {
+  setSetting('voice_lang', lang.trim() || 'auto')
+  return getSettings()
+}
+
+export function setVoiceModel(model: string): AppSettings {
+  setSetting('voice_model', model.trim() || 'base')
+  return getSettings()
+}
+
+export function setVoiceInputDevice(deviceId: string): AppSettings {
+  setSetting('voice_input_device', deviceId.trim() || 'default')
+  return getSettings()
+}
+
+export function setVoiceWakeWord(enabled: boolean): AppSettings {
+  setSetting('voice_wake_word', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setVoiceWakeWords(words: string[]): AppSettings {
+  const clean = Array.from(new Set(words.map((w) => w.trim().toLowerCase()).filter(Boolean)))
+  setSetting('voice_wake_words', JSON.stringify(clean))
+  return getSettings()
+}
+
 export function setOverlayIconPosition(x: number, y: number): AppSettings {
   setSetting('overlay_icon_x', String(x))
   setSetting('overlay_icon_y', String(y))
@@ -283,6 +343,16 @@ export function setTtsEnabled(enabled: boolean): AppSettings {
 
 export function setTtsAutoStart(enabled: boolean): AppSettings {
   setSetting('tts_auto_start', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setTtsModel(model: string): AppSettings {
+  setSetting('tts_model', model.trim() || 'roxy_e660_s4620.pth')
+  return getSettings()
+}
+
+export function setTtsIndex(index: string): AppSettings {
+  setSetting('tts_index', index.trim() || 'auto')
   return getSettings()
 }
 

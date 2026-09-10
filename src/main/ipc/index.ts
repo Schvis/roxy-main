@@ -55,8 +55,18 @@ import {
   stopLocalTtsServer,
   getTtsServerLogs,
   clearTtsServerLogs,
-  setTtsLogListener
+  setTtsLogListener,
+  getAvailableTtsModels,
+  getTtsModelsDir,
+  setServerTtsModel
 } from '../services/tts'
+import {
+  transcribeAudio,
+  getSttStatus,
+  installSttDependencies,
+  getInstalledWhisperModels,
+  downloadWhisperModel
+} from '../services/stt'
 import { pickDefaultModel } from '../../shared/models'
 import { CLIPROXY_PROVIDER_IDS, accountsFor, isCliProxyProvider } from '../../shared/cliproxy'
 import { getUsageStats } from '../services/usage'
@@ -236,6 +246,27 @@ export function registerIpc(): void {
     updateOverlayShortcut(settings)
     return settings
   })
+  ipcMain.handle(CHANNELS.settingsSetVoiceKeybind, (_e, keybind: string) => {
+    return repo.setVoiceKeybind(keybind)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceAutoSend, (_e, enabled: boolean) => {
+    return repo.setVoiceAutoSend(enabled)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceLang, (_e, lang: string) => {
+    return repo.setVoiceLang(lang)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceModel, (_e, model: string) => {
+    return repo.setVoiceModel(model)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceInputDevice, (_e, deviceId: string) => {
+    return repo.setVoiceInputDevice(deviceId)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceWakeWord, (_e, enabled: boolean) => {
+    return repo.setVoiceWakeWord(enabled)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceWakeWords, (_e, words: string[]) => {
+    return repo.setVoiceWakeWords(words)
+  })
   ipcMain.handle(CHANNELS.settingsSetActivePromptId, (_e, id: string | null) =>
     repo.setActivePromptId(id)
   )
@@ -248,6 +279,16 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetTtsAutoStart, (_e, enabled: boolean) =>
     repo.setTtsAutoStart(enabled)
   )
+  ipcMain.handle(CHANNELS.settingsSetTtsModel, async (_e, model: string) => {
+    const settings = repo.setTtsModel(model)
+    void setServerTtsModel(model, settings.ttsIndex)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetTtsIndex, async (_e, index: string) => {
+    const settings = repo.setTtsIndex(index)
+    void setServerTtsModel(undefined, index)
+    return settings
+  })
   ipcMain.handle(CHANNELS.settingsSetTtsMode, (_e, mode: 'all' | 'sentence') =>
     repo.setTtsMode(mode)
   )
@@ -272,6 +313,44 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.ttsGetServerLogs, () => getTtsServerLogs())
   ipcMain.handle(CHANNELS.ttsClearServerLogs, () => {
     clearTtsServerLogs()
+  })
+  ipcMain.handle(CHANNELS.ttsGetModels, () => getAvailableTtsModels())
+  ipcMain.handle(CHANNELS.ttsOpenModelsFolder, async () => {
+    const dir = getTtsModelsDir()
+    await shell.openPath(dir)
+  })
+
+  ipcMain.handle(
+    CHANNELS.sttTranscribe,
+    async (
+      _e,
+      audioData: ArrayBuffer | Uint8Array,
+      options?: { language?: string; model?: string; task?: string }
+    ) => {
+      const buffer = Buffer.isBuffer(audioData)
+        ? audioData
+        : audioData instanceof ArrayBuffer
+          ? Buffer.from(audioData)
+          : Buffer.from(audioData.buffer, audioData.byteOffset, audioData.byteLength)
+      return transcribeAudio(buffer, options)
+    }
+  )
+
+  ipcMain.handle(CHANNELS.sttGetStatus, () => getSttStatus())
+  ipcMain.handle(CHANNELS.sttInstallDependencies, async (event) => {
+    return installSttDependencies((chunk) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(CHANNELS.sttInstallProgress, chunk)
+      }
+    })
+  })
+  ipcMain.handle(CHANNELS.sttGetInstalledModels, () => getInstalledWhisperModels())
+  ipcMain.handle(CHANNELS.sttDownloadModel, async (event, modelName: string) => {
+    return downloadWhisperModel(modelName, (progress) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(CHANNELS.sttDownloadProgress, { model: modelName, ...progress })
+      }
+    })
   })
 
   setTtsLogListener((chunk) => {
@@ -655,6 +734,19 @@ export function registerIpc(): void {
       }
     } catch {
       // ignore malformed URLs
+    }
+  })
+  ipcMain.handle(CHANNELS.systemOpenMicrophoneSettings, async () => {
+    try {
+      if (process.platform === 'win32') {
+        await shell.openExternal('ms-settings:privacy-microphone')
+      } else if (process.platform === 'darwin') {
+        await shell.openExternal(
+          'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+        )
+      }
+    } catch (err) {
+      console.warn('[System] Failed to open microphone settings:', err)
     }
   })
 

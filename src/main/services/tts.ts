@@ -11,6 +11,7 @@ import { app } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { getSettings } from '../db/repo'
+import { resolvePython } from './stt'
 
 const TTS_URL = process.env.ROXY_TTS_URL ?? 'http://127.0.0.1:5050'
 const TTS_LANG = process.env.ROXY_TTS_LANG // e.g. 'ja', 'es', 'zh', 'fr'
@@ -88,8 +89,9 @@ export async function getLocalTtsStatus(): Promise<{ installed: boolean; running
   const running = await isTtsServerAlive()
   let installed = false
   try {
+    const pyExe = resolvePython()
     const testPy = spawn(
-      'python',
+      pyExe,
       [
         '-c',
         'import edge_tts, sounddevice, soundfile, deepl, deep_translator; from rvc_python.infer import RVCInference'
@@ -111,10 +113,11 @@ export async function installTtsDependencies(
 ): Promise<{ ok: boolean; log: string }> {
   const scriptPath = resolveScript('setup_tts_env.py')
   const cwd = path.dirname(scriptPath)
+  const pyExe = resolvePython()
   return new Promise<{ ok: boolean; log: string }>((resolve) => {
     let output = ''
     try {
-      const proc = spawn('python', ['-u', scriptPath], { cwd, windowsHide: true })
+      const proc = spawn(pyExe, ['-u', scriptPath], { cwd, windowsHide: true })
       proc.stdout?.on('data', (d) => {
         const text = d.toString()
         output += text
@@ -140,6 +143,144 @@ export async function installTtsDependencies(
       resolve({ ok: false, log: text })
     }
   })
+}
+
+export function getTtsModelDirs(): string[] {
+  const dirs: string[] = []
+  const scriptPath = resolveScript('rvc_tts_server.py')
+  const userDir = path.join(app.getPath('userData'), 'models')
+  const candidates = [
+    path.join(process.cwd(), 'RoxyMigurdia'),
+    path.resolve(path.dirname(scriptPath), '..', 'RoxyMigurdia'),
+    path.join(app.getAppPath(), 'RoxyMigurdia'),
+    path.join(process.resourcesPath, 'RoxyMigurdia'),
+    path.join(process.resourcesPath, 'app.asar.unpacked', 'RoxyMigurdia'),
+    userDir
+  ]
+  for (const mc of candidates) {
+    if (fs.existsSync(mc) && fs.statSync(mc).isDirectory() && !dirs.includes(mc)) {
+      dirs.push(mc)
+    }
+  }
+  return dirs
+}
+
+export function findTtsModelDir(): string | null {
+  const dirs = getTtsModelDirs()
+  return dirs.length > 0 ? dirs[0] : null
+}
+
+export function getTtsModelsDir(): string {
+  if (!app.isPackaged) {
+    const repoDir = path.join(process.cwd(), 'RoxyMigurdia')
+    if (fs.existsSync(repoDir) && fs.statSync(repoDir).isDirectory()) {
+      return repoDir
+    }
+    const scriptPath = resolveScript('rvc_tts_server.py')
+    const parentDir = path.resolve(path.dirname(scriptPath), '..', 'RoxyMigurdia')
+    if (fs.existsSync(parentDir) && fs.statSync(parentDir).isDirectory()) {
+      return parentDir
+    }
+  }
+  const userDir = path.join(app.getPath('userData'), 'models')
+  if (!fs.existsSync(userDir)) {
+    try {
+      fs.mkdirSync(userDir, { recursive: true })
+    } catch {
+      // ignore
+    }
+  }
+  return userDir
+}
+
+export async function getAvailableTtsModels(): Promise<{
+  models: string[]
+  current: string
+  indexes: string[]
+  currentIndex: string
+}> {
+  const currentSettings = getSettings()
+  let current = currentSettings.ttsModel || 'roxy_e660_s4620.pth'
+  let currentIndex = currentSettings.ttsIndex || 'auto'
+  const modelDirs = getTtsModelDirs()
+  let models: string[] = []
+  let indexes: string[] = []
+
+  for (const dir of modelDirs) {
+    try {
+      const files = fs.readdirSync(dir)
+      for (const f of files) {
+        if (f.endsWith('.pth') && !models.includes(f)) {
+          models.push(f)
+        }
+        if (f.endsWith('.index') && !indexes.includes(f)) {
+          indexes.push(f)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (await isTtsServerAlive()) {
+    try {
+      const res = await fetch(`${TTS_URL}/models`, { signal: AbortSignal.timeout(600) })
+      if (res.ok) {
+        const data = (await res.json()) as {
+          models?: string[]
+          current?: string
+          indexes?: string[]
+          currentIndex?: string
+        }
+        if (data.models && data.models.length > 0) {
+          models = Array.from(new Set([...models, ...data.models]))
+        }
+        if (data.current) {
+          current = data.current
+        }
+        if (data.indexes && data.indexes.length > 0) {
+          indexes = Array.from(new Set([...indexes, ...data.indexes]))
+        }
+        if (data.currentIndex) {
+          currentIndex = data.currentIndex
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (models.length === 0) {
+    models = ['roxy_e660_s4620.pth', 'RoxyMigurdia.pth']
+  }
+  if (indexes.length === 0) {
+    indexes = [
+      'added_IVF346_Flat_nprobe_1_roxy_v2.index',
+      'added_IVF432_Flat_nprobe_1_RoxyMigurdia_v2.index'
+    ]
+  }
+
+  return { models, current, indexes, currentIndex }
+}
+
+export async function setServerTtsModel(modelName?: string, indexName?: string): Promise<boolean> {
+  if (await isTtsServerAlive()) {
+    try {
+      const payload: Record<string, string> = {}
+      if (modelName) payload.model = modelName
+      if (indexName !== undefined) payload.index = indexName
+      const res = await fetch(`${TTS_URL}/model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000)
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+  return true
 }
 
 export async function startLocalTtsServer(): Promise<{ ok: boolean; error?: string }> {
@@ -174,31 +315,67 @@ export async function startLocalTtsServer(): Promise<{ ok: boolean; error?: stri
 
   try {
     const env: NodeJS.ProcessEnv = { ...process.env }
-    const modelCandidates = [
-      path.join(process.resourcesPath, 'RoxyMigurdia'),
-      path.join(process.resourcesPath, 'app.asar.unpacked', 'RoxyMigurdia'),
-      path.join(app.getAppPath(), 'RoxyMigurdia'),
-      path.join(process.cwd(), 'RoxyMigurdia'),
-      path.resolve(path.dirname(scriptPath), '..', 'RoxyMigurdia')
-    ]
-    for (const mc of modelCandidates) {
-      if (fs.existsSync(mc)) {
-        const roxyModel = path.join(mc, 'roxy_e660_s4620.pth')
-        const defaultModel = path.join(mc, 'RoxyMigurdia.pth')
+    const currentSettings = getSettings()
+    const chosenModelName = currentSettings.ttsModel || 'roxy_e660_s4620.pth'
+    const chosenIndexName = currentSettings.ttsIndex || 'auto'
+    const allDirs = getTtsModelDirs()
+    const userModelsDir = path.join(app.getPath('userData'), 'models')
+    if (!fs.existsSync(userModelsDir)) {
+      try {
+        fs.mkdirSync(userModelsDir, { recursive: true })
+      } catch {
+        // ignore
+      }
+    }
+    env.ROXY_TTS_USER_MODELS_DIR = userModelsDir
+    if (allDirs.length > 0) {
+      env.ROXY_TTS_MODEL_DIR = allDirs[0]
+    }
+
+    for (const d of allDirs) {
+      const p = path.join(d, chosenModelName)
+      if (fs.existsSync(p)) {
+        env.ROXY_TTS_MODEL = p
+        break
+      }
+    }
+    if (!env.ROXY_TTS_MODEL) {
+      for (const d of allDirs) {
+        const roxyModel = path.join(d, 'roxy_e660_s4620.pth')
+        const defaultModel = path.join(d, 'RoxyMigurdia.pth')
         if (fs.existsSync(roxyModel)) {
           env.ROXY_TTS_MODEL = roxyModel
+          break
         } else if (fs.existsSync(defaultModel)) {
           env.ROXY_TTS_MODEL = defaultModel
+          break
         }
+      }
+    }
 
-        const roxyIndex = path.join(mc, 'added_IVF346_Flat_nprobe_1_roxy_v2.index')
-        const defaultIndex = path.join(mc, 'added_IVF432_Flat_nprobe_1_RoxyMigurdia_v2.index')
-        if (fs.existsSync(roxyIndex)) {
-          env.ROXY_TTS_INDEX = roxyIndex
-        } else if (fs.existsSync(defaultIndex)) {
-          env.ROXY_TTS_INDEX = defaultIndex
+    if (chosenIndexName === 'none' || chosenIndexName === 'off') {
+      env.ROXY_TTS_INDEX = ''
+    } else if (chosenIndexName !== 'auto') {
+      for (const d of allDirs) {
+        const p = path.join(d, chosenIndexName)
+        if (fs.existsSync(p)) {
+          env.ROXY_TTS_INDEX = p
+          break
         }
-        break
+      }
+    } else if (env.ROXY_TTS_MODEL) {
+      const stem = path.parse(env.ROXY_TTS_MODEL).name.toLowerCase()
+      for (const d of allDirs) {
+        try {
+          const idxs = fs.readdirSync(d).filter((f) => f.endsWith('.index'))
+          const matched = idxs.find((f) => f.toLowerCase().includes(stem)) || idxs[0]
+          if (matched) {
+            env.ROXY_TTS_INDEX = path.join(d, matched)
+            break
+          }
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -213,7 +390,6 @@ export async function startLocalTtsServer(): Promise<{ ok: boolean; error?: stri
       appendTtsServerLog(msg)
     }
 
-    const currentSettings = getSettings()
     const targetLang =
       currentSettings.ttsTranslate === false ? 'none' : currentSettings.ttsLang || 'ja'
     const speed = currentSettings.ttsSpeed ?? 15
@@ -221,7 +397,8 @@ export async function startLocalTtsServer(): Promise<{ ok: boolean; error?: stri
     env.ROXY_TTS_LANG = targetLang
     env.ROXY_TTS_RATE = formatRate(speed)
 
-    const proc = spawn('python', ['-u', scriptPath], {
+    const pyExe = resolvePython()
+    const proc = spawn(pyExe, ['-u', scriptPath], {
       cwd,
       env: {
         ...env,

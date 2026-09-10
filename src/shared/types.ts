@@ -444,6 +444,20 @@ export interface AppSettings {
   overlayMode: boolean
   /** The global shortcut to invoke the overlay (e.g. 'CommandOrControl+Shift+Space'). */
   overlayKeybind: string
+  /** The shortcut to hold to talk and release to transcribe (e.g. 'Alt+V'). */
+  voiceKeybind: string
+  /** Whether to automatically send the message after voice transcription. */
+  voiceAutoSend: boolean
+  /** Input language code for voice transcription ('auto' or language code). */
+  voiceLang: string
+  /** Faster-whisper model name ('tiny', 'base', 'small', 'medium', 'large-v3', 'distil-large-v3'). */
+  voiceModel: string
+  /** Selected audio input device id ('default' or specific deviceId). */
+  voiceInputDevice: string
+  /** Whether to listen for "Hey Roxy" to start recording automatically. */
+  voiceWakeWord: boolean
+  /** Learned or custom wake word phrases (e.g. ['hey roxy', 'hey roxie']). */
+  voiceWakeWords: string[]
   /** The saved position of the floating icon. */
   overlayIconPosition: { x: number; y: number } | null
   /** The active custom prompt id. Null means use the default prompt for the model. */
@@ -452,6 +466,10 @@ export interface AppSettings {
   ttsEnabled: boolean
   /** Whether to automatically start local RVC TTS voice server on app launch. */
   ttsAutoStart: boolean
+  /** Selected RVC voice model filename (e.g. 'roxy_e660_s4620.pth', 'RoxyMigurdia.pth'). */
+  ttsModel: string
+  /** Selected RVC voice index filename (e.g. 'added_IVF346_Flat_nprobe_1_roxy_v2.index', or 'auto', 'none'). */
+  ttsIndex: string
   /** Whether to speak the entire message at once or by sentence parts. */
   ttsMode: 'all' | 'sentence'
   /** Whether to translate chat replies before synthesis. Default true. */

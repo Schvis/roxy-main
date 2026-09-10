@@ -18,7 +18,7 @@ def main():
     )
 
     # 1. Base dependencies
-    print("\n[1/5] Installing core audio and translation libraries...")
+    print("\n[1/5] Installing core audio, STT and translation libraries...")
     run_cmd(
         [
             py_exe,
@@ -32,6 +32,7 @@ def main():
             "deepl",
             "deep-translator",
             "tensorboardX",
+            "faster-whisper",
         ]
     )
 

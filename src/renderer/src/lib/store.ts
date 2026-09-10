@@ -227,6 +227,13 @@ interface RoxyStore {
   setAutoWorkstream: (enabled: boolean) => Promise<void>
   setOverlayMode: (enabled: boolean) => Promise<void>
   setOverlayKeybind: (keybind: string) => Promise<void>
+  setVoiceKeybind: (keybind: string) => Promise<void>
+  setVoiceAutoSend: (enabled: boolean) => Promise<void>
+  setVoiceLang: (lang: string) => Promise<void>
+  setVoiceModel: (model: string) => Promise<void>
+  setVoiceInputDevice: (deviceId: string) => Promise<void>
+  setVoiceWakeWord: (enabled: boolean) => Promise<void>
+  setVoiceWakeWords: (words: string[]) => Promise<void>
   setActivePromptId: (id: string | null) => Promise<void>
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
   setBranchPrefix: (prefix: string) => Promise<void>
@@ -234,6 +241,8 @@ interface RoxyStore {
   setMotion: (preference: MotionPreference) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
   setTtsAutoStart: (enabled: boolean) => Promise<void>
+  setTtsModel: (model: string) => Promise<void>
+  setTtsIndex: (index: string) => Promise<void>
   setTtsMode: (mode: 'all' | 'sentence') => Promise<void>
   setTtsTranslate: (enabled: boolean) => Promise<void>
   setTtsLang: (lang: string) => Promise<void>
@@ -1567,6 +1576,41 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
+  setVoiceKeybind: async (keybind) => {
+    const settings = await api.settings.setVoiceKeybind(keybind)
+    set({ settings })
+  },
+
+  setVoiceAutoSend: async (enabled) => {
+    const settings = await api.settings.setVoiceAutoSend(enabled)
+    set({ settings })
+  },
+
+  setVoiceLang: async (lang) => {
+    const settings = await api.settings.setVoiceLang(lang)
+    set({ settings })
+  },
+
+  setVoiceModel: async (model) => {
+    const settings = await api.settings.setVoiceModel(model)
+    set({ settings })
+  },
+
+  setVoiceInputDevice: async (deviceId) => {
+    const settings = await api.settings.setVoiceInputDevice(deviceId)
+    set({ settings })
+  },
+
+  setVoiceWakeWord: async (enabled) => {
+    const settings = await api.settings.setVoiceWakeWord(enabled)
+    set({ settings })
+  },
+
+  setVoiceWakeWords: async (words) => {
+    const settings = await api.settings.setVoiceWakeWords(words)
+    set({ settings })
+  },
+
   setActivePromptId: async (id) => {
     const settings = await api.settings.setActivePromptId(id)
     set({ settings })
@@ -1579,6 +1623,16 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setTtsAutoStart: async (enabled) => {
     const settings = await api.settings.setTtsAutoStart(enabled)
+    set({ settings })
+  },
+
+  setTtsModel: async (model) => {
+    const settings = await api.settings.setTtsModel(model)
+    set({ settings })
+  },
+
+  setTtsIndex: async (index) => {
+    const settings = await api.settings.setTtsIndex(index)
     set({ settings })
   },
 

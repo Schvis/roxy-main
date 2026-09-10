@@ -1,6 +1,13 @@
-import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent
+} from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Monitor, Plus, Square, X } from 'lucide-react'
+import { ArrowUp, Loader2, Mic, MicOff, Monitor, Plus, Square, X } from 'lucide-react'
 import { ModelPicker } from './ModelPicker'
 import {
   ContextMeter,
@@ -12,6 +19,10 @@ import {
 import { imageFilesFrom, readImageFile, type ComposerImage } from '../lib/images'
 import { api } from '../lib/api'
 import { ImagePreview } from './ImagePreview'
+import { AudioRecorder } from '../lib/audio-recorder'
+import { WakeWordListener, matchWakeWord } from '../lib/wake-word'
+import { useRoxyStore } from '../lib/store'
+import { matchesKeybindDown, matchesKeybindRelease } from '../lib/keybind'
 
 export function Composer({
   onSend,
@@ -23,11 +34,31 @@ export function Composer({
   onStop?: () => void
 }): JSX.Element {
   const { t } = useTranslation()
+  const voiceKeybind = useRoxyStore((s) => s.settings?.voiceKeybind ?? 'Alt+V')
+  const voiceAutoSend = useRoxyStore((s) => s.settings?.voiceAutoSend ?? false)
+  const voiceLang = useRoxyStore((s) => s.settings?.voiceLang ?? 'auto')
+  const voiceWakeWord = useRoxyStore((s) => s.settings?.voiceWakeWord ?? false)
   const [value, setValue] = useState('')
   const [images, setImages] = useState<ComposerImage[]>([])
   const [dragging, setDragging] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const recorderRef = useRef<AudioRecorder | null>(null)
+  const wakeWordListenerRef = useRef<WakeWordListener | null>(null)
+  const isHoldingKeyRef = useRef(false)
+  const isRecordingRef = useRef(false)
+  const isTranscribingRef = useRef(false)
+
+  isRecordingRef.current = isRecording
+  isTranscribingRef.current = isTranscribing
+
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.cancel()
+    }
+  }, [])
 
   const addFiles = async (files: File[]): Promise<void> => {
     if (files.length === 0) return
@@ -48,6 +79,17 @@ export function Composer({
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (isRecording || isTranscribing || isHoldingKeyRef.current) {
+      if (event.key === 'Escape' && isRecording) {
+        event.preventDefault()
+        isHoldingKeyRef.current = false
+        recorderRef.current?.cancel()
+        setIsRecording(false)
+      }
+      event.preventDefault()
+      return
+    }
+
     // Escape stops the turn. The button alone was not enough: it hides as soon
     // as you type (the composer switches to "add to queue"), so drafting a
     // follow-up while a turn ran left no visible way to stop it — you had to
@@ -64,6 +106,10 @@ export function Composer({
   }
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (isRecording || isTranscribing || isHoldingKeyRef.current) {
+      event.preventDefault()
+      return
+    }
     const files = imageFilesFrom(event.clipboardData)
     if (files.length > 0) {
       event.preventDefault()
@@ -86,6 +132,190 @@ export function Composer({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 168)}px`
   }
+
+  const startRecording = async (): Promise<void> => {
+    if (isRecordingRef.current || isTranscribingRef.current) return
+    try {
+      wakeWordListenerRef.current?.pause()
+      if (!recorderRef.current) {
+        recorderRef.current = new AudioRecorder()
+      }
+      await recorderRef.current.start({
+        silenceDetection: true,
+        silenceDurationMs: 1800,
+        onSilence: () => {
+          if (!isHoldingKeyRef.current && isRecordingRef.current) {
+            void stopRecordingAndTranscribe()
+          }
+        }
+      })
+      setIsRecording(true)
+      ref.current?.focus()
+    } catch (err) {
+      console.error('[STT] Microphone access error:', err)
+      setIsRecording(false)
+      wakeWordListenerRef.current?.resume()
+    }
+  }
+
+  const stopRecordingAndTranscribe = async (): Promise<void> => {
+    if (!isRecordingRef.current || isTranscribingRef.current) return
+    setIsRecording(false)
+    setIsTranscribing(true)
+    try {
+      const audioBuffer = await recorderRef.current?.stop()
+      if (audioBuffer) {
+        const currentSettings = useRoxyStore.getState().settings
+        const effectiveLang = currentSettings?.voiceLang ?? voiceLang
+        const shouldAutoSend = currentSettings?.voiceAutoSend ?? voiceAutoSend
+        const langParam = effectiveLang && effectiveLang !== 'auto' ? effectiveLang : undefined
+        const res = await api.stt.transcribe(audioBuffer, {
+          language: langParam,
+          task: 'transcribe'
+        })
+        if (res?.text) {
+          const transcribed = res.text.trim()
+          if (transcribed) {
+            if (shouldAutoSend) {
+              const currentVal = ref.current?.value.trimEnd() ?? value.trimEnd()
+              const fullText = currentVal ? `${currentVal} ${transcribed}` : transcribed
+              onSend(fullText, images.length ? images : undefined)
+              setValue('')
+              setImages([])
+              if (ref.current) ref.current.style.height = 'auto'
+            } else {
+              setValue((prev) => {
+                const trimmed = prev.trimEnd()
+                const updated = trimmed ? `${trimmed} ${transcribed}` : transcribed
+                setTimeout(autoGrow, 0)
+                return updated
+              })
+              ref.current?.focus()
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[STT] Transcription error:', err)
+    } finally {
+      setIsTranscribing(false)
+      wakeWordListenerRef.current?.resume()
+    }
+  }
+
+  const toggleRecording = async (): Promise<void> => {
+    if (isRecording) {
+      await stopRecordingAndTranscribe()
+    } else {
+      await startRecording()
+    }
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent): void => {
+      const currentKeybind = useRoxyStore.getState().settings?.voiceKeybind ?? voiceKeybind
+      if (!currentKeybind) return
+
+      if (isHoldingKeyRef.current) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+
+      if (matchesKeybindDown(e, currentKeybind)) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!isRecordingRef.current && !isTranscribingRef.current) {
+          isHoldingKeyRef.current = true
+          void startRecording()
+        }
+      }
+    }
+
+    const handleKeyUp = (e: globalThis.KeyboardEvent): void => {
+      const currentKeybind = useRoxyStore.getState().settings?.voiceKeybind ?? voiceKeybind
+      if (!currentKeybind) return
+
+      if (isHoldingKeyRef.current && matchesKeybindRelease(e, currentKeybind)) {
+        e.preventDefault()
+        e.stopPropagation()
+        isHoldingKeyRef.current = false
+        if (isRecordingRef.current) {
+          void stopRecordingAndTranscribe()
+        }
+      }
+    }
+
+    const handleBlur = (): void => {
+      if (isHoldingKeyRef.current) {
+        isHoldingKeyRef.current = false
+        if (isRecordingRef.current) {
+          void stopRecordingAndTranscribe()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keyup', handleKeyUp, true)
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('keyup', handleKeyUp, true)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [voiceKeybind])
+
+  useEffect(() => {
+    if (!voiceWakeWord) {
+      wakeWordListenerRef.current?.stop()
+      wakeWordListenerRef.current = null
+      return
+    }
+
+    const listener = new WakeWordListener()
+    wakeWordListenerRef.current = listener
+
+    void listener.start((initialQuery) => {
+      const cleanQuery = initialQuery?.trim().replace(/^[,.?!:\s]+/, '')
+      const isOnlyWakeWord =
+        !cleanQuery ||
+        Boolean(
+          matchWakeWord(cleanQuery, useRoxyStore.getState().settings?.voiceWakeWords).matched &&
+          !matchWakeWord(cleanQuery, useRoxyStore.getState().settings?.voiceWakeWords).query
+        )
+
+      if (!isOnlyWakeWord && cleanQuery) {
+        const currentSettings = useRoxyStore.getState().settings
+        const shouldAutoSend = currentSettings?.voiceAutoSend ?? voiceAutoSend
+        if (shouldAutoSend) {
+          const currentVal = ref.current?.value.trimEnd() ?? value.trimEnd()
+          const fullText = currentVal ? `${currentVal} ${cleanQuery}` : cleanQuery
+          onSend(fullText, images.length ? images : undefined)
+          setValue('')
+          setImages([])
+          if (ref.current) ref.current.style.height = 'auto'
+        } else {
+          setValue((prev) => {
+            const trimmed = prev.trimEnd()
+            const updated = trimmed ? `${trimmed} ${cleanQuery}` : cleanQuery
+            setTimeout(autoGrow, 0)
+            return updated
+          })
+          ref.current?.focus()
+        }
+      } else {
+        void startRecording()
+      }
+    })
+
+    return () => {
+      listener.stop()
+      if (wakeWordListenerRef.current === listener) {
+        wakeWordListenerRef.current = null
+      }
+    }
+  }, [voiceWakeWord])
 
   // Stop needs a handler to be honest: a session can be busy with a turn this
   // composer doesn't own (a subagent's run is driven by its parent), and a Stop
@@ -161,14 +391,20 @@ export function Composer({
           ref={ref}
           value={value}
           rows={1}
+          readOnly={isRecording || isTranscribing || isHoldingKeyRef.current}
           placeholder={
-            sending
-              ? onStop
-                ? t('composer.queuePlaceholderStop')
-                : t('composer.queuePlaceholder')
-              : t('composer.placeholder')
+            isRecording
+              ? t('composer.listening')
+              : isTranscribing
+                ? t('composer.transcribing')
+                : sending
+                  ? onStop
+                    ? t('composer.queuePlaceholderStop')
+                    : t('composer.queuePlaceholder')
+                  : t('composer.placeholder')
           }
           onChange={(e) => {
+            if (isRecording || isTranscribing || isHoldingKeyRef.current) return
             setValue(e.target.value)
             autoGrow()
           }}
@@ -206,6 +442,33 @@ export function Composer({
               className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text"
             >
               <Monitor className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void toggleRecording()}
+              disabled={isTranscribing}
+              title={
+                isTranscribing
+                  ? t('composer.transcribing')
+                  : isRecording
+                    ? t('composer.stopRecording')
+                    : `${t('composer.voiceInput')} (${voiceKeybind})`
+              }
+              className={`press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 transition-colors ${
+                isRecording
+                  ? 'bg-red-500/20 text-red-400 animate-pulse'
+                  : isTranscribing
+                    ? 'text-accent'
+                    : 'text-text-muted hover:bg-white/5 hover:text-text'
+              }`}
+            >
+              {isTranscribing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : isRecording ? (
+                <MicOff className="h-3.5 w-3.5 text-red-400" />
+              ) : (
+                <Mic className="h-3.5 w-3.5" />
+              )}
             </button>
             <ModelPicker />
             <AgentPicker />

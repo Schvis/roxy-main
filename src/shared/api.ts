@@ -733,6 +733,13 @@ export interface RoxyApi {
     setAutoWorkstream(enabled: boolean): Promise<AppSettings>
     setOverlayMode(enabled: boolean): Promise<AppSettings>
     setOverlayKeybind(keybind: string): Promise<AppSettings>
+    setVoiceKeybind(keybind: string): Promise<AppSettings>
+    setVoiceAutoSend(enabled: boolean): Promise<AppSettings>
+    setVoiceLang(lang: string): Promise<AppSettings>
+    setVoiceModel(model: string): Promise<AppSettings>
+    setVoiceInputDevice(deviceId: string): Promise<AppSettings>
+    setVoiceWakeWord(enabled: boolean): Promise<AppSettings>
+    setVoiceWakeWords(words: string[]): Promise<AppSettings>
     setActivePromptId(id: string | null): Promise<AppSettings>
     setBranchPrefix(prefix: string): Promise<AppSettings>
     /** Set the UI language. An unknown code falls back to English. */
@@ -740,6 +747,8 @@ export interface RoxyApi {
     setMotion(motion: MotionPreference): Promise<AppSettings>
     setTtsEnabled(enabled: boolean): Promise<AppSettings>
     setTtsAutoStart(enabled: boolean): Promise<AppSettings>
+    setTtsModel(model: string): Promise<AppSettings>
+    setTtsIndex(index: string): Promise<AppSettings>
     setTtsMode(mode: 'all' | 'sentence'): Promise<AppSettings>
     setTtsTranslate(enabled: boolean): Promise<AppSettings>
     setTtsLang(lang: string): Promise<AppSettings>
@@ -881,6 +890,7 @@ export interface RoxyApi {
   system: {
     getVersions(): Promise<AppVersions>
     openExternal(url: string): Promise<void>
+    openMicrophoneSettings(): Promise<void>
   }
   tts: {
     getStatus(): Promise<{ installed: boolean; running: boolean }>
@@ -891,6 +901,39 @@ export interface RoxyApi {
     getServerLogs(): Promise<string>
     clearServerLogs(): Promise<void>
     onServerLog(callback: (chunk: string) => void): () => void
+    getModels(): Promise<{
+      models: string[]
+      current: string
+      indexes: string[]
+      currentIndex: string
+    }>
+    openModelsFolder(): Promise<void>
+  }
+  stt: {
+    /** Transcribe audio buffer/bytes to text using local faster-whisper. */
+    transcribe(
+      audio: ArrayBuffer | Uint8Array,
+      options?: {
+        language?: string
+        model?: string
+        task?: string
+        initialPrompt?: string
+        beamSize?: number
+      }
+    ): Promise<{ text: string }>
+    getStatus(): Promise<{ installed: boolean; pythonPath?: string }>
+    installDependencies(): Promise<{ ok: boolean; log: string }>
+    onInstallProgress(callback: (chunk: string) => void): () => void
+    getInstalledModels(): Promise<string[]>
+    downloadModel(model: string): Promise<{ ok: boolean; error?: string }>
+    onDownloadProgress(
+      callback: (progress: {
+        model: string
+        percent: number
+        current: number
+        total: number
+      }) => void
+    ): () => void
   }
   /**
    * The right-click editing menu's main-process half. The menu itself is drawn

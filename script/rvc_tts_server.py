@@ -5,9 +5,13 @@ and converts the output through the local RoxyMigurdia RVC model on GPU.
 """
 
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
+
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 import queue
 import re
 import sys
@@ -38,7 +42,18 @@ import deepl
 from deep_translator import GoogleTranslator
 
 # Paths
-def find_model_dir() -> Path:
+def find_model_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    env_user_dir = os.environ.get("ROXY_TTS_USER_MODELS_DIR", "").strip()
+    if env_user_dir:
+        p = Path(env_user_dir)
+        if p.exists() and p.is_dir() and p not in dirs:
+            dirs.append(p)
+    env_dir = os.environ.get("ROXY_TTS_MODEL_DIR", "").strip()
+    if env_dir:
+        p = Path(env_dir)
+        if p.exists() and p.is_dir() and p not in dirs:
+            dirs.append(p)
     candidates = [
         Path(__file__).resolve().parent.parent / "RoxyMigurdia",
         Path(__file__).resolve().parent / "RoxyMigurdia",
@@ -46,12 +61,54 @@ def find_model_dir() -> Path:
         Path(sys.executable).parent / "resources" / "RoxyMigurdia",
     ]
     for c in candidates:
-        if c.exists() and c.is_dir():
-            return c
-    return candidates[0]
+        if c.exists() and c.is_dir() and c not in dirs:
+            dirs.append(c)
+    return dirs if dirs else [candidates[0]]
 
 
-MODEL_DIR = find_model_dir()
+def find_model_dir() -> Path:
+    return find_model_dirs()[0]
+
+
+MODEL_DIRS = find_model_dirs()
+MODEL_DIR = MODEL_DIRS[0]
+
+
+def get_all_models() -> list[str]:
+    models: list[str] = []
+    for d in find_model_dirs():
+        for f in sorted(d.glob("*.pth")):
+            if f.name not in models:
+                models.append(f.name)
+    return models
+
+
+def get_all_indexes() -> list[str]:
+    indexes: list[str] = []
+    for d in find_model_dirs():
+        for f in sorted(d.glob("*.index")):
+            if f.name not in indexes:
+                indexes.append(f.name)
+    return indexes
+
+
+def resolve_model_file(filename: str, ext: str = "") -> Path | None:
+    p = Path(filename)
+    if p.is_absolute() and p.exists():
+        return p
+    for d in find_model_dirs():
+        target = d / filename
+        if ext and not target.suffix:
+            target = target.with_suffix(ext)
+        if target.exists():
+            return target
+        if ext:
+            matches = list(d.glob(f"*{filename}*{ext}"))
+            if matches:
+                return matches[0]
+    return None
+
+
 MODEL_PATH = Path(
     os.environ.get(
         "ROXY_TTS_MODEL",
@@ -218,7 +275,75 @@ class RvcTtsEngine:
             f0method="rmvpe",
             index_rate=0.75,
         )
+        self.current_model = MODEL_PATH.name
+        self.current_index = INDEX_PATH.name if INDEX_PATH.exists() else ""
         print("[TTS] RVC model ready.")
+
+    def load_voice_model(
+        self, model_name: str | None = None, index_name: str | None = None
+    ) -> bool:
+        if model_name:
+            target_model = resolve_model_file(model_name, ".pth")
+            if not target_model:
+                return False
+        else:
+            curr = getattr(self, "current_model", MODEL_PATH.name)
+            target_model = resolve_model_file(curr, ".pth") or (MODEL_DIR / curr)
+
+        # Determine index path
+        if index_name is not None:
+            raw_idx = index_name.strip()
+            if raw_idx.lower() in ("none", "off"):
+                matched_index = ""
+                self.current_index = ""
+            elif raw_idx.lower() in ("auto", ""):
+                stem = target_model.stem.lower()
+                matched_index = ""
+                for d in find_model_dirs():
+                    for idx in sorted(d.glob("*.index")):
+                        if stem in idx.name.lower() or "roxy" in idx.name.lower():
+                            matched_index = str(idx)
+                            break
+                    if matched_index:
+                        break
+                self.current_index = Path(matched_index).name if matched_index else ""
+            else:
+                found_idx = resolve_model_file(raw_idx, ".index")
+                matched_index = str(found_idx) if found_idx else ""
+                self.current_index = Path(matched_index).name if matched_index else ""
+        else:
+            # Preserve current index or find matching
+            current_idx_file = (
+                resolve_model_file(getattr(self, "current_index", ""), ".index")
+                if getattr(self, "current_index", "")
+                else None
+            )
+            if current_idx_file:
+                matched_index = str(current_idx_file)
+            else:
+                stem = target_model.stem.lower()
+                matched_index = ""
+                for d in find_model_dirs():
+                    for idx in sorted(d.glob("*.index")):
+                        if stem in idx.name.lower() or "roxy" in idx.name.lower():
+                            matched_index = str(idx)
+                            break
+                    if matched_index:
+                        break
+                self.current_index = Path(matched_index).name if matched_index else ""
+
+        print(
+            f"[TTS] Hot-reloading voice model {target_model.name} (index: {self.current_index or 'none'})..."
+        )
+        self.rvc.load_model(str(target_model), version="v2", index_path=matched_index)
+        self.rvc.set_params(
+            f0up_key=DEFAULT_PITCH,
+            f0method="rmvpe",
+            index_rate=0.75,
+        )
+        self.current_model = target_model.name
+        print(f"[TTS] Voice model {target_model.name} ready with index {self.current_index or 'none'}.")
+        return True
 
     async def _edge_tts(self, text: str, out_path: str, rate: str, voice: str):
         selected_voice = voice if voice else DEFAULT_VOICE
@@ -387,16 +512,79 @@ class TtsHttpHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "status": "ok",
-                    "model": "RoxyMigurdia",
+                    "model": engine.current_model
+                    if engine and hasattr(engine, "current_model")
+                    else MODEL_PATH.name,
                     "device": engine.device if engine else "unknown",
                     "queue_size": task_queue.qsize(),
+                },
+            )
+        elif self.path == "/models":
+            models = get_all_models()
+            indexes = get_all_indexes()
+            curr = (
+                engine.current_model
+                if engine and hasattr(engine, "current_model")
+                else MODEL_PATH.name
+            )
+            curr_idx = (
+                engine.current_index
+                if engine and hasattr(engine, "current_index")
+                else (INDEX_PATH.name if INDEX_PATH.exists() else "")
+            )
+            self._send_json(
+                200,
+                {
+                    "models": models,
+                    "current": curr,
+                    "indexes": indexes,
+                    "currentIndex": curr_idx,
                 },
             )
         else:
             self._send_json(404, {"error": "Not Found"})
 
     def do_POST(self):
-        if self.path == "/speak":
+        if self.path in ("/model", "/index"):
+            content_length = int(self.headers.get("Content-Length", 0))
+            body_bytes = self.rfile.read(content_length)
+            try:
+                body = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+
+            model_name = body.get("model")
+            index_name = body.get("index")
+
+            if model_name is None and index_name is None:
+                self._send_json(400, {"error": "Missing model or index parameter"})
+                return
+
+            if not engine:
+                self._send_json(503, {"error": "Engine not initialized"})
+                return
+
+            try:
+                ok = engine.load_voice_model(
+                    model_name=model_name.strip() if model_name else None,
+                    index_name=index_name.strip() if index_name is not None else None,
+                )
+                if ok:
+                    self._send_json(
+                        200,
+                        {
+                            "ok": True,
+                            "model": engine.current_model,
+                            "index": getattr(engine, "current_index", ""),
+                        },
+                    )
+                else:
+                    self._send_json(404, {"error": "Model or index not found"})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        elif self.path == "/speak":
             content_length = int(self.headers.get("Content-Length", 0))
             body_bytes = self.rfile.read(content_length)
             try:
@@ -454,6 +642,56 @@ class TtsHttpHandler(BaseHTTPRequestHandler):
             # Reset stop flag after brief delay
             threading.Timer(0.1, stop_flag.clear).start()
             self._send_json(200, {"status": "stopped"})
+
+        elif self.path == "/transcribe":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body_bytes = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+            audio_bytes = b""
+            model_size = "base"
+            language = None
+            task = None
+
+            if "application/json" in content_type:
+                try:
+                    body = json.loads(body_bytes.decode("utf-8"))
+                    audio_b64 = body.get("audio", "")
+                    audio_bytes = base64.b64decode(audio_b64)
+                    model_size = body.get("model", "base")
+                    language = body.get("language")
+                    task = body.get("task")
+                    initial_prompt = body.get("initial_prompt")
+                    beam_size = int(body.get("beam_size", 5))
+                except Exception as e:
+                    self._send_json(400, {"ok": False, "error": f"Invalid JSON / base64: {e}"})
+                    return
+            else:
+                audio_bytes = body_bytes
+                model_size = "base"
+                language = None
+                task = None
+                initial_prompt = None
+                beam_size = 5
+
+            if not audio_bytes:
+                self._send_json(400, {"ok": False, "error": "No audio data provided"})
+                return
+
+            try:
+                from transcribe import transcribe_bytes
+                text = transcribe_bytes(
+                    audio_bytes,
+                    model_size=model_size,
+                    language=language,
+                    task=task,
+                    initial_prompt=initial_prompt,
+                    beam_size=beam_size,
+                )
+                self._send_json(200, {"ok": True, "text": text})
+            except Exception as e:
+                print(f"[STT] Transcription error: {e}", file=sys.stderr)
+                self._send_json(500, {"ok": False, "error": str(e)})
+
         else:
             self._send_json(404, {"error": "Not Found"})
 

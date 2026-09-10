@@ -16,6 +16,8 @@ extraResources:
     to: script/rvc_tts_server.py
   - from: script/setup_tts_env.py
     to: script/setup_tts_env.py
+  - from: script/transcribe.py
+    to: script/transcribe.py
 asarUnpack:
   - resources/**
   - RoxyMigurdia/**

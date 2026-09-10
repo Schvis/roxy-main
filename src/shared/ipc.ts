@@ -8,6 +8,13 @@ export const CHANNELS = {
   settingsSetAutoWorkstream: 'settings:setAutoWorkstream',
   settingsSetOverlayMode: 'settings:setOverlayMode',
   settingsSetOverlayKeybind: 'settings:setOverlayKeybind',
+  settingsSetVoiceKeybind: 'settings:setVoiceKeybind',
+  settingsSetVoiceAutoSend: 'settings:setVoiceAutoSend',
+  settingsSetVoiceLang: 'settings:setVoiceLang',
+  settingsSetVoiceModel: 'settings:setVoiceModel',
+  settingsSetVoiceInputDevice: 'settings:setVoiceInputDevice',
+  settingsSetVoiceWakeWord: 'settings:setVoiceWakeWord',
+  settingsSetVoiceWakeWords: 'settings:setVoiceWakeWords',
   settingsSetActivePromptId: 'settings:setActivePromptId',
   settingsSetBranchPrefix: 'settings:setBranchPrefix',
   settingsSetLanguage: 'settings:setLanguage',
@@ -15,6 +22,8 @@ export const CHANNELS = {
   settingsMotionChanged: 'settings:motionChanged',
   settingsSetTtsEnabled: 'settings:setTtsEnabled',
   settingsSetTtsAutoStart: 'settings:setTtsAutoStart',
+  settingsSetTtsModel: 'settings:setTtsModel',
+  settingsSetTtsIndex: 'settings:setTtsIndex',
   settingsSetTtsMode: 'settings:setTtsMode',
   settingsSetTtsTranslate: 'settings:setTtsTranslate',
   settingsSetTtsLang: 'settings:setTtsLang',
@@ -31,6 +40,16 @@ export const CHANNELS = {
   ttsServerLog: 'tts:serverLog',
   ttsGetServerLogs: 'tts:getServerLogs',
   ttsClearServerLogs: 'tts:clearServerLogs',
+  ttsGetModels: 'tts:getModels',
+  ttsOpenModelsFolder: 'tts:openModelsFolder',
+
+  sttTranscribe: 'stt:transcribe',
+  sttGetStatus: 'stt:getStatus',
+  sttInstallDependencies: 'stt:installDependencies',
+  sttInstallProgress: 'stt:installProgress',
+  sttGetInstalledModels: 'stt:getInstalledModels',
+  sttDownloadModel: 'stt:downloadModel',
+  sttDownloadProgress: 'stt:downloadProgress',
 
   // Anonymous usage tracking. Its own pair of channels rather than a field on
   // AppSettings: the flag lives in a file outside the database, so opting out
@@ -124,6 +143,7 @@ export const CHANNELS = {
 
   systemGetVersions: 'system:getVersions',
   systemOpenExternal: 'system:openExternal',
+  systemOpenMicrophoneSettings: 'system:openMicrophoneSettings',
 
   copilotStart: 'copilot:start',
   copilotPoll: 'copilot:poll',
