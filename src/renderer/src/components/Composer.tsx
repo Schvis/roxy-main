@@ -212,6 +212,27 @@ export function Composer({
   }
 
   useEffect(() => {
+    void api.stt.setRecordingState(isRecording)
+  }, [isRecording])
+
+  useEffect(() => {
+    const unsubStart = api.stt.onStartRecording(() => {
+      if (!isRecordingRef.current && !isTranscribingRef.current) {
+        void startRecording()
+      }
+    })
+    const unsubStop = api.stt.onStopRecording(() => {
+      if (isRecordingRef.current) {
+        void stopRecordingAndTranscribe()
+      }
+    })
+    return () => {
+      unsubStart()
+      unsubStop()
+    }
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent): void => {
       const currentKeybind = useRoxyStore.getState().settings?.voiceKeybind ?? voiceKeybind
       if (!currentKeybind) return

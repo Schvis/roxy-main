@@ -580,6 +580,24 @@
       "wakeWordDescription": "Listen in background for \"Hey Roxy\" to start recording automatically, and transcribe when you finish speaking.",
       "wakeWordTitle": "Wake word (\"Hey Roxy\")"
     },
+    "vtuber": {
+      "cameraDescription": "Webcam input device for vision perception.",
+      "cameraTitle": "Camera device",
+      "defaultCamera": "Default system camera",
+      "detachedDescription": "Float the avatar outside the main Roxy window anywhere across your screens with transparent background.",
+      "detachedTitle": "Detach window (Float on desktop)",
+      "enableDescription": "Display an interactive Live2D avatar with real-time lip-sync and expressive reactions.",
+      "enableTitle": "Enable VTuber avatar overlay",
+      "heading": "VTuber & Vision",
+      "modelDescription": "URL or local path to Live2D model3.json or model.json definition.",
+      "modelPlaceholder": "https://... or path to model3.json",
+      "modelTitle": "Live2D model source",
+      "saveModel": "Save",
+      "vadDescription": "Continuously listen for speech bursts and reply automatically without wake words.",
+      "vadTitle": "Hands-free voice loop (Mic VAD)",
+      "visionDescription": "Enable webcam frame capture to share vision snapshots with Gemini.",
+      "visionTitle": "Computer vision (Webcam)"
+    },
     "workstreams": {
       "autoDescription": "Cada sesión trabaja en su propio worktree de git, en su propia rama, para que las sesiones en paralelo no se pisen entre sí ni entren en conflicto con tu editor. La carpeta se crea con el primer mensaje de la sesión, y solo en repositorios git. Desactiva esto para que las sesiones nuevas se ejecuten directamente en la carpeta del proyecto.",
       "autoTitle": "Cada sesión nueva tiene su propio flujo de trabajo",
@@ -782,6 +800,29 @@
     "today": "Hoy",
     "tokens30d": "Tokens 30 d",
     "topModel": "Modelo más usado: <1>{{model}}</1>"
+  },
+  "vtuber": {
+    "cameraDisable": "Disable camera vision",
+    "cameraEnable": "Enable camera vision",
+    "close": "Close VTuber widget",
+    "detach": "Float on desktop",
+    "dockBack": "Dock to main window",
+    "expand": "Expand avatar",
+    "minimize": "Minimize avatar",
+    "resize": "Drag to resize",
+    "see": "See this",
+    "snapshot": "Take camera snapshot",
+    "snapshotQuery": "Look at what is in front of the camera and describe or react to it.",
+    "statusActive": "Listening (VAD)",
+    "statusIdle": "Idle",
+    "statusListening": "Hearing you…",
+    "statusSpeaking": "Speaking…",
+    "statusThinking": "Thinking…",
+    "statusTranscribing": "Transcribing…",
+    "vadDisable": "Disable hands-free voice loop",
+    "vadEnable": "Enable hands-free voice loop",
+    "vadLabel": "Voice VAD",
+    "visionLabel": "Vision"
   },
   "workstream": {
     "action": {

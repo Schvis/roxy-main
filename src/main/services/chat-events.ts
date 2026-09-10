@@ -27,3 +27,9 @@ export function getActiveChat(): string | null {
 export function emitMessagesUpdated(chatId: string): void {
   broadcast(CHANNELS.messagesUpdated, { chatId } satisfies MessagesUpdated)
 }
+
+export type TurnLifecycleState = 'thinking' | 'speaking' | 'idle'
+
+export function emitTurnState(sessionId: string, state: TurnLifecycleState): void {
+  broadcast(CHANNELS.chatTurnState, { sessionId, state })
+}

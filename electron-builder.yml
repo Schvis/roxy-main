@@ -12,6 +12,8 @@ files:
 extraResources:
   - from: RoxyMigurdia
     to: RoxyMigurdia
+  - from: resources/models/live2d
+    to: models/live2d
   - from: script/rvc_tts_server.py
     to: script/rvc_tts_server.py
   - from: script/setup_tts_env.py

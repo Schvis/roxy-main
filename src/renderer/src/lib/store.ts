@@ -248,6 +248,12 @@ interface RoxyStore {
   setTtsLang: (lang: string) => Promise<void>
   setTtsSpeed: (speed: number) => Promise<void>
   setTtsApiKey: (apiKey: string) => Promise<void>
+  setVtuberEnabled: (enabled: boolean) => Promise<void>
+  setVtuberModelPath: (path: string) => Promise<void>
+  setVtuberVisionEnabled: (enabled: boolean) => Promise<void>
+  setVtuberCameraDevice: (deviceId: string) => Promise<void>
+  setVtuberVadEnabled: (enabled: boolean) => Promise<void>
+  setVtuberDetached: (detached: boolean) => Promise<void>
   selectChat: (id: string) => Promise<void>
   clearActive: () => void
   newSession: () => Promise<void>
@@ -400,6 +406,8 @@ let subagentDeltaSubscribed = false
 let chatsUpdatedSubscribed = false
 let messagesUpdatedSubscribed = false
 let activeChatSubscribed = false
+let promptSubmitSubscribed = false
+let lastSubmittedPrompt = { chatId: '', text: '', at: 0 }
 /** Routes streamed completion events to the in-flight send for a request id. */
 const deltaHandlers = new Map<string, (event: LlmEvent) => void>()
 /** The active llm request id per chat, so stop() can abort the right stream. */
@@ -1059,6 +1067,24 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       })
     }
 
+    if (!promptSubmitSubscribed) {
+      promptSubmitSubscribed = true
+      api.chats.onSubmitPrompt(async ({ text, images }) => {
+        let chatId = get().activeChatId
+        if (!chatId) {
+          const freshChats = await api.chats.list()
+          const mainChat = freshChats.find((c) => c.kind === 'main')
+          if (mainChat) {
+            await get().selectChat(mainChat.id)
+            chatId = mainChat.id
+          }
+        }
+        if (chatId) {
+          await get().submit(text, images)
+        }
+      })
+    }
+
     // Background subagent tasks (Phase 11) report state out-of-band — they can
     // finish long after the launching turn's request has ended, so this global
     // subscription (not the per-request delta handler) keeps the UI live: it
@@ -1661,6 +1687,36 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
+  setVtuberEnabled: async (enabled) => {
+    const settings = await api.settings.setVtuberEnabled(enabled)
+    set({ settings })
+  },
+
+  setVtuberModelPath: async (path) => {
+    const settings = await api.settings.setVtuberModelPath(path)
+    set({ settings })
+  },
+
+  setVtuberVisionEnabled: async (enabled) => {
+    const settings = await api.settings.setVtuberVisionEnabled(enabled)
+    set({ settings })
+  },
+
+  setVtuberCameraDevice: async (deviceId) => {
+    const settings = await api.settings.setVtuberCameraDevice(deviceId)
+    set({ settings })
+  },
+
+  setVtuberVadEnabled: async (enabled) => {
+    const settings = await api.settings.setVtuberVadEnabled(enabled)
+    set({ settings })
+  },
+
+  setVtuberDetached: async (detached) => {
+    const settings = await api.settings.setVtuberDetached(detached)
+    set({ settings })
+  },
+
   refreshCustomPrompts: async () => {
     const customPrompts = await api.prompts.list()
     set({ customPrompts })
@@ -1926,6 +1982,17 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (!chatId) return
     const text = content.trim()
     if (!text && (!images || images.length === 0)) return
+
+    const now = Date.now()
+    if (
+      lastSubmittedPrompt.chatId === chatId &&
+      lastSubmittedPrompt.text === text &&
+      now - lastSubmittedPrompt.at < 1000
+    ) {
+      return
+    }
+    lastSubmittedPrompt = { chatId, text, at: now }
+
     // This chat is busy → queue it (text + any images); otherwise send now.
     // "Busy" means a local send is streaming *or* a phone-driven turn is running
     // into this same session (`remoteTurns`) — so a desktop prompt lands in the
@@ -2033,6 +2100,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       setStreaming(null)
       setSending(false)
       clearStop()
+      void api.chats?.setTurnState(chatId, 'idle')
       // If a remote (phone) turn landed while this local send was streaming, we
       // deferred the mirror to avoid clobbering the stream — reconcile it now.
       if (remoteMirror.deferred && get().remote.sessionId === chatId) {
@@ -2055,6 +2123,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
     clearStop()
     setSending(true)
+    void api.chats?.setTurnState(chatId, 'thinking')
 
     // The user turn carries any pasted/dropped images as image parts ahead of
     // the text, so they persist, render as thumbnails, and reach the model.

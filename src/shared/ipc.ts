@@ -29,8 +29,17 @@ export const CHANNELS = {
   settingsSetTtsLang: 'settings:setTtsLang',
   settingsSetTtsSpeed: 'settings:setTtsSpeed',
   settingsSetTtsApiKey: 'settings:setTtsApiKey',
+  settingsSetVtuberEnabled: 'settings:setVtuberEnabled',
+  settingsSetVtuberModelPath: 'settings:setVtuberModelPath',
+  settingsSetVtuberVisionEnabled: 'settings:setVtuberVisionEnabled',
+  settingsSetVtuberCameraDevice: 'settings:setVtuberCameraDevice',
+  settingsSetVtuberVadEnabled: 'settings:setVtuberVadEnabled',
+  settingsSetVtuberDetached: 'settings:setVtuberDetached',
   settingsCompleteOnboarding: 'settings:completeOnboarding',
   settingsReset: 'settings:reset',
+
+  vtuberOpenWindow: 'vtuber:openWindow',
+  vtuberCloseWindow: 'vtuber:closeWindow',
 
   ttsGetStatus: 'tts:getStatus',
   ttsInstallDependencies: 'tts:installDependencies',
@@ -38,6 +47,7 @@ export const CHANNELS = {
   ttsStartServer: 'tts:startServer',
   ttsStopServer: 'tts:stopServer',
   ttsServerLog: 'tts:serverLog',
+  ttsSpeakingState: 'tts:speakingState',
   ttsGetServerLogs: 'tts:getServerLogs',
   ttsClearServerLogs: 'tts:clearServerLogs',
   ttsGetModels: 'tts:getModels',
@@ -50,6 +60,10 @@ export const CHANNELS = {
   sttGetInstalledModels: 'stt:getInstalledModels',
   sttDownloadModel: 'stt:downloadModel',
   sttDownloadProgress: 'stt:downloadProgress',
+  sttStartRecording: 'stt:startRecording',
+  sttStopRecording: 'stt:stopRecording',
+  sttSetRecordingState: 'stt:setRecordingState',
+  sttSetShortcutPaused: 'stt:setShortcutPaused',
 
   // Anonymous usage tracking. Its own pair of channels rather than a field on
   // AppSettings: the flag lives in a file outside the database, so opting out
@@ -85,6 +99,12 @@ export const CHANNELS = {
   chatsGetActive: 'chats:getActive',
   /** main -> renderer: the mirrored session changed. */
   chatsActiveChanged: 'chats:activeChanged',
+  /** Forward prompt to main chat window. */
+  chatsSubmitPrompt: 'chats:submitPrompt',
+  /** main -> renderer: lifecycle state of turn execution ('thinking' | 'speaking' | 'idle'). */
+  chatTurnState: 'chats:turnState',
+  /** renderer -> main: update lifecycle state of turn execution. */
+  chatsSetTurnState: 'chats:setTurnState',
 
   /** Project (workspace) display order — read + drag-to-reorder. */
   projectsListOrder: 'projects:listOrder',

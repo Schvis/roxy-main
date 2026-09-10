@@ -536,6 +536,24 @@
       "consoleTitle": "Installer console output",
       "clearConsole": "Clear output"
     },
+    "vtuber": {
+      "heading": "VTuber & Vision",
+      "enableTitle": "Enable VTuber avatar overlay",
+      "enableDescription": "Display an interactive Live2D avatar with real-time lip-sync and expressive reactions.",
+      "modelTitle": "Live2D model source",
+      "modelDescription": "URL or local path to Live2D model3.json or model.json definition.",
+      "modelPlaceholder": "https://... or path to model3.json",
+      "saveModel": "Save",
+      "visionTitle": "Computer vision (Webcam)",
+      "visionDescription": "Enable webcam frame capture to share vision snapshots with Gemini.",
+      "cameraTitle": "Camera device",
+      "cameraDescription": "Webcam input device for vision perception.",
+      "defaultCamera": "Default system camera",
+      "vadTitle": "Hands-free voice loop (Mic VAD)",
+      "vadDescription": "Continuously listen for speech bursts and reply automatically without wake words.",
+      "detachedTitle": "Detach window (Float on desktop)",
+      "detachedDescription": "Float the avatar outside the main Roxy window anywhere across your screens with transparent background."
+    },
     "privacy": {
       "heading": "Privacy",
       "title": "Send anonymous usage data",
@@ -874,5 +892,28 @@
     "updatedFrom": "Updated from {{upstream}}.",
     "updating": "Updating…",
     "working": "Working…"
+  },
+  "vtuber": {
+    "statusIdle": "Idle",
+    "statusActive": "Listening (VAD)",
+    "statusListening": "Hearing you…",
+    "statusTranscribing": "Transcribing…",
+    "statusThinking": "Thinking…",
+    "statusSpeaking": "Speaking…",
+    "expand": "Expand avatar",
+    "minimize": "Minimize avatar",
+    "close": "Close VTuber widget",
+    "detach": "Float on desktop",
+    "dockBack": "Dock to main window",
+    "vadEnable": "Enable hands-free voice loop",
+    "vadDisable": "Disable hands-free voice loop",
+    "vadLabel": "Voice VAD",
+    "cameraEnable": "Enable camera vision",
+    "cameraDisable": "Disable camera vision",
+    "visionLabel": "Vision",
+    "snapshot": "Take camera snapshot",
+    "see": "See this",
+    "snapshotQuery": "Look at what is in front of the camera and describe or react to it.",
+    "resize": "Drag to resize"
   }
 }

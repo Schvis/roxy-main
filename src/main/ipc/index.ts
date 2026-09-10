@@ -36,10 +36,24 @@ import {
   toggleOverlayState,
   isOverlayWindow,
   isFloatingIconWindow,
+  isVtuberWindow,
+  openVtuberWindow,
+  closeVtuberWindow,
   hideForScreenshot,
   restoreAfterScreenshot
 } from '../services/overlay'
-import { emitMessagesUpdated, getActiveChat, setActiveChat } from '../services/chat-events'
+import {
+  updateVoiceShortcut,
+  setRecordingStateFromRenderer,
+  setVoiceShortcutPaused
+} from '../services/voice-shortcut'
+import {
+  emitMessagesUpdated,
+  emitTurnState,
+  getActiveChat,
+  setActiveChat,
+  type TurnLifecycleState
+} from '../services/chat-events'
 import * as copilot from '../services/copilot'
 import * as cliproxy from '../services/cliproxy'
 import * as browser from '../services/browser'
@@ -56,6 +70,7 @@ import {
   getTtsServerLogs,
   clearTtsServerLogs,
   setTtsLogListener,
+  setSpeakingStateListener,
   getAvailableTtsModels,
   getTtsModelsDir,
   setServerTtsModel
@@ -247,7 +262,9 @@ export function registerIpc(): void {
     return settings
   })
   ipcMain.handle(CHANNELS.settingsSetVoiceKeybind, (_e, keybind: string) => {
-    return repo.setVoiceKeybind(keybind)
+    const settings = repo.setVoiceKeybind(keybind)
+    updateVoiceShortcut(settings)
+    return settings
   })
   ipcMain.handle(CHANNELS.settingsSetVoiceAutoSend, (_e, enabled: boolean) => {
     return repo.setVoiceAutoSend(enabled)
@@ -298,6 +315,38 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetTtsLang, (_e, lang: string) => repo.setTtsLang(lang))
   ipcMain.handle(CHANNELS.settingsSetTtsSpeed, (_e, speed: number) => repo.setTtsSpeed(speed))
   ipcMain.handle(CHANNELS.settingsSetTtsApiKey, (_e, apiKey: string) => repo.setTtsApiKey(apiKey))
+  ipcMain.handle(CHANNELS.settingsSetVtuberEnabled, (_e, enabled: boolean) => {
+    const settings = repo.setVtuberEnabled(enabled)
+    if (enabled) {
+      openVtuberWindow()
+    } else {
+      closeVtuberWindow()
+    }
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetVtuberModelPath, (_e, path: string) =>
+    repo.setVtuberModelPath(path)
+  )
+  ipcMain.handle(CHANNELS.settingsSetVtuberVisionEnabled, (_e, enabled: boolean) =>
+    repo.setVtuberVisionEnabled(enabled)
+  )
+  ipcMain.handle(CHANNELS.settingsSetVtuberCameraDevice, (_e, deviceId: string) =>
+    repo.setVtuberCameraDevice(deviceId)
+  )
+  ipcMain.handle(CHANNELS.settingsSetVtuberVadEnabled, (_e, enabled: boolean) =>
+    repo.setVtuberVadEnabled(enabled)
+  )
+  ipcMain.handle(CHANNELS.settingsSetVtuberDetached, (_e, detached: boolean) => {
+    const settings = repo.setVtuberDetached(detached)
+    if (detached && settings.vtuberEnabled) {
+      openVtuberWindow()
+    } else {
+      closeVtuberWindow()
+    }
+    return settings
+  })
+  ipcMain.handle(CHANNELS.vtuberOpenWindow, () => openVtuberWindow())
+  ipcMain.handle(CHANNELS.vtuberCloseWindow, () => closeVtuberWindow())
 
   // ---- TTS server & setup ----
   ipcMain.handle(CHANNELS.ttsGetStatus, () => getLocalTtsStatus())
@@ -352,12 +401,30 @@ export function registerIpc(): void {
       }
     })
   })
+  ipcMain.handle(CHANNELS.sttSetRecordingState, (_e, isRecording: boolean) => {
+    setRecordingStateFromRenderer(isRecording)
+  })
+  ipcMain.handle(CHANNELS.sttSetShortcutPaused, (_e, paused: boolean) => {
+    setVoiceShortcutPaused(paused)
+  })
 
   setTtsLogListener((chunk) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
         win.webContents.send(CHANNELS.ttsServerLog, chunk)
       }
+    }
+  })
+
+  setSpeakingStateListener((state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(CHANNELS.ttsSpeakingState, state)
+      }
+    }
+    const currentActive = getActiveChat()
+    if (state.speaking) {
+      emitTurnState(currentActive ?? '', 'speaking')
     }
   })
 
@@ -384,6 +451,8 @@ export function registerIpc(): void {
     repo.resetAll()
     invalidateCopilotModels()
     invalidateCopilotToken()
+    updateOverlayShortcut(repo.getSettings())
+    updateVoiceShortcut(repo.getSettings())
     for (const window of BrowserWindow.getAllWindows())
       if (!window.isDestroyed())
         window.webContents.send(CHANNELS.settingsMotionChanged, DEFAULT_MOTION)
@@ -508,6 +577,26 @@ export function registerIpc(): void {
   )
   ipcMain.handle(CHANNELS.chatsSetActive, (_e, id: string) => setActiveChat(id))
   ipcMain.handle(CHANNELS.chatsGetActive, () => getActiveChat())
+  ipcMain.handle(
+    CHANNELS.chatsSetTurnState,
+    (_e, payload: { sessionId?: string; state: TurnLifecycleState }) => {
+      const sessionId = payload.sessionId ?? getActiveChat() ?? ''
+      emitTurnState(sessionId, payload.state)
+    }
+  )
+  ipcMain.handle(
+    CHANNELS.chatsSubmitPrompt,
+    (_e, payload: { text: string; images?: unknown[] }) => {
+      let forwarded = false
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed() && !isOverlayWindow(win)) {
+          win.webContents.send(CHANNELS.chatsSubmitPrompt, payload)
+          forwarded = true
+        }
+      }
+      return forwarded
+    }
+  )
 
   // ---- projects (workspace display order) ----
   ipcMain.handle(CHANNELS.projectsListOrder, () => repo.listProjectOrder())
@@ -971,6 +1060,7 @@ export function registerIpc(): void {
   // path runs the exact same code. Here we just own the AbortController (for
   // llm:abort) and stream each event to the renderer that started the turn.
   ipcMain.handle(CHANNELS.llmStart, async (event, input: LlmStartInput) => {
+    emitTurnState(input.sessionId, 'thinking')
     const controller = new AbortController()
     llmControllers.set(input.requestId, controller)
     const untrack = trackSession(input.sessionId, controller)
@@ -978,6 +1068,7 @@ export function registerIpc(): void {
     // and this handler running. `abortSession` would have found nothing to
     // abort, so honour a stop that already landed for this session.
     if (controller.signal.aborted) {
+      emitTurnState(input.sessionId, 'idle')
       llmControllers.delete(input.requestId)
       untrack()
       return { ok: false, error: 'Stopped.' }
@@ -1015,6 +1106,7 @@ export function registerIpc(): void {
       )
     } finally {
       await tts.finish()
+      emitTurnState(input.sessionId, 'idle')
       llmControllers.delete(input.requestId)
       untrack()
       if (relay) remote.relayLocalTurnEnd(relay)
@@ -1556,16 +1648,24 @@ export function registerIpc(): void {
       win.setPosition(bounds.x + dx, bounds.y + dy)
       if (isFloatingIconWindow(win)) {
         repo.setOverlayIconPosition(bounds.x + dx, bounds.y + dy)
+      } else if (isVtuberWindow(win)) {
+        repo.setVtuberWindowBounds(bounds.width, bounds.height, bounds.x + dx, bounds.y + dy)
       }
     }
   })
   ipcMain.handle(CHANNELS.windowResize, (e, width: number, height: number) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (win) {
+      const isVtuber = isVtuberWindow(win)
+      const minW = isVtuber ? 160 : 300
+      const minH = isVtuber ? 200 : 400
       const bounds = win.getBounds()
-      const newWidth = Math.max(300, bounds.width + width)
-      const newHeight = Math.max(400, bounds.height + height)
+      const newWidth = Math.max(minW, bounds.width + width)
+      const newHeight = Math.max(minH, bounds.height + height)
       win.setSize(newWidth, newHeight)
+      if (isVtuber) {
+        repo.setVtuberWindowBounds(newWidth, newHeight, bounds.x, bounds.y)
+      }
     }
   })
 

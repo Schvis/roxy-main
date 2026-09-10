@@ -29,7 +29,13 @@ import {
 } from './services/window-chrome'
 import { resolveThemeById } from './services/themes'
 import * as repo from './db/repo'
-import { updateOverlayShortcut, isOverlayWindow, setMainWindowVisibility } from './services/overlay'
+import {
+  updateOverlayShortcut,
+  isOverlayWindow,
+  setMainWindowVisibility,
+  openVtuberWindow
+} from './services/overlay'
+import { updateVoiceShortcut, unregisterVoiceShortcut } from './services/voice-shortcut'
 import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 
 let isQuitting = false
@@ -54,7 +60,8 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      contextIsolation: true
+      contextIsolation: true,
+      backgroundThrottling: false
     }
   })
 
@@ -66,6 +73,10 @@ function createWindow(): BrowserWindow {
       .then((theme) => applyWindowChrome(mainWindow, theme))
       .catch(() => undefined)
     mainWindow.show()
+    const s = repo.getSettings()
+    if (s.vtuberEnabled) {
+      openVtuberWindow()
+    }
   })
 
   mainWindow.on('close', (event) => {
@@ -115,6 +126,8 @@ async function warmCatalogThenBackfill(): Promise<void> {
   }
   backfillUsageFromHistory()
 }
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -180,6 +193,7 @@ if (!gotTheLock) {
     void warmCatalogThenBackfill()
 
     updateOverlayShortcut(repo.getSettings())
+    updateVoiceShortcut(repo.getSettings())
 
     const initialSettings = repo.getSettings()
     if (initialSettings.ttsEnabled && initialSettings.ttsAutoStart) {
@@ -221,6 +235,7 @@ app.on('before-quit', () => {
 })
 
 app.on('will-quit', () => {
+  unregisterVoiceShortcut()
   killAllBackground()
   cancelAllBackgroundJobs()
   closeAllBrowsers()

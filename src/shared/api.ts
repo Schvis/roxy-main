@@ -754,6 +754,12 @@ export interface RoxyApi {
     setTtsLang(lang: string): Promise<AppSettings>
     setTtsSpeed(speed: number): Promise<AppSettings>
     setTtsApiKey(apiKey: string): Promise<AppSettings>
+    setVtuberEnabled(enabled: boolean): Promise<AppSettings>
+    setVtuberModelPath(path: string): Promise<AppSettings>
+    setVtuberVisionEnabled(enabled: boolean): Promise<AppSettings>
+    setVtuberCameraDevice(deviceId: string): Promise<AppSettings>
+    setVtuberVadEnabled(enabled: boolean): Promise<AppSettings>
+    setVtuberDetached(detached: boolean): Promise<AppSettings>
     /** Keep the app and its browser toolbar in sync; never changes OS preferences. */
     onMotionChanged(callback: (motion: MotionPreference) => void): () => void
     completeOnboarding(): Promise<AppSettings>
@@ -797,6 +803,23 @@ export interface RoxyApi {
      */
     onUpdated(callback: (payload: SessionsUpdated) => void): () => void
     onActiveChanged(callback: (chatId: string) => void): () => void
+    /** Forward prompt to main chat window. Returns true if forwarded to open main window. */
+    submitPrompt(
+      text: string,
+      images?: Array<{ id: string; dataUrl: string; mediaType: string; name: string }>
+    ): Promise<boolean>
+    onSubmitPrompt(
+      callback: (payload: {
+        text: string
+        images?: Array<{ id: string; dataUrl: string; mediaType: string; name: string }>
+      }) => void
+    ): () => void
+    /** Subscribe to turn lifecycle states ('thinking' | 'speaking' | 'idle'). */
+    onTurnState(
+      callback: (payload: { sessionId: string; state: 'thinking' | 'speaking' | 'idle' }) => void
+    ): () => void
+    /** Set turn lifecycle state ('thinking' | 'speaking' | 'idle'). */
+    setTurnState(sessionId: string, state: 'thinking' | 'speaking' | 'idle'): Promise<void>
   }
   projects: {
     /** Workspace paths in sidebar display order, top → bottom. */
@@ -908,6 +931,11 @@ export interface RoxyApi {
       currentIndex: string
     }>
     openModelsFolder(): Promise<void>
+    onSpeakingState(callback: (state: { speaking: boolean; text?: string }) => void): () => void
+  }
+  vtuber: {
+    openWindow(): Promise<void>
+    closeWindow(): Promise<void>
   }
   stt: {
     /** Transcribe audio buffer/bytes to text using local faster-whisper. */
@@ -934,6 +962,10 @@ export interface RoxyApi {
         total: number
       }) => void
     ): () => void
+    onStartRecording(callback: () => void): () => void
+    onStopRecording(callback: () => void): () => void
+    setRecordingState(isRecording: boolean): Promise<void>
+    setShortcutPaused(paused: boolean): Promise<void>
   }
   /**
    * The right-click editing menu's main-process half. The menu itself is drawn

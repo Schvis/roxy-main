@@ -111,6 +111,7 @@ export function toggleOverlayState(forceOpen?: boolean) {
 
 let wasOverlayVisible = false
 let wasIconVisible = false
+let wasVtuberVisible = false
 
 export function hideForScreenshot() {
   isTakingScreenshot = true
@@ -122,6 +123,10 @@ export function hideForScreenshot() {
     wasIconVisible = floatingIconWindow.isVisible()
     if (wasIconVisible) floatingIconWindow.hide()
   }
+  if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+    wasVtuberVisible = vtuberWindow.isVisible()
+    if (wasVtuberVisible) vtuberWindow.hide()
+  }
 }
 
 export function restoreAfterScreenshot() {
@@ -130,6 +135,9 @@ export function restoreAfterScreenshot() {
   }
   if (floatingIconWindow && !floatingIconWindow.isDestroyed() && wasIconVisible) {
     floatingIconWindow.showInactive()
+  }
+  if (vtuberWindow && !vtuberWindow.isDestroyed() && wasVtuberVisible) {
+    vtuberWindow.show()
   }
   // Reset flag after a short delay to ensure blur events have settled
   setTimeout(() => {
@@ -155,7 +163,8 @@ function getOrCreateOverlayWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      contextIsolation: true
+      contextIsolation: true,
+      backgroundThrottling: false
     }
   })
 
@@ -174,12 +183,113 @@ function getOrCreateOverlayWindow(): BrowserWindow {
   return overlayWindow
 }
 
+let vtuberWindow: BrowserWindow | null = null
+
+export function getOrCreateVtuberWindow(): BrowserWindow {
+  if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+    return vtuberWindow
+  }
+
+  const savedBounds = repo.getSettings().vtuberWindowBounds
+  const primary = screen.getPrimaryDisplay()
+  const defaultWidth = savedBounds?.width ?? 340
+  const defaultHeight = savedBounds?.height ?? 440
+  const defaultX =
+    savedBounds?.x ?? Math.round(primary.workArea.x + primary.workArea.width - defaultWidth - 20)
+  const defaultY =
+    savedBounds?.y ?? Math.round(primary.workArea.y + primary.workArea.height - defaultHeight - 20)
+
+  vtuberWindow = new BrowserWindow({
+    width: defaultWidth,
+    height: defaultHeight,
+    minWidth: 160,
+    minHeight: 200,
+    x: defaultX,
+    y: defaultY,
+    show: false,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    hasShadow: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      webSecurity: false
+    }
+  })
+
+  vtuberWindow.on('resized', () => {
+    if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+      const b = vtuberWindow.getBounds()
+      repo.setVtuberWindowBounds(b.width, b.height, b.x, b.y)
+    }
+  })
+
+  vtuberWindow.on('moved', () => {
+    if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+      const b = vtuberWindow.getBounds()
+      repo.setVtuberWindowBounds(b.width, b.height, b.x, b.y)
+    }
+  })
+
+  vtuberWindow.once('ready-to-show', () => {
+    if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+      vtuberWindow.show()
+    }
+  })
+
+  vtuberWindow.on('closed', () => {
+    vtuberWindow = null
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    vtuberWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + '#/vtuber')
+  } else {
+    vtuberWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/vtuber' })
+  }
+
+  return vtuberWindow
+}
+
+export function openVtuberWindow(): void {
+  const win = getOrCreateVtuberWindow()
+  if (!win.isVisible()) {
+    win.show()
+  }
+}
+
+export function closeVtuberWindow(): void {
+  if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+    vtuberWindow.close()
+    vtuberWindow = null
+  }
+}
+
+export function isVtuberWindow(win: BrowserWindow): boolean {
+  return win === vtuberWindow
+}
+
 export function isOverlayWindow(win: BrowserWindow): boolean {
-  return win === overlayWindow || win === floatingIconWindow
+  return win === overlayWindow || win === floatingIconWindow || win === vtuberWindow
 }
 
 export function isFloatingIconWindow(win: BrowserWindow): boolean {
   return win === floatingIconWindow
+}
+
+export function getOverlayWindow(): BrowserWindow | null {
+  return overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow : null
+}
+
+export function isOverlayOpenState(): boolean {
+  return isOverlayOpen
+}
+
+export function getIsMainWindowVisible(): boolean {
+  return isMainWindowVisible
 }
 
 export function updateOverlayShortcut(settings: AppSettings): void {

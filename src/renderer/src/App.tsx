@@ -10,6 +10,7 @@ import Mcp from './routes/Mcp'
 import Themes from './routes/Themes'
 import Settings from './routes/Settings'
 import { ChatView } from './components/ChatView'
+import { VtuberStandalone } from './components/VtuberStandalone'
 import { cn } from './lib/cn'
 import { api } from './lib/api'
 
@@ -127,22 +128,24 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
   const chatVisible = onboarded && pathname === '/'
   const overlayVisible = onboarded && pathname === '/overlay'
   const floatingIconVisible = onboarded && pathname === '/floating-icon'
+  const vtuberVisible = pathname === '/vtuber'
+  const isAuxiliary = overlayVisible || floatingIconVisible || vtuberVisible
 
   useEffect(() => {
-    if (overlayVisible || floatingIconVisible) {
+    if (overlayVisible || floatingIconVisible || vtuberVisible) {
       document.documentElement.style.setProperty('background-color', 'transparent', 'important')
       document.body.style.setProperty('background-color', 'transparent', 'important')
     } else {
       document.documentElement.style.removeProperty('background-color')
       document.body.style.removeProperty('background-color')
     }
-  }, [overlayVisible, floatingIconVisible])
+  }, [overlayVisible, floatingIconVisible, vtuberVisible])
 
   return (
     <div
       className={cn(
         'relative h-screen w-screen overflow-hidden text-text',
-        overlayVisible || floatingIconVisible ? 'bg-transparent p-2' : 'bg-bg'
+        overlayVisible || floatingIconVisible || vtuberVisible ? 'bg-transparent p-2' : 'bg-bg'
       )}
     >
       {/* Chat is the expensive screen: a cold mount rebuilds up to 30 markdown/tool
@@ -156,7 +159,7 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
           exposure without `display:none`'s cold-layout penalty. Returning to `/`
           is now only a layer reveal, and component-local state such as transcript
           pagination and scroll position survives the trip. */}
-      {onboarded && (
+      {onboarded && !isAuxiliary && (
         <div
           className={
             chatVisible ? 'absolute inset-0' : 'pointer-events-none invisible absolute inset-0'
@@ -179,7 +182,13 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
         </div>
       )}
 
-      {!chatVisible && !overlayVisible && !floatingIconVisible && (
+      {vtuberVisible && (
+        <div className="absolute inset-0 z-30 flex h-full w-full items-center justify-center bg-transparent overflow-hidden">
+          <VtuberStandalone />
+        </div>
+      )}
+
+      {!chatVisible && !isAuxiliary && (
         <div className="absolute inset-0 z-10 bg-bg">
           <Routes>
             <Route path="/onboarding" element={<Onboarding />} />
@@ -192,6 +201,7 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
               path="/floating-icon"
               element={onboarded ? null : <Navigate to="/onboarding" replace />}
             />
+            <Route path="/vtuber" element={<VtuberStandalone />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/mcp" element={<Mcp />} />

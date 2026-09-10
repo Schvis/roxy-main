@@ -424,10 +424,12 @@ class RvcTtsEngine:
             try:
                 # 3. Play audio
                 data, fs = sf.read(rvc_wav)
+                duration = len(data) / float(fs) if fs > 0 else 0.0
                 sd.play(data, fs)
 
-                # Audio playback has started! Signal readiness to caller.
+                # Audio playback has started! Signal readiness to caller with audio duration.
                 if ready_event:
+                    ready_event.duration = duration
                     ready_event.set()
 
                 # Wait until finished or stopped
@@ -442,6 +444,7 @@ class RvcTtsEngine:
             except Exception as e:
                 print(f"[TTS] Audio playback error: {e}", file=sys.stderr)
                 if ready_event:
+                    ready_event.duration = 0.0
                     ready_event.set()
 
 
@@ -615,6 +618,7 @@ class TtsHttpHandler(BaseHTTPRequestHandler):
                 if wait:
                     ready_event.wait(timeout=60.0)
 
+                duration = getattr(ready_event, "duration", 0.0)
                 self._send_json(
                     200,
                     {
@@ -622,6 +626,7 @@ class TtsHttpHandler(BaseHTTPRequestHandler):
                         "text": text,
                         "rate": rate,
                         "voice": voice,
+                        "duration": duration,
                     },
                 )
             else:

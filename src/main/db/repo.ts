@@ -166,7 +166,25 @@ export function getSettings(): AppSettings {
     ttsTranslate: map.get('tts_translate') !== '0',
     ttsLang: map.get('tts_lang') ?? 'ja',
     ttsSpeed: map.has('tts_speed') ? Number(map.get('tts_speed')) : 15,
-    ttsApiKey: map.get('tts_api_key') ?? ''
+    ttsApiKey: map.get('tts_api_key') ?? '',
+    vtuberEnabled: map.get('vtuber_enabled') === '1',
+    vtuberModelPath:
+      map.get('vtuber_model_path') && !map.get('vtuber_model_path')?.includes('roxy')
+        ? map.get('vtuber_model_path')!
+        : '/models/live2d/roxy/Roxy_V1.model3.json',
+    vtuberVisionEnabled: map.get('vtuber_vision_enabled') === '1',
+    vtuberCameraDevice: map.get('vtuber_camera_device') ?? 'default',
+    vtuberVadEnabled: map.get('vtuber_vad_enabled') === '1',
+    vtuberDetached: map.get('vtuber_detached') !== '0',
+    vtuberWindowBounds:
+      map.has('vtuber_window_w') && map.has('vtuber_window_h')
+        ? {
+            width: Number(map.get('vtuber_window_w')),
+            height: Number(map.get('vtuber_window_h')),
+            x: map.has('vtuber_window_x') ? Number(map.get('vtuber_window_x')) : undefined,
+            y: map.has('vtuber_window_y') ? Number(map.get('vtuber_window_y')) : undefined
+          }
+        : null
   }
 }
 
@@ -379,6 +397,49 @@ export function setTtsSpeed(speed: number): AppSettings {
 
 export function setTtsApiKey(apiKey: string): AppSettings {
   setSetting('tts_api_key', apiKey.trim())
+  return getSettings()
+}
+
+export function setVtuberEnabled(enabled: boolean): AppSettings {
+  setSetting('vtuber_enabled', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberModelPath(path: string): AppSettings {
+  setSetting('vtuber_model_path', path.trim())
+  return getSettings()
+}
+
+export function setVtuberVisionEnabled(enabled: boolean): AppSettings {
+  setSetting('vtuber_vision_enabled', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberCameraDevice(deviceId: string): AppSettings {
+  setSetting('vtuber_camera_device', deviceId.trim() || 'default')
+  return getSettings()
+}
+
+export function setVtuberVadEnabled(enabled: boolean): AppSettings {
+  setSetting('vtuber_vad_enabled', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberDetached(detached: boolean): AppSettings {
+  setSetting('vtuber_detached', detached ? '1' : '0')
+  return getSettings()
+}
+
+export function setVtuberWindowBounds(
+  width: number,
+  height: number,
+  x?: number,
+  y?: number
+): AppSettings {
+  setSetting('vtuber_window_w', String(Math.round(width)))
+  setSetting('vtuber_window_h', String(Math.round(height)))
+  if (x !== undefined) setSetting('vtuber_window_x', String(Math.round(x)))
+  if (y !== undefined) setSetting('vtuber_window_y', String(Math.round(y)))
   return getSettings()
 }
 

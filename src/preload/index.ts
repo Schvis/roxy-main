@@ -54,6 +54,16 @@ const roxy: RoxyApi = {
     setTtsLang: (lang) => ipcRenderer.invoke(CHANNELS.settingsSetTtsLang, lang),
     setTtsSpeed: (speed) => ipcRenderer.invoke(CHANNELS.settingsSetTtsSpeed, speed),
     setTtsApiKey: (apiKey) => ipcRenderer.invoke(CHANNELS.settingsSetTtsApiKey, apiKey),
+    setVtuberEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberEnabled, enabled),
+    setVtuberModelPath: (path) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberModelPath, path),
+    setVtuberVisionEnabled: (enabled) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVtuberVisionEnabled, enabled),
+    setVtuberCameraDevice: (deviceId) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVtuberCameraDevice, deviceId),
+    setVtuberVadEnabled: (enabled) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVtuberVadEnabled, enabled),
+    setVtuberDetached: (detached) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetVtuberDetached, detached),
     onMotionChanged: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, motion: MotionPreference): void =>
         callback(motion)
@@ -91,7 +101,30 @@ const roxy: RoxyApi = {
       const handler = (_event: Electron.IpcRendererEvent, chatId: string): void => callback(chatId)
       ipcRenderer.on(CHANNELS.chatsActiveChanged, handler)
       return () => ipcRenderer.removeListener(CHANNELS.chatsActiveChanged, handler)
-    }
+    },
+    submitPrompt: (text, images) =>
+      ipcRenderer.invoke(CHANNELS.chatsSubmitPrompt, { text, images }),
+    onSubmitPrompt: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: {
+          text: string
+          images?: Array<{ id: string; dataUrl: string; mediaType: string; name: string }>
+        }
+      ): void => callback(payload)
+      ipcRenderer.on(CHANNELS.chatsSubmitPrompt, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.chatsSubmitPrompt, handler)
+    },
+    onTurnState: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: { sessionId: string; state: 'thinking' | 'speaking' | 'idle' }
+      ): void => callback(payload)
+      ipcRenderer.on(CHANNELS.chatTurnState, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.chatTurnState, handler)
+    },
+    setTurnState: (sessionId, state) =>
+      ipcRenderer.invoke(CHANNELS.chatsSetTurnState, { sessionId, state })
   },
   projects: {
     listOrder: () => ipcRenderer.invoke(CHANNELS.projectsListOrder),
@@ -178,7 +211,19 @@ const roxy: RoxyApi = {
       const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
       ipcRenderer.on(CHANNELS.ttsServerLog, handler)
       return () => ipcRenderer.removeListener(CHANNELS.ttsServerLog, handler)
+    },
+    onSpeakingState: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        state: { speaking: boolean; text?: string }
+      ): void => callback(state)
+      ipcRenderer.on(CHANNELS.ttsSpeakingState, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.ttsSpeakingState, handler)
     }
+  },
+  vtuber: {
+    openWindow: () => ipcRenderer.invoke(CHANNELS.vtuberOpenWindow),
+    closeWindow: () => ipcRenderer.invoke(CHANNELS.vtuberCloseWindow)
   },
   stt: {
     transcribe: (
@@ -201,7 +246,21 @@ const roxy: RoxyApi = {
       ): void => callback(progress)
       ipcRenderer.on(CHANNELS.sttDownloadProgress, handler)
       return () => ipcRenderer.removeListener(CHANNELS.sttDownloadProgress, handler)
-    }
+    },
+    onStartRecording: (callback) => {
+      const handler = (): void => callback()
+      ipcRenderer.on(CHANNELS.sttStartRecording, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.sttStartRecording, handler)
+    },
+    onStopRecording: (callback) => {
+      const handler = (): void => callback()
+      ipcRenderer.on(CHANNELS.sttStopRecording, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.sttStopRecording, handler)
+    },
+    setRecordingState: (isRecording: boolean) =>
+      ipcRenderer.invoke(CHANNELS.sttSetRecordingState, isRecording),
+    setShortcutPaused: (paused: boolean) =>
+      ipcRenderer.invoke(CHANNELS.sttSetShortcutPaused, paused)
   },
   clipboard: {
     hasContent: () => ipcRenderer.invoke(CHANNELS.clipboardHasContent),

@@ -237,6 +237,39 @@ async function main(): Promise<void> {
   repo.setTtsApiKey('test-key:fx')
   check('setTtsApiKey persists', repo.getSettings().ttsApiKey === 'test-key:fx')
 
+  check('vtuber disabled by default', repo.getSettings().vtuberEnabled === false)
+  check(
+    'vtuber model path defaults to roxy',
+    repo.getSettings().vtuberModelPath === '/models/live2d/roxy/Roxy_V1.model3.json'
+  )
+  repo.setVtuberEnabled(true)
+  check('setVtuberEnabled persists', repo.getSettings().vtuberEnabled === true)
+  check('vtuber vision disabled by default', repo.getSettings().vtuberVisionEnabled === false)
+  repo.setVtuberVisionEnabled(true)
+  check('setVtuberVisionEnabled persists', repo.getSettings().vtuberVisionEnabled === true)
+  check('vtuber vad disabled by default', repo.getSettings().vtuberVadEnabled === false)
+  repo.setVtuberVadEnabled(true)
+  check('setVtuberVadEnabled persists', repo.getSettings().vtuberVadEnabled === true)
+  repo.setVtuberModelPath('https://example.com/model.json')
+  check(
+    'setVtuberModelPath persists',
+    repo.getSettings().vtuberModelPath === 'https://example.com/model.json'
+  )
+  repo.setVtuberCameraDevice('cam-123')
+  check('setVtuberCameraDevice persists', repo.getSettings().vtuberCameraDevice === 'cam-123')
+  check('vtuber detached enabled by default', repo.getSettings().vtuberDetached === true)
+  repo.setVtuberDetached(false)
+  check('setVtuberDetached persists', repo.getSettings().vtuberDetached === false)
+  check('vtuber window bounds default null', repo.getSettings().vtuberWindowBounds === null)
+  repo.setVtuberWindowBounds(400, 500, 100, 200)
+  check(
+    'setVtuberWindowBounds persists',
+    repo.getSettings().vtuberWindowBounds?.width === 400 &&
+      repo.getSettings().vtuberWindowBounds?.height === 500 &&
+      repo.getSettings().vtuberWindowBounds?.x === 100 &&
+      repo.getSettings().vtuberWindowBounds?.y === 200
+  )
+
   check('reasoning effort default high', repo.getSettings().reasoningEffort === 'high')
   repo.setReasoningEffort('low')
   check('setReasoningEffort persists', repo.getSettings().reasoningEffort === 'low')

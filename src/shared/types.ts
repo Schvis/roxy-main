@@ -480,6 +480,20 @@ export interface AppSettings {
   ttsSpeed: number
   /** User-provided DeepL translation API key. */
   ttsApiKey: string
+  /** Whether Vixevia Live2D VTuber avatar is active. */
+  vtuberEnabled: boolean
+  /** Live2D model URL or local path. */
+  vtuberModelPath: string
+  /** Whether webcam vision auto-capture is enabled in VTuber mode. */
+  vtuberVisionEnabled: boolean
+  /** Selected video input device id. */
+  vtuberCameraDevice: string
+  /** Whether continuous voice VAD loop is active. */
+  vtuberVadEnabled: boolean
+  /** Whether VTuber window is detached to float outside main window. */
+  vtuberDetached: boolean
+  /** Saved position and dimensions of the standalone VTuber window. */
+  vtuberWindowBounds: { width: number; height: number; x?: number; y?: number } | null
 }
 
 export interface AppVersions {

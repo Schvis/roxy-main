@@ -19,9 +19,20 @@ const TTS_LANG = process.env.ROXY_TTS_LANG // e.g. 'ja', 'es', 'zh', 'fr'
 let managedServerProcess: ChildProcess | null = null
 let ttsServerLogs = ''
 let ttsLogListener: ((chunk: string) => void) | null = null
+let speakingStateListener: ((state: { speaking: boolean; text?: string }) => void) | null = null
 
 export function setTtsLogListener(listener: ((chunk: string) => void) | null): void {
   ttsLogListener = listener
+}
+
+export function setSpeakingStateListener(
+  listener: ((state: { speaking: boolean; text?: string }) => void) | null
+): void {
+  speakingStateListener = listener
+}
+
+function notifySpeaking(speaking: boolean, text?: string): void {
+  speakingStateListener?.({ speaking, text })
 }
 
 export function getTtsServerLogs(): string {
@@ -542,21 +553,23 @@ export async function speakSentence(
   }
 }
 
-/** Send sentence to voice daemon and wait until audio generation is ready and playing. */
+/** Send sentence to voice daemon and wait until audio generation is ready and playing. Returns audio duration in seconds. */
 export async function speakSentenceAndWait(
   text: string,
   apiKey?: string,
   targetLang?: string,
   speed?: number
-): Promise<void> {
+): Promise<{ duration: number }> {
   const trimmed = text.trim()
-  if (!trimmed) return
+  if (!trimmed) return { duration: 0 }
 
   const lang = targetLang || TTS_LANG || 'ja'
   const rate = formatRate(speed)
 
+  notifySpeaking(true, trimmed)
+  let duration = 0
   try {
-    await fetch(`${TTS_URL}/speak`, {
+    const res = await fetch(`${TTS_URL}/speak`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -568,13 +581,19 @@ export async function speakSentenceAndWait(
       }),
       signal: AbortSignal.timeout(60000)
     })
+    if (res.ok) {
+      const data = (await res.json()) as { duration?: number }
+      duration = typeof data.duration === 'number' ? data.duration : 0
+    }
   } catch {
     // Voice daemon offline or timed out — silently proceed
   }
+  return { duration }
 }
 
 /** Stop audio playback immediately and clear queue. */
 export async function stopTts(): Promise<void> {
+  notifySpeaking(false)
   try {
     await fetch(`${TTS_URL}/stop`, {
       method: 'POST',
@@ -691,7 +710,7 @@ export class SyncTtsStreamer {
       // 1. Send to server and wait until audio is ready and starts playing
       const effectiveLang =
         this.settings.ttsTranslate === false ? 'none' : this.settings.ttsLang || 'ja'
-      await speakSentenceAndWait(
+      const { duration } = await speakSentenceAndWait(
         textToSpeak,
         this.settings.ttsApiKey,
         effectiveLang,
@@ -700,6 +719,13 @@ export class SyncTtsStreamer {
       // 2. Server is ready! Display message in chat at exact moment it plays
       if (!this.aborted) {
         this.onDisplay(textToSpeak)
+      }
+      // 3. Keep speaking state active during audio playback duration
+      if (duration > 0 && !this.aborted) {
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.ceil(duration * 1000)))
+      }
+      if (!this.aborted) {
+        notifySpeaking(false)
       }
     })
   }
@@ -715,15 +741,19 @@ export class SyncTtsStreamer {
       if (entireText.trim()) {
         const effectiveLang =
           this.settings.ttsTranslate === false ? 'none' : this.settings.ttsLang || 'ja'
-        await speakSentenceAndWait(
+        const { duration } = await speakSentenceAndWait(
           entireText,
           this.settings.ttsApiKey,
           effectiveLang,
           this.settings.ttsSpeed
         )
-      }
-      if (!this.aborted && entireText) {
-        this.onDisplay(entireText)
+        if (!this.aborted && entireText) {
+          this.onDisplay(entireText)
+        }
+        if (duration > 0 && !this.aborted) {
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.ceil(duration * 1000)))
+        }
+        notifySpeaking(false)
       }
       return
     }
@@ -732,10 +762,12 @@ export class SyncTtsStreamer {
       this.flushSentence()
     }
     await this.queue
+    notifySpeaking(false)
   }
 
   abort(): void {
     this.aborted = true
+    notifySpeaking(false)
     if (this.buffer) {
       this.onDisplay(this.buffer)
       this.buffer = ''
