@@ -768,6 +768,8 @@ export interface RoxyApi {
     setVtuberShowChatBubble(show: boolean): Promise<AppSettings>
     setVtuberShowStatus(show: boolean): Promise<AppSettings>
     setVtuberFollowCursor(follow: boolean): Promise<AppSettings>
+    setDiscordRpcEnabled(enabled: boolean): Promise<AppSettings>
+    setDiscordRpcClientId(clientId: string): Promise<AppSettings>
     onChanged(callback: (settings: AppSettings) => void): () => void
     /** Keep the app and its browser toolbar in sync; never changes OS preferences. */
     onMotionChanged(callback: (motion: MotionPreference) => void): () => void

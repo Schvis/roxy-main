@@ -627,6 +627,11 @@
       "description": "Counts and timings — app launches, finished turns, how many steps and tools a turn took, how many tokens it used and roughly what it cost — tied to a random id generated on this machine. Never your prompts, your code, file paths, repo names, or any error text.",
       "labels": "A few labels ride along, and each is matched against a fixed list built into the app: which provider served a turn (a custom endpoint is only ever recorded as “other”), which model <em>family</em> ran (“claude-sonnet”, never the exact model id), which built-in tools ran (an MCP server's own name is only ever recorded as “mcp”), and which <em>kind</em> of error ended a failed turn. It is the only way we can tell whether a release helped or broke things."
     },
+    "discord": {
+      "heading": "Discord",
+      "title": "Discord Rich Presence",
+      "description": "Show current workspace and session status on your Discord profile."
+    },
     "about": {
       "heading": "About",
       "version": "Roxy v{{version}}",

@@ -97,6 +97,7 @@ import {
   getInstalledWhisperModels,
   downloadWhisperModel
 } from '../services/stt'
+import { setDiscordRpcEnabledState, setDiscordRpcClientIdState } from '../services/discord-rpc'
 import { pickDefaultModel } from '../../shared/models'
 import { CLIPROXY_PROVIDER_IDS, accountsFor, isCliProxyProvider } from '../../shared/cliproxy'
 import { getUsageStats } from '../services/usage'
@@ -412,6 +413,18 @@ export function registerIpc(): void {
   })
   ipcMain.handle(CHANNELS.settingsSetVtuberFollowCursor, (_e, follow: boolean) => {
     const settings = repo.setVtuberFollowCursor(follow)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetDiscordRpcEnabled, (_e, enabled: boolean) => {
+    const settings = repo.setDiscordRpcEnabled(enabled)
+    setDiscordRpcEnabledState(enabled)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsSetDiscordRpcClientId, (_e, clientId: string) => {
+    const settings = repo.setDiscordRpcClientId(clientId)
+    setDiscordRpcClientIdState(clientId)
     broadcastSettings(settings)
     return settings
   })

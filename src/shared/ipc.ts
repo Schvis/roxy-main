@@ -43,6 +43,8 @@ export const CHANNELS = {
   settingsSetVtuberShowChatBubble: 'settings:setVtuberShowChatBubble',
   settingsSetVtuberShowStatus: 'settings:setVtuberShowStatus',
   settingsSetVtuberFollowCursor: 'settings:setVtuberFollowCursor',
+  settingsSetDiscordRpcEnabled: 'settings:setDiscordRpcEnabled',
+  settingsSetDiscordRpcClientId: 'settings:setDiscordRpcClientId',
   settingsChanged: 'settings:changed',
   settingsCompleteOnboarding: 'settings:completeOnboarding',
   settingsReset: 'settings:reset',

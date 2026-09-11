@@ -295,6 +295,21 @@ async function main(): Promise<void> {
       repo.getSettings().vtuberWindowBounds?.y === 200
   )
 
+  check('discord rpc enabled by default', repo.getSettings().discordRpcEnabled === true)
+  repo.setDiscordRpcEnabled(false)
+  check('setDiscordRpcEnabled persists', repo.getSettings().discordRpcEnabled === false)
+  repo.setDiscordRpcEnabled(true)
+  check('setDiscordRpcEnabled back to true persists', repo.getSettings().discordRpcEnabled === true)
+  check(
+    'discord rpc client id defaults',
+    repo.getSettings().discordRpcClientId === '1548000145797415023'
+  )
+  repo.setDiscordRpcClientId('123456789012345678')
+  check(
+    'setDiscordRpcClientId persists',
+    repo.getSettings().discordRpcClientId === '123456789012345678'
+  )
+
   check('reasoning effort default high', repo.getSettings().reasoningEffort === 'high')
   repo.setReasoningEffort('low')
   check('setReasoningEffort persists', repo.getSettings().reasoningEffort === 'low')

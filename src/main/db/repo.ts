@@ -5,6 +5,7 @@ import { DEFAULT_BRANCH_PREFIX, normalizeBranchPrefix } from '../../shared/branc
 import { DEFAULT_LANGUAGE, normalizeLanguage } from '../../shared/i18n'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, normalizeMotion, type MotionPreference } from '../../shared/motion'
+import { DEFAULT_DISCORD_CLIENT_ID } from '../../shared/discord'
 import type {
   AddMessageInput,
   AppSettings,
@@ -192,7 +193,9 @@ export function getSettings(): AppSettings {
             x: map.has('vtuber_window_x') ? Number(map.get('vtuber_window_x')) : undefined,
             y: map.has('vtuber_window_y') ? Number(map.get('vtuber_window_y')) : undefined
           }
-        : null
+        : null,
+    discordRpcEnabled: map.get('discord_rpc_enabled') !== '0',
+    discordRpcClientId: map.get('discord_rpc_client_id') ?? DEFAULT_DISCORD_CLIENT_ID
   }
 }
 
@@ -488,6 +491,16 @@ export function setVtuberWindowBounds(
   setSetting('vtuber_window_h', String(Math.round(height)))
   if (x !== undefined) setSetting('vtuber_window_x', String(Math.round(x)))
   if (y !== undefined) setSetting('vtuber_window_y', String(Math.round(y)))
+  return getSettings()
+}
+
+export function setDiscordRpcEnabled(enabled: boolean): AppSettings {
+  setSetting('discord_rpc_enabled', enabled ? '1' : '0')
+  return getSettings()
+}
+
+export function setDiscordRpcClientId(clientId: string): AppSettings {
+  setSetting('discord_rpc_client_id', clientId.trim() || DEFAULT_DISCORD_CLIENT_ID)
   return getSettings()
 }
 

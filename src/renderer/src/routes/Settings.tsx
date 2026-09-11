@@ -102,6 +102,7 @@ export default function Settings(): JSX.Element {
   const setVtuberShowChatBubble = useRoxyStore((s) => s.setVtuberShowChatBubble)
   const setVtuberShowStatus = useRoxyStore((s) => s.setVtuberShowStatus)
   const setVtuberFollowCursor = useRoxyStore((s) => s.setVtuberFollowCursor)
+  const setDiscordRpcEnabled = useRoxyStore((s) => s.setDiscordRpcEnabled)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
@@ -746,6 +747,20 @@ export default function Settings(): JSX.Element {
             </p>
           </div>
           <Switch checked={telemetryEnabled} onChange={(v) => void setTelemetryEnabled(v)} />
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('settings.discord.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.discord.title')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">{t('settings.discord.description')}</p>
+          </div>
+          <Switch
+            checked={settings?.discordRpcEnabled ?? true}
+            onChange={(v) => void setDiscordRpcEnabled(v)}
+          />
         </div>
       </section>
 

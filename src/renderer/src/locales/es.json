@@ -450,6 +450,11 @@
       "resetTitle": "Restablecer todo",
       "wiping": "Borrando…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "El idioma en el que está escrita la interfaz de Roxy. No cambia cómo te habla el agente: escríbele en el idioma que prefieras, en el chat.",
       "heading": "Idioma",

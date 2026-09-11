@@ -38,6 +38,7 @@ import {
 } from './services/overlay'
 import { updateVoiceShortcut, unregisterVoiceShortcut } from './services/voice-shortcut'
 import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
+import { initDiscordRpc, shutdownDiscordRpc } from './services/discord-rpc'
 
 let isQuitting = false
 
@@ -210,6 +211,7 @@ if (!gotTheLock) {
 
     const mainWindow = createWindow()
     initAutoUpdater(mainWindow)
+    initDiscordRpc()
 
     app.on('activate', () => {
       const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
@@ -254,4 +256,5 @@ app.on('will-quit', () => {
   // running (and listening on loopback) after the app that owns it is gone.
   shutdownCliProxy()
   void stopLocalTtsServer()
+  shutdownDiscordRpc()
 })

@@ -450,6 +450,11 @@
       "resetTitle": "सब कुछ रीसेट करें",
       "wiping": "मिटाया जा रहा है…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "वह भाषा जिसमें Roxy का अपना इंटरफ़ेस लिखा गया है। यह इस बात को नहीं बदलता कि एजेंट आपसे कैसे बात करता है — चैट में आप जिस भी भाषा में चाहें, उससे पूछें।",
       "heading": "भाषा",

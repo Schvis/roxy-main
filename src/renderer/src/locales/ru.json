@@ -450,6 +450,11 @@
       "resetTitle": "Сбросить всё",
       "wiping": "Удаление…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "Язык интерфейса Roxy. Это не влияет на то, как агент общается с вами — задавайте ему вопросы на любом языке в чате.",
       "heading": "Язык",

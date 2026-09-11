@@ -267,6 +267,8 @@ interface RoxyStore {
   setVtuberShowChatBubble: (show: boolean) => Promise<void>
   setVtuberShowStatus: (show: boolean) => Promise<void>
   setVtuberFollowCursor: (follow: boolean) => Promise<void>
+  setDiscordRpcEnabled: (enabled: boolean) => Promise<void>
+  setDiscordRpcClientId: (clientId: string) => Promise<void>
   selectChat: (id: string) => Promise<void>
   clearActive: () => void
   newSession: () => Promise<void>
@@ -1775,6 +1777,16 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setVtuberFollowCursor: async (follow) => {
     const settings = await api.settings.setVtuberFollowCursor(follow)
+    set({ settings })
+  },
+
+  setDiscordRpcEnabled: async (enabled) => {
+    const settings = await api.settings.setDiscordRpcEnabled(enabled)
+    set({ settings })
+  },
+
+  setDiscordRpcClientId: async (clientId) => {
+    const settings = await api.settings.setDiscordRpcClientId(clientId)
     set({ settings })
   },
 

@@ -510,6 +510,10 @@ export interface AppSettings {
   vtuberFollowCursor: boolean
   /** Saved position and dimensions of the standalone VTuber window. */
   vtuberWindowBounds: { width: number; height: number; x?: number; y?: number } | null
+  /** Whether Discord Rich Presence is active. Default true. */
+  discordRpcEnabled: boolean
+  /** Discord Application Client ID for Rich Presence. */
+  discordRpcClientId: string
 }
 
 export interface AppVersions {

@@ -450,6 +450,11 @@
       "resetTitle": "すべてリセット",
       "wiping": "消去中…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "Roxyのインターフェースの表示言語です。エージェントとの会話方法には影響しません。チャットでは好きな言語で質問してください。",
       "heading": "言語",

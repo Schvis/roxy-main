@@ -450,6 +450,11 @@
       "resetTitle": "Alles zurücksetzen",
       "wiping": "Lösche…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "Die Sprache, in der Roxys eigene Oberfläche geschrieben ist. Sie ändert nicht, wie der Agent mit Ihnen spricht – fragen Sie ihn im Chat in jeder beliebigen Sprache.",
       "heading": "Sprache",

@@ -75,6 +75,10 @@ const roxy: RoxyApi = {
     setVtuberShowStatus: (show) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberShowStatus, show),
     setVtuberFollowCursor: (follow) =>
       ipcRenderer.invoke(CHANNELS.settingsSetVtuberFollowCursor, follow),
+    setDiscordRpcEnabled: (enabled) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetDiscordRpcEnabled, enabled),
+    setDiscordRpcClientId: (clientId) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetDiscordRpcClientId, clientId),
     onChanged: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, settings: AppSettings): void =>
         callback(settings)

@@ -450,6 +450,11 @@
       "resetTitle": "重置所有内容",
       "wiping": "正在清除…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "Roxy 界面本身的显示语言。它不会改变代理与您交流的方式 — 您可以在聊天中用任何您喜欢的语言提问。",
       "heading": "语言",

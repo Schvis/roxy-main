@@ -450,6 +450,11 @@
       "resetTitle": "إعادة تعيين كل شيء",
       "wiping": "جارٍ المسح…"
     },
+    "discord": {
+      "description": "Show current workspace and session status on your Discord profile.",
+      "heading": "Discord",
+      "title": "Discord Rich Presence"
+    },
     "language": {
       "description": "اللغة التي كُتبت بها واجهة Roxy. لا تُغير هذه اللغة طريقة تحدث الوكيل معك — اسأله بأي لغة تريدها في الدردشة.",
       "heading": "اللغة",
