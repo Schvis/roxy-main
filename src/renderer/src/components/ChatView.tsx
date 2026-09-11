@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
+  AlertCircle,
   AppWindow,
   Check,
   ChevronRight,
@@ -310,13 +311,15 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
               </span>
             </div>
           ) : (
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               {isSub ? (
                 <Hammer className="h-4 w-4 shrink-0 text-text-muted" />
               ) : (
                 <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
               )}
-              <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
+              <span className="shrink-0 max-w-[180px] truncate text-sm font-medium">
+                {activeChat.title}
+              </span>
               {/* A delegate's session is only legible in context — who sent it, and
                 a way back. The folder path is the parent's business. */}
               {isSub ? (
@@ -411,14 +414,21 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
                   )}
                 >
                   <Terminal
-                    className={cn('h-3 w-3', runningCommand && 'animate-pulse text-accent')}
+                    className={cn(
+                      'h-3 w-3 shrink-0',
+                      runningCommand && 'animate-pulse text-accent'
+                    )}
                   />
-                  <span className="max-w-[160px] truncate font-mono">{latestCommand.title}</span>
+                  <span className="min-w-0 max-w-[160px] truncate font-mono">
+                    {latestCommand.title}
+                  </span>
                   {runningCommand ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
                   ) : latestCommand.state === 'done' ? (
-                    <Check className="h-2.5 w-2.5 text-success" />
-                  ) : null}
+                    <Check className="h-2.5 w-2.5 text-success shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-2.5 w-2.5 text-text-muted shrink-0" />
+                  )}
                 </button>
               )}
             </div>
@@ -604,7 +614,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
                         ? `${t('commands.completed')}:`
                         : `${t('commands.error')}:`}
                   </span>
-                  <span className="truncate font-mono text-[11px] text-text">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
                     {latestCommand.title}
                   </span>
                   {runningCommand ? (
@@ -722,7 +732,7 @@ function WorkspacePath({ chat }: { chat: Chat }): JSX.Element | null {
       onClick={() => void copy()}
       // The label is truncated, so the tooltip carries the full path.
       title={t('chat.pathTooltip', { path, detail })}
-      className="press-scale relative flex min-w-0 items-center sq sq-md rounded-md px-1 py-0.5 text-xs text-text-subtle hover:bg-white/5 hover:text-text-muted"
+      className="press-scale relative flex min-w-0 max-w-[140px] sm:max-w-[220px] md:max-w-[320px] items-center sq sq-md rounded-md px-1 py-0.5 text-xs text-text-subtle hover:bg-white/5 hover:text-text-muted"
     >
       {/* The path fades rather than unmounting, so the button keeps its width
           and nothing in the header shifts while the confirmation shows. */}

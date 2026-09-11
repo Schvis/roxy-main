@@ -57,14 +57,18 @@ export function TerminalOutput({
     <pre
       className={
         className ??
-        'max-h-72 overflow-auto border-t border-border bg-[#0b0b0d] px-3 py-2 font-mono text-xs leading-relaxed text-[#d4d4d4]'
+        'max-h-72 overflow-auto border-t border-border bg-[#0b0b0d] px-3 py-2 font-mono text-xs leading-relaxed text-[#d4d4d4] whitespace-pre-wrap break-all'
       }
     >
-      {prompt && <div style={{ color: '#4ade80' }}>{prompt}</div>}
-      {trimmed && <span>{renderAnsi(trimmed)}</span>}
+      {prompt && (
+        <div className="whitespace-pre-wrap break-all" style={{ color: '#4ade80' }}>
+          {prompt}
+        </div>
+      )}
+      {trimmed && <span className="whitespace-pre-wrap break-all">{renderAnsi(trimmed)}</span>}
       {!prompt && !trimmed && !footer && (state === 'running' ? 'Running…' : '(no output)')}
       {footer && (
-        <div className="mt-0.5" style={{ color: FOOTER_COLOR }}>
+        <div className="mt-0.5 whitespace-pre-wrap break-all" style={{ color: FOOTER_COLOR }}>
           {footer}
         </div>
       )}

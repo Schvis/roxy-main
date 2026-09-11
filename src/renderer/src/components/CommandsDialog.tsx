@@ -376,7 +376,9 @@ export function CommandsPane({
   }
 
   return (
-    <div className={cn('flex h-full w-full flex-col overflow-hidden bg-surface', className)}>
+    <div
+      className={cn('flex h-full w-full min-w-0 flex-col overflow-hidden bg-surface', className)}
+    >
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -409,7 +411,7 @@ export function CommandsPane({
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {onPopOut && !isStandalone && (
             <button
               type="button"
@@ -492,7 +494,7 @@ export function CommandsPane({
       </div>
 
       {/* Tab content */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {activeTab === 'agent' ? (
           /* AGENT COMMANDS VIEW */
           agentCommands.length === 0 ? (
@@ -515,7 +517,7 @@ export function CommandsPane({
               </Button>
             </div>
           ) : (
-            <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
+            <div className="flex flex-1 min-h-0 min-w-0 flex-col sm:flex-row">
               {/* Side list of commands if multiple exist */}
               {agentCommands.length > 1 && (
                 <div className="flex w-56 shrink-0 flex-col border-r border-border bg-surface-2/20">
@@ -561,34 +563,36 @@ export function CommandsPane({
                 {activeAgentCommand ? (
                   <>
                     {/* Active command header info */}
-                    <div className="flex items-center justify-between border-b border-border/80 bg-surface/50 px-4 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="font-mono text-xs font-medium text-[#4ade80]">$</span>
+                    <div className="flex min-w-0 w-full shrink-0 items-center justify-between gap-2 border-b border-border/80 bg-surface/50 px-3 py-2 sm:px-4 sm:py-2.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 overflow-hidden">
+                        <span className="font-mono text-xs font-medium text-[#4ade80] shrink-0">
+                          $
+                        </span>
                         <span
-                          className="font-mono text-xs text-text truncate max-w-md select-all"
+                          className="min-w-0 flex-1 truncate font-mono text-xs text-text select-all"
                           title={activeAgentCommand.command}
                         >
                           {activeAgentCommand.command}
                         </span>
                         <button
                           onClick={() => void copyText(activeAgentCommand.command, 'cmd')}
-                          className="text-text-subtle hover:text-text p-1 transition-colors"
+                          className="shrink-0 text-text-subtle hover:text-text p-1 transition-colors"
                           title={t('commands.copyCommand')}
                         >
                           {copiedId === 'cmd' ? (
-                            <Check className="h-3 w-3 text-success" />
+                            <Check className="h-3 w-3 text-success shrink-0" />
                           ) : (
-                            <Copy className="h-3 w-3" />
+                            <Copy className="h-3 w-3 shrink-0" />
                           )}
                         </button>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                         {activeAgentCommand.state === 'running' ? (
-                          <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1.5 text-xs text-accent font-medium">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              {t('commands.running')}
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className="flex shrink-0 items-center gap-1 text-xs text-accent font-medium whitespace-nowrap">
+                              <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                              <span>{t('commands.running')}</span>
                             </span>
                             {activeAgentCommand.callId && (
                               <button
@@ -598,47 +602,47 @@ export function CommandsPane({
                                     void cancelToolCall(activeAgentCommand.callId)
                                   }
                                 }}
-                                className="flex items-center gap-1 rounded bg-danger/15 px-2 py-0.5 text-xs text-danger hover:bg-danger/25 transition-colors"
+                                className="flex shrink-0 items-center gap-1 rounded bg-danger/15 px-1.5 py-0.5 text-xs text-danger hover:bg-danger/25 transition-colors whitespace-nowrap"
                                 title={t('commands.stopCommand')}
                               >
-                                <Square className="h-2.5 w-2.5 fill-current" />
-                                <span>{t('commands.stop')}</span>
+                                <Square className="h-2.5 w-2.5 fill-current shrink-0" />
+                                <span className="hidden sm:inline">{t('commands.stop')}</span>
                               </button>
                             )}
                           </div>
                         ) : activeAgentCommand.state === 'done' ? (
-                          <span className="flex items-center gap-1 text-xs text-success">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {t('commands.completed')}
+                          <span className="flex shrink-0 items-center gap-1 text-xs text-success whitespace-nowrap">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            <span>{t('commands.completed')}</span>
                           </span>
                         ) : (
-                          <span className="flex items-center gap-1 text-xs text-text-muted">
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            {t('commands.error')}
+                          <span className="flex shrink-0 items-center gap-1 text-xs text-text-muted whitespace-nowrap">
+                            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                            <span>{t('commands.error')}</span>
                           </span>
                         )}
 
                         <button
                           onClick={() => void copyText(activeAgentCommand.output, 'output')}
-                          className="flex items-center gap-1 text-[11px] text-text-subtle hover:text-text px-2 py-1 rounded hover:bg-white/5 transition-colors"
+                          className="flex shrink-0 items-center gap-1 text-[11px] text-text-subtle hover:text-text px-1.5 py-1 rounded hover:bg-white/5 transition-colors whitespace-nowrap"
                           title={t('commands.copyOutput')}
                         >
                           {copiedId === 'output' ? (
-                            <Check className="h-3 w-3 text-success" />
+                            <Check className="h-3 w-3 text-success shrink-0" />
                           ) : (
-                            <Copy className="h-3 w-3" />
+                            <Copy className="h-3 w-3 shrink-0" />
                           )}
-                          <span>{t('commands.copyOutput')}</span>
+                          <span className="hidden md:inline">{t('commands.copyOutput')}</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setActiveTab('user')}
-                          className="flex items-center gap-1 text-[11px] text-accent hover:underline px-2 py-1 rounded hover:bg-white/5 transition-colors font-medium"
+                          className="flex shrink-0 items-center gap-1 text-[11px] text-accent hover:underline px-1.5 py-1 rounded hover:bg-white/5 transition-colors font-medium whitespace-nowrap"
                           title={t('commands.openCommandLine')}
                         >
-                          <Terminal className="h-3 w-3" />
-                          <span>{t('commands.commandLine')}</span>
+                          <Terminal className="h-3 w-3 shrink-0" />
+                          <span className="hidden md:inline">{t('commands.commandLine')}</span>
                         </button>
                       </div>
                     </div>
@@ -656,7 +660,7 @@ export function CommandsPane({
                       <TerminalOutput
                         text={activeAgentCommand.output}
                         state={activeAgentCommand.state}
-                        className="h-full bg-transparent p-0 border-0 overflow-visible text-xs font-mono"
+                        className="h-full bg-transparent p-0 border-0 overflow-visible text-xs font-mono whitespace-pre-wrap break-all"
                       />
                     </div>
 
@@ -722,15 +726,17 @@ export function CommandsPane({
               ) : (
                 userCommands.map((item) => (
                   <div key={item.id} className="space-y-1">
-                    <div className="flex items-center gap-2 text-text font-medium">
-                      <span className="text-[#4ade80]">$</span>
-                      <span>{item.command}</span>
+                    <div className="flex items-center gap-2 text-text font-medium min-w-0">
+                      <span className="text-[#4ade80] shrink-0">$</span>
+                      <span className="break-all whitespace-pre-wrap">{item.command}</span>
                       {item.state === 'running' && (
-                        <Loader2 className="h-3 w-3 animate-spin text-accent ml-1" />
+                        <Loader2 className="h-3 w-3 animate-spin text-accent ml-1 shrink-0" />
                       )}
-                      {item.state === 'done' && <Check className="h-3 w-3 text-success/70 ml-1" />}
+                      {item.state === 'done' && (
+                        <Check className="h-3 w-3 text-success/70 ml-1 shrink-0" />
+                      )}
                       {item.state === 'error' && (
-                        <AlertCircle className="h-3 w-3 text-danger/70 ml-1" />
+                        <AlertCircle className="h-3 w-3 text-danger/70 ml-1 shrink-0" />
                       )}
                     </div>
 
@@ -833,7 +839,7 @@ export function CommandsDialog({
       onClick={onClose}
     >
       <div
-        className="animate-modal-in flex h-[660px] max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
+        className="animate-modal-in flex h-[660px] max-h-[90vh] w-full max-w-4xl min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <CommandsPane
