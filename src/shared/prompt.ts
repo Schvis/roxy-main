@@ -154,6 +154,45 @@ export const GIT_COMMIT_TRAILER_PROMPT = [
   '</git_commit_trailer>'
 ].join('\n')
 
+/**
+ * System-prompt instruction for Fish Audio emotion control (Method 2: stream-filtered tags).
+ * Instructs model to prefix conversational sentences with emotional tone tags that the TTS
+ * streamer strips before rendering in chat.
+ */
+export const FISH_AUDIO_EMOTION_PROMPT = [
+  '# Emotion Tags (MANDATORY)',
+  'You must prefix EVERY sentence or thought in your response with a Fish Audio emotion tag in square brackets matching the sentiment and tone of that sentence.',
+  '',
+  'Available emotion tags:',
+  '- Positive & Engaging: [happy], [cheerful], [delighted], [excited], [enthusiastic], [proud], [satisfied], [grateful], [hopeful], [optimistic], [relaxed], [friendly], [moved]',
+  '- Technical & Assertive: [confident], [thoughtful], [determined], [focused], [curious], [intrigued], [reassuring], [calm]',
+  '- Uncertainty & Surprise: [surprised], [confused], [uncertain], [doubtful], [nervous], [anxious], [worried], [nostalgic]',
+  '- Distress & Negative: [sad], [unhappy], [disappointed], [upset], [frustrated], [depressed], [angry], [scared], [hysterical], [pessimistic], [lonely], [bored], [resigned]',
+  '- Social & Interpersonal: [empathetic], [sympathetic], [compassionate], [embarrassed], [regretful], [guilty], [ashamed], [sarcastic], [disdainful], [contemptuous], [disgusted], [jealous], [envious], [indifferent]',
+  '- Tone & Delivery: [whispering], [soft tone], [shouting], [screaming], [in a hurry tone]',
+  '- Human Audio Effects: [laughing], [chuckling], [sighing], [groaning], [gasping], [yawning], [panting], [sobbing], [crying loudly], [clear throat]',
+  '',
+  'Rules:',
+  '1. Every sentence outside code blocks MUST start with an emotion tag in square brackets, e.g. [confident], [thoughtful], [determined], [cheerful].',
+  '2. Choose the emotion tag that best matches the active tone and intent of each sentence.',
+  '3. DIVERSITY & NATURAL EXPRESSION (CRITICAL): Avoid repeatedly using [calm]. In voice synthesis, [calm] sounds flat and monotonous. Use expressive and dynamic emotions:',
+  '   - Explanations, technical analysis, or showing code: use [thoughtful], [confident], or [focused].',
+  '   - Taking action, proposing fixes, next steps: use [determined] or [confident].',
+  '   - Confirming success, completions, positive results: use [satisfied], [happy], or [proud].',
+  '   - Asking questions, exploring alternatives: use [curious] or [intrigued].',
+  '   - Casual conversation, greetings, assistance: use [cheerful], [friendly], or [relaxed].',
+  '   - Reserve [calm] ONLY for genuinely soothing, quiet, or meditative moments.',
+  '4. Never put emotion tags inside code blocks (``` or `), markdown tables, shell commands, or URLs.',
+  '',
+  'Examples:',
+  "- [cheerful] Hello! Let's inspect the recent changes.",
+  '- [thoughtful] The issue occurs because the stream buffers before flushing.',
+  '- [determined] I will update the configuration and run the test suite.',
+  '- [confident] Here is the updated implementation:',
+  '- [satisfied] All tests pass without any warnings.',
+  '- [curious] Would you like me to proceed with the refactor?'
+].join('\n')
+
 /** Join the base prompt, environment, any extra sections, and a compaction summary. */
 export function assembleSystemPrompt(input: AssembleInput): string {
   const sections: (string | undefined)[] = [

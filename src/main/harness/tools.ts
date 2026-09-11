@@ -63,6 +63,8 @@ export interface ToolContext {
   browserKey?: string
   /** Optional sink for incremental output (bash streams its logs here live). */
   onChunk?: (chunk: string) => void
+  /** Optional callback receiving a function to write input to child stdin. */
+  onInputReady?: (write: (data: string) => boolean) => void
   /**
    * The turn's abort signal — Stop, or a single subagent being cancelled.
    *
@@ -186,7 +188,8 @@ export async function runTool(
           timeout: num(input.timeout),
           background: bool(input.background),
           sessionId: owningSessionId(ctx),
-          signal: ctx.signal
+          signal: ctx.signal,
+          onInputReady: ctx.onInputReady
         })
       case 'bash_list':
         return runBashList(owningSessionId(ctx))
@@ -435,6 +438,7 @@ function runBash(
     background?: boolean
     sessionId?: string
     signal?: AbortSignal
+    onInputReady?: (write: (data: string) => boolean) => void
   } = {}
 ): Promise<ToolResult> {
   if (!command.trim()) return Promise.resolve({ ok: false, output: 'bash: missing "command"' })
@@ -456,6 +460,16 @@ function runBash(
       windowsHide: true,
       env: spawnEnv(opts.sessionId ?? '')
     })
+    const writeStdin = (text: string): boolean => {
+      if (!child.stdin || child.stdin.destroyed || !child.stdin.writable) return false
+      const toSend = text.endsWith('\n') ? text : text + '\n'
+      child.stdin.write(toSend)
+      const echo = `${text}\n`
+      acc += echo
+      onChunk?.(echo)
+      return true
+    }
+    opts.onInputReady?.(writeStdin)
     const onData = (buf: Buffer): void => {
       if (truncated) return
       let chunk = buf.toString()
@@ -830,7 +844,10 @@ export function _resetBackgroundProcs(): void {
 /** How to invoke a shell command per platform (PowerShell on Windows, sh elsewhere). */
 function shellInvocation(command: string): { cmd: string; args: string[] } {
   if (process.platform === 'win32') {
-    return { cmd: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-Command', command] }
+    return {
+      cmd: 'powershell.exe',
+      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command]
+    }
   }
   return { cmd: '/bin/sh', args: ['-c', command] }
 }

@@ -26,7 +26,12 @@ import type {
   SubagentDelta,
   TaskUpdate
 } from '@shared/api'
-import { selectPromptName, buildEnvironment, assembleSystemPrompt } from '@shared/prompt'
+import {
+  selectPromptName,
+  buildEnvironment,
+  assembleSystemPrompt,
+  FISH_AUDIO_EMOTION_PROMPT
+} from '@shared/prompt'
 import { PROMPT_TEXT, AGENT_PROMPT_TEXT } from '@shared/prompt-text'
 import { reconstructTurn, REPLAY_OUTPUT_CAP } from '@shared/tool-history'
 import { PartsFold, partsToContent } from '@shared/parts'
@@ -252,6 +257,7 @@ interface RoxyStore {
   setFishAudioApiKey: (apiKey: string) => Promise<void>
   setFishAudioModel: (model: string) => Promise<void>
   setFishAudioVoice: (voice: string) => Promise<void>
+  setTtsShowEmotions: (show: boolean) => Promise<void>
   setVtuberEnabled: (enabled: boolean) => Promise<void>
   setVtuberModelPath: (path: string) => Promise<void>
   setVtuberVisionEnabled: (enabled: boolean) => Promise<void>
@@ -1722,6 +1728,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
+  setTtsShowEmotions: async (show) => {
+    const settings = await api.settings.setTtsShowEmotions(show)
+    set({ settings })
+  },
+
   setVtuberEnabled: async (enabled) => {
     const settings = await api.settings.setVtuberEnabled(enabled)
     set({ settings })
@@ -2586,7 +2597,12 @@ export function buildSystemPrompt(
   const instructions = workspace
     ? (useRoxyStore.getState().projectInstructions[workspace] ?? [])
     : []
-  const extra = [...instructions, ...(agentPrompt ? [agentPrompt] : [])]
+  const settings = useRoxyStore.getState().settings
+  const emotionInstructions =
+    settings?.ttsShowEmotions || (settings?.ttsEnabled && settings?.ttsProvider === 'fish')
+      ? [FISH_AUDIO_EMOTION_PROMPT]
+      : []
+  const extra = [...instructions, ...(agentPrompt ? [agentPrompt] : []), ...emotionInstructions]
   return assembleSystemPrompt({
     base,
     environment,

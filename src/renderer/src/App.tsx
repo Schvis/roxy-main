@@ -11,6 +11,7 @@ import Themes from './routes/Themes'
 import Settings from './routes/Settings'
 import { ChatView } from './components/ChatView'
 import { VtuberStandalone } from './components/VtuberStandalone'
+import { StandaloneTerminal } from './components/StandaloneTerminal'
 import { cn } from './lib/cn'
 import { api } from './lib/api'
 import { initTtsPlayer } from './lib/tts-player'
@@ -130,7 +131,8 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
   const overlayVisible = onboarded && pathname === '/overlay'
   const floatingIconVisible = onboarded && pathname === '/floating-icon'
   const vtuberVisible = pathname === '/vtuber'
-  const isAuxiliary = overlayVisible || floatingIconVisible || vtuberVisible
+  const terminalVisible = pathname === '/terminal'
+  const isAuxiliary = overlayVisible || floatingIconVisible || vtuberVisible || terminalVisible
 
   useEffect(() => {
     if (overlayVisible || floatingIconVisible || vtuberVisible) {
@@ -189,6 +191,12 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
         </div>
       )}
 
+      {terminalVisible && (
+        <div className="absolute inset-0 z-30 flex h-full w-full flex-col bg-bg">
+          <StandaloneTerminal />
+        </div>
+      )}
+
       {!chatVisible && !isAuxiliary && (
         <div className="absolute inset-0 z-10 bg-bg">
           <Routes>
@@ -203,6 +211,7 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
               element={onboarded ? null : <Navigate to="/onboarding" replace />}
             />
             <Route path="/vtuber" element={<VtuberStandalone />} />
+            <Route path="/terminal" element={<StandaloneTerminal />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/mcp" element={<Mcp />} />

@@ -488,6 +488,8 @@ export interface AppSettings {
   fishAudioModel: string
   /** Selected Fish Audio voice reference ID (model ID from fish.audio or empty for default). */
   fishAudioVoice: string
+  /** Whether to display emotion tags in chat replies (e.g. [happy], [curious]). Default false. */
+  ttsShowEmotions: boolean
   /** Whether Vixevia Live2D VTuber avatar is active. */
   vtuberEnabled: boolean
   /** Live2D model URL or local path. */

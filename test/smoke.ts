@@ -249,6 +249,9 @@ async function main(): Promise<void> {
   check('fish audio voice defaults to empty', repo.getSettings().fishAudioVoice === '')
   repo.setFishAudioVoice('voice_ref_abc')
   check('setFishAudioVoice persists', repo.getSettings().fishAudioVoice === 'voice_ref_abc')
+  check('tts show emotions defaults to false', repo.getSettings().ttsShowEmotions === false)
+  repo.setTtsShowEmotions(true)
+  check('setTtsShowEmotions persists', repo.getSettings().ttsShowEmotions === true)
 
   check('vtuber disabled by default', repo.getSettings().vtuberEnabled === false)
   check(

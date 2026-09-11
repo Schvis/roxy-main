@@ -758,6 +758,7 @@ export interface RoxyApi {
     setFishAudioApiKey(apiKey: string): Promise<AppSettings>
     setFishAudioModel(model: string): Promise<AppSettings>
     setFishAudioVoice(voice: string): Promise<AppSettings>
+    setTtsShowEmotions(show: boolean): Promise<AppSettings>
     setVtuberEnabled(enabled: boolean): Promise<AppSettings>
     setVtuberModelPath(path: string): Promise<AppSettings>
     setVtuberVisionEnabled(enabled: boolean): Promise<AppSettings>
@@ -842,7 +843,7 @@ export interface RoxyApi {
   }
   captureScreen(): Promise<{ dataUrl: string; name: string } | null>
   toggleOverlay(forceOpen?: boolean): Promise<void>
-  showMainWindow(): Promise<void>
+  showMainWindow(sessionId?: string): Promise<void>
   windowMove(dx: number, dy: number): Promise<void>
   windowResize(width: number, height: number): Promise<void>
   integrations: {
@@ -1084,7 +1085,12 @@ export interface RoxyApi {
     onTick(callback: (loopId: string) => void): () => void
   }
   tools: {
-    run(sessionId: string, name: string, input: Record<string, unknown>): Promise<ToolResult>
+    run(
+      sessionId: string,
+      name: string,
+      input: Record<string, unknown>,
+      callId?: string
+    ): Promise<ToolResult>
     /**
      * Cancel ONE tool call that is running right now, without stopping the turn
      * around it. Resolves false when nothing was running for that call id â€” it
@@ -1092,6 +1098,16 @@ export interface RoxyApi {
      * pretending it did something.
      */
     cancel(callId: string): Promise<boolean>
+    /** Send stdin/confirmation input to a running tool command. */
+    input(callId: string, data: string, sessionId?: string): Promise<boolean>
+    /** Subscribe to streamed output chunks from manual tool runs. */
+    onChunk?(callback: (data: { callId: string; chunk: string }) => void): () => void
+  }
+  terminal: {
+    /** Open or focus the independent terminal/commands window. */
+    open(sessionId?: string): Promise<void>
+    /** Close the independent terminal/commands window. */
+    close(): Promise<void>
   }
   queue: {
     list(chatId: string): Promise<QueueItem[]>

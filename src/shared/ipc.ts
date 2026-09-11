@@ -33,6 +33,7 @@ export const CHANNELS = {
   settingsSetFishAudioApiKey: 'settings:setFishAudioApiKey',
   settingsSetFishAudioModel: 'settings:setFishAudioModel',
   settingsSetFishAudioVoice: 'settings:setFishAudioVoice',
+  settingsSetTtsShowEmotions: 'settings:setTtsShowEmotions',
   settingsSetVtuberEnabled: 'settings:setVtuberEnabled',
   settingsSetVtuberModelPath: 'settings:setVtuberModelPath',
   settingsSetVtuberVisionEnabled: 'settings:setVtuberVisionEnabled',
@@ -213,6 +214,10 @@ export const CHANNELS = {
   loopsTick: 'loops:tick',
 
   toolsRun: 'tools:run',
+  /** main -> renderer: streamed output chunk for a manually executed tool */
+  toolsChunk: 'tools:chunk',
+  /** renderer -> main: send interactive input (e.g. confirmation, stdin) to a running tool */
+  toolsInput: 'tools:input',
   /**
    * renderer -> main: cancel ONE running tool call, by the model's call id.
    *
@@ -227,6 +232,9 @@ export const CHANNELS = {
    * an invoke, and the answer (did anything get cancelled?) comes straight back.
    */
   toolsCancel: 'tools:cancel',
+
+  terminalOpenWindow: 'terminal:openWindow',
+  terminalCloseWindow: 'terminal:closeWindow',
 
   queueList: 'queue:list',
   queueAdd: 'queue:add',

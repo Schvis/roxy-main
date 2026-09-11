@@ -90,6 +90,7 @@ export default function Settings(): JSX.Element {
   const setTtsSpeed = useRoxyStore((s) => s.setTtsSpeed)
   const setTtsApiKey = useRoxyStore((s) => s.setTtsApiKey)
   const setTtsProvider = useRoxyStore((s) => s.setTtsProvider)
+  const setTtsShowEmotions = useRoxyStore((s) => s.setTtsShowEmotions)
   const setFishAudioApiKey = useRoxyStore((s) => s.setFishAudioApiKey)
   const setFishAudioModel = useRoxyStore((s) => s.setFishAudioModel)
   const setFishAudioVoice = useRoxyStore((s) => s.setFishAudioVoice)
@@ -699,6 +700,7 @@ export default function Settings(): JSX.Element {
   const ttsLang = settings?.ttsLang ?? 'ja'
   const ttsSpeed = settings?.ttsSpeed ?? 15
   const ttsProvider = settings?.ttsProvider ?? 'local'
+  const ttsShowEmotions = settings?.ttsShowEmotions ?? false
   const fishAudioModel = settings?.fishAudioModel ?? 's2.1-pro'
 
   const renderGeneral = (): JSX.Element => (
@@ -1912,6 +1914,18 @@ export default function Settings(): JSX.Element {
                     <option value="all">{t('settings.tts.modeAll')}</option>
                     <option value="sentence">{t('settings.tts.modeSentence')}</option>
                   </select>
+                </div>
+
+                <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text">
+                      {t('settings.tts.showEmotionsTitle')}
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      {t('settings.tts.showEmotionsDescription')}
+                    </p>
+                  </div>
+                  <Switch checked={ttsShowEmotions} onChange={(v) => void setTtsShowEmotions(v)} />
                 </div>
 
                 <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">

@@ -28,6 +28,8 @@ interface ToolRun {
   sessionId: string
   /** Aborts this call's own signal, leaving the rest of the turn alone. */
   cancel: () => void
+  /** Interactive stdin writer for commands that require user confirmation or input. */
+  write?: (data: string) => boolean
   /**
    * Set ONLY by `cancelToolCall` — i.e. the user cancelled this ONE call and the
    * turn is still running.
@@ -50,6 +52,7 @@ export interface StartToolRunInput {
   tool: string
   sessionId: string
   cancel: () => void
+  write?: (data: string) => boolean
 }
 
 /**
@@ -70,6 +73,7 @@ export function startToolRun(input: StartToolRunInput): {
     tool: input.tool,
     sessionId: input.sessionId,
     cancel: input.cancel,
+    write: input.write,
     cancelled: false,
     startedAt: Date.now()
   }
@@ -112,6 +116,40 @@ export function cancelToolCall(callId: string): boolean {
     // A cancel must never throw back into the IPC handler.
   }
   return true
+}
+
+/** Attach or update stdin writer for a running tool call. */
+export function registerToolInput(callId: string, write: (data: string) => boolean): void {
+  const run = runs.get(callId)
+  if (run) run.write = write
+}
+
+/** Send interactive text/confirmation to a running tool call. Returns true if written. */
+export function writeToolInput(callId: string, data: string): boolean {
+  const run = runs.get(callId)
+  if (run?.write) {
+    return run.write(data)
+  }
+  return false
+}
+
+/**
+ * Send interactive text/confirmation to the active running tool in a session.
+ * Used when the caller doesn't have the exact callId or wants to target whatever is running.
+ */
+export function writeActiveSessionToolInput(sessionId: string, data: string): boolean {
+  let latest: ToolRun | null = null
+  for (const run of runs.values()) {
+    if (run.sessionId === sessionId && run.write) {
+      if (!latest || run.startedAt > latest.startedAt) {
+        latest = run
+      }
+    }
+  }
+  if (latest?.write) {
+    return latest.write(data)
+  }
+  return false
 }
 
 /** Whether a call was cancelled by the user (vs. failing or finishing on its own). */

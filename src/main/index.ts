@@ -29,6 +29,7 @@ import {
 } from './services/window-chrome'
 import { resolveThemeById } from './services/themes'
 import * as repo from './db/repo'
+import { setMainWindow, focusMainWindow } from './services/main-window'
 import {
   updateOverlayShortcut,
   isOverlayWindow,
@@ -64,6 +65,7 @@ function createWindow(): BrowserWindow {
       backgroundThrottling: false
     }
   })
+  setMainWindow(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
     // Repaint the native window controls from the active theme before the
@@ -135,13 +137,7 @@ if (!gotTheLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
-    if (windows.length > 0) {
-      const mainWindow = windows[0]
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      if (!mainWindow.isVisible()) mainWindow.show()
-      mainWindow.focus()
-    }
+    focusMainWindow()
   })
 
   app.whenReady().then(() => {

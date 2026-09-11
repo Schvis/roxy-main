@@ -59,6 +59,7 @@ const roxy: RoxyApi = {
     setFishAudioApiKey: (apiKey) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioApiKey, apiKey),
     setFishAudioModel: (model) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioModel, model),
     setFishAudioVoice: (voice) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioVoice, voice),
+    setTtsShowEmotions: (show) => ipcRenderer.invoke(CHANNELS.settingsSetTtsShowEmotions, show),
     setVtuberEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberEnabled, enabled),
     setVtuberModelPath: (path) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberModelPath, path),
     setVtuberVisionEnabled: (enabled) =>
@@ -158,7 +159,7 @@ const roxy: RoxyApi = {
   },
   captureScreen: () => ipcRenderer.invoke(CHANNELS.captureScreen),
   toggleOverlay: (forceOpen) => ipcRenderer.invoke(CHANNELS.toggleOverlay, forceOpen),
-  showMainWindow: () => ipcRenderer.invoke(CHANNELS.showMainWindow),
+  showMainWindow: (sessionId) => ipcRenderer.invoke(CHANNELS.showMainWindow, sessionId),
   windowMove: (dx, dy) => ipcRenderer.invoke(CHANNELS.windowMove, dx, dy),
   windowResize: (width, height) => ipcRenderer.invoke(CHANNELS.windowResize, width, height),
   integrations: {
@@ -356,8 +357,20 @@ const roxy: RoxyApi = {
     }
   },
   tools: {
-    run: (sessionId, name, input) => ipcRenderer.invoke(CHANNELS.toolsRun, sessionId, name, input),
-    cancel: (callId) => ipcRenderer.invoke(CHANNELS.toolsCancel, callId)
+    run: (sessionId, name, input, callId) =>
+      ipcRenderer.invoke(CHANNELS.toolsRun, sessionId, name, input, callId),
+    cancel: (callId) => ipcRenderer.invoke(CHANNELS.toolsCancel, callId),
+    input: (callId, data, sessionId) =>
+      ipcRenderer.invoke(CHANNELS.toolsInput, callId, data, sessionId),
+    onChunk: (handler) => {
+      const fn = (_e: unknown, data: { callId: string; chunk: string }): void => handler(data)
+      ipcRenderer.on(CHANNELS.toolsChunk, fn)
+      return () => ipcRenderer.removeListener(CHANNELS.toolsChunk, fn)
+    }
+  },
+  terminal: {
+    open: (sessionId) => ipcRenderer.invoke(CHANNELS.terminalOpenWindow, sessionId),
+    close: () => ipcRenderer.invoke(CHANNELS.terminalCloseWindow)
   },
   queue: {
     list: (chatId) => ipcRenderer.invoke(CHANNELS.queueList, chatId),

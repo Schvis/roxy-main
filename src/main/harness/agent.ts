@@ -25,7 +25,8 @@ import {
   selectPromptName,
   buildEnvironment,
   assembleSystemPrompt,
-  GIT_COMMIT_TRAILER_PROMPT
+  GIT_COMMIT_TRAILER_PROMPT,
+  FISH_AUDIO_EMOTION_PROMPT
 } from '../../shared/prompt'
 import { flattenToolHistory, sanitizeToolCallId } from '../../shared/tool-history'
 import { pruneToolMessages, KEEP_RECENT_TOKENS, messageTokens } from '../../shared/context'
@@ -75,7 +76,7 @@ import {
   cancelBackgroundJob
 } from '../services/background-tasks'
 import { startSubagentRun } from '../services/subagent-stream'
-import { startToolRun } from '../services/tool-runs'
+import { startToolRun, registerToolInput } from '../services/tool-runs'
 import {
   recordRetry,
   recordStep,
@@ -484,11 +485,17 @@ function buildSystemMessage(
   // Plan-mode reminder keeps recency priority over them.
   const instructions = cwd ? loadProjectInstructions(cwd) : []
   const agentPrompt = agent?.promptFile ? agentPromptText[agent.promptFile] : undefined
+  const settings = repo.getSettings()
+  const emotionInstructions =
+    settings.ttsShowEmotions || (settings.ttsEnabled && settings.ttsProvider === 'fish')
+      ? [FISH_AUDIO_EMOTION_PROMPT]
+      : []
   const extra = [
     ...instructions,
     ...(skillInfo ? [skillInfo] : []),
     ...(mcpInfo ? [mcpInfo] : []),
-    ...(agentPrompt ? [agentPrompt] : [])
+    ...(agentPrompt ? [agentPrompt] : []),
+    ...emotionInstructions
   ]
   const contextSummary = chatId ? (repo.getChat(chatId)?.contextSummary ?? undefined) : undefined
   return assembleSystemPrompt({
@@ -1364,7 +1371,8 @@ async function runLoop(o: LoopOptions): Promise<string> {
           // current tool returns on its own, which is why Stop looked stuck
           // during a long bash or a hanging fetch.
           signal: callController.signal,
-          onChunk: (chunk) => emitTool({ type: 'tool-delta', callId: tc.id, chunk })
+          onChunk: (chunk) => emitTool({ type: 'tool-delta', callId: tc.id, chunk }),
+          onInputReady: (write) => registerToolInput(tc.id, write)
         })
         // Distinguish "the user cancelled this one call" from "Stop killed the
         // turn". Both abort the same signal, so the tool can't tell them apart —

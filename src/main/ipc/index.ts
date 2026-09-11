@@ -52,6 +52,8 @@ import {
   hideForScreenshot,
   restoreAfterScreenshot
 } from '../services/overlay'
+import { openTerminalWindow, closeTerminalWindow } from '../services/terminal-window'
+import { focusMainWindow } from '../services/main-window'
 import {
   updateVoiceShortcut,
   setRecordingStateFromRenderer,
@@ -129,7 +131,14 @@ import {
   cancelSubagentRun,
   cancelSubagentRunsFor
 } from '../services/subagent-stream'
-import { cancelToolCall, cancelToolCallsFor } from '../services/tool-runs'
+import {
+  cancelToolCall,
+  cancelToolCallsFor,
+  startToolRun,
+  registerToolInput,
+  writeToolInput,
+  writeActiveSessionToolInput
+} from '../services/tool-runs'
 import { mcpServerSummaries, reconnectMcpServer, disposeConnection } from '../services/mcp'
 import {
   listSkills,
@@ -339,6 +348,9 @@ export function registerIpc(): void {
   )
   ipcMain.handle(CHANNELS.settingsSetFishAudioVoice, (_e, voice: string) =>
     repo.setFishAudioVoice(voice)
+  )
+  ipcMain.handle(CHANNELS.settingsSetTtsShowEmotions, (_e, show: boolean) =>
+    repo.setTtsShowEmotions(show)
   )
   function broadcastSettings(settings: AppSettings): void {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -1073,7 +1085,13 @@ export function registerIpc(): void {
   // ---- tools ----
   ipcMain.handle(
     CHANNELS.toolsRun,
-    async (_e, sessionId: string, name: string, input: Record<string, unknown>) => {
+    async (
+      _event,
+      sessionId: string,
+      name: string,
+      input: Record<string, unknown>,
+      callId?: string
+    ) => {
       // Same cwd the agent turn would use (worktree-aware), so a manual tool
       // card and the agent never operate on different trees.
       const cwd = sessionCwd(sessionId)
@@ -1082,9 +1100,51 @@ export function registerIpc(): void {
       if (!cwd && needsWorkspace) {
         return { ok: false, output: 'No workspace is open for this session.' }
       }
-      return runTool(name, input ?? {}, { cwd: cwd ?? '', sessionId })
+      const abortCtrl = callId ? new AbortController() : undefined
+      const runHandle =
+        callId && abortCtrl
+          ? startToolRun({
+              callId,
+              tool: name,
+              sessionId,
+              cancel: () => abortCtrl.abort()
+            })
+          : undefined
+      try {
+        const onChunk = callId
+          ? (chunk: string): void => {
+              for (const win of BrowserWindow.getAllWindows()) {
+                if (!win.isDestroyed() && !isOverlayWindow(win)) {
+                  win.webContents.send(CHANNELS.toolsChunk, { callId, chunk })
+                }
+              }
+            }
+          : undefined
+        return await runTool(name, input ?? {}, {
+          cwd: cwd ?? '',
+          sessionId,
+          signal: abortCtrl?.signal,
+          onChunk,
+          onInputReady: (write) => {
+            if (callId) registerToolInput(callId, write)
+          }
+        })
+      } finally {
+        runHandle?.end()
+      }
     }
   )
+  // Send interactive input/confirmation to a running tool.
+  ipcMain.handle(CHANNELS.toolsInput, (_e, callId: string, data: string, sessionId?: string) => {
+    let ok = false
+    if (callId) {
+      ok = writeToolInput(callId, data)
+    }
+    if (!ok && sessionId) {
+      ok = writeActiveSessionToolInput(sessionId, data)
+    }
+    return ok
+  })
   // Cancel one in-flight tool call without touching the turn around it. The call
   // unwinds through its own exit path (see cancelToolCall), which is what keeps
   // the model's tool_calls -> role:'tool' pairing intact, so there is nothing to
@@ -1127,7 +1187,7 @@ export function registerIpc(): void {
   // The turn body lives in runSessionTurn so the remote host (phone-driven)
   // path runs the exact same code. Here we just own the AbortController (for
   // llm:abort) and stream each event to the renderer that started the turn.
-  ipcMain.handle(CHANNELS.llmStart, async (event, input: LlmStartInput) => {
+  ipcMain.handle(CHANNELS.llmStart, async (_event, input: LlmStartInput) => {
     emitTurnState(input.sessionId, 'thinking')
     const controller = new AbortController()
     llmControllers.set(input.requestId, controller)
@@ -1148,13 +1208,18 @@ export function registerIpc(): void {
     const lastUser = [...input.messages].reverse().find((m) => m.role === 'user')
     const relay = remote.relayLocalTurnStart(input.sessionId, lastUser?.content)
     const settings = repo.getSettings()
-    const tts = createSyncTtsStreamer((textDelta) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(CHANNELS.llmDelta, {
-          requestId: input.requestId,
-          event: { type: 'text', delta: textDelta }
-        })
+    const broadcastLlmDelta = (llmEvent: unknown): void => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed() && !isOverlayWindow(win)) {
+          win.webContents.send(CHANNELS.llmDelta, {
+            requestId: input.requestId,
+            event: llmEvent
+          })
+        }
       }
+    }
+    const tts = createSyncTtsStreamer((textDelta) => {
+      broadcastLlmDelta({ type: 'text', delta: textDelta })
       if (relay) remote.relayLocalTurnEvent(relay, { type: 'text', delta: textDelta })
     }, settings)
     try {
@@ -1164,9 +1229,7 @@ export function registerIpc(): void {
           if (llmEvent.type === 'text') {
             tts.onText(llmEvent.delta)
           } else {
-            if (!event.sender.isDestroyed()) {
-              event.sender.send(CHANNELS.llmDelta, { requestId: input.requestId, event: llmEvent })
-            }
+            broadcastLlmDelta(llmEvent)
             if (relay) remote.relayLocalTurnEvent(relay, llmEvent)
           }
         },
@@ -1697,17 +1760,14 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.remoteStatus, () => remote.status())
 
   ipcMain.handle(CHANNELS.toggleOverlay, (_e, forceOpen?: boolean) => toggleOverlayState(forceOpen))
-  ipcMain.handle(CHANNELS.showMainWindow, () => {
-    const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
-    if (windows.length > 0) {
-      const win = windows[0]
-      if (win.isMinimized()) win.restore()
-      if (!win.isVisible()) win.show()
-      win.focus()
-    } else {
-      app.emit('activate')
-    }
-    toggleOverlayState(false)
+  ipcMain.handle(CHANNELS.terminalOpenWindow, (_e, sessionId?: string) => {
+    openTerminalWindow(sessionId)
+  })
+  ipcMain.handle(CHANNELS.terminalCloseWindow, () => {
+    closeTerminalWindow()
+  })
+  ipcMain.handle(CHANNELS.showMainWindow, (_e, sessionId?: string) => {
+    focusMainWindow(sessionId)
   })
   ipcMain.handle(CHANNELS.windowMove, (e, dx: number, dy: number) => {
     const win = BrowserWindow.fromWebContents(e.sender)

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronRight,
   CornerUpLeft,
+  ExternalLink,
   FolderOpen,
   Hammer,
   ListTree,
@@ -12,9 +13,11 @@ import {
   Repeat,
   RotateCw,
   Settings,
-  Square
+  Square,
+  Terminal,
+  X
 } from 'lucide-react'
-import type { Chat } from '@shared/types'
+import type { Chat, MessagePart } from '@shared/types'
 import { useRoxyStore } from '../lib/store'
 import { useTranslation, Trans } from 'react-i18next'
 import { formatInterval } from '@shared/format'
@@ -22,6 +25,7 @@ import { cn } from '../lib/cn'
 import { api } from '../lib/api'
 import { writeClipboardText } from '../lib/clipboard'
 import { CanvasTranscript } from '../canvas/CanvasTranscript'
+import { CommandsDialog } from './CommandsDialog'
 import { Composer } from './Composer'
 import { LoopDetailsPane } from './LoopDetailsPane'
 import { SessionInfo } from './SessionInfo'
@@ -64,6 +68,108 @@ import roxy from '../assets/roxy.png'
  * markdown and syntax-highlighting layers, the tool-card layouts, and the
  * painter.
  */
+
+function findRunningTool(
+  parts: MessagePart[] | null
+): { tool: string; title: string; callId?: string } | null {
+  if (!parts) return null
+  for (const p of parts) {
+    if (p.type === 'tool' && p.state === 'running') {
+      const title =
+        p.tool === 'bash'
+          ? typeof p.input?.command === 'string'
+            ? p.input.command
+            : (p.title ?? 'bash')
+          : (p.title ?? p.tool)
+      return { tool: p.tool, title, callId: p.callId }
+    }
+    if (p.type === 'tool' && p.children) {
+      for (const c of p.children) {
+        if (c.type === 'tool' && c.state === 'running') {
+          const title =
+            c.tool === 'bash'
+              ? typeof c.input?.command === 'string'
+                ? c.input.command
+                : (c.title ?? 'bash')
+              : (c.title ?? c.tool)
+          return { tool: c.tool, title, callId: c.callId }
+        }
+      }
+    }
+  }
+  return null
+}
+
+function findLatestTool(
+  streaming: MessagePart[] | null,
+  messages: Array<{ parts?: MessagePart[] }>
+): { tool: string; title: string; state: 'running' | 'done' | 'error'; callId?: string } | null {
+  const running = findRunningTool(streaming)
+  if (running) return { ...running, state: 'running' }
+
+  if (streaming) {
+    for (let i = streaming.length - 1; i >= 0; i--) {
+      const p = streaming[i]
+      if (p.type === 'tool') {
+        if (p.children) {
+          for (let j = p.children.length - 1; j >= 0; j--) {
+            const c = p.children[j]
+            if (c.type === 'tool') {
+              const title =
+                c.tool === 'bash'
+                  ? typeof c.input?.command === 'string'
+                    ? c.input.command
+                    : (c.title ?? 'bash')
+                  : (c.title ?? c.tool)
+              return { tool: c.tool, title, state: c.state, callId: c.callId }
+            }
+          }
+        }
+        const title =
+          p.tool === 'bash'
+            ? typeof p.input?.command === 'string'
+              ? p.input.command
+              : (p.title ?? 'bash')
+            : (p.title ?? p.tool)
+        return { tool: p.tool, title, state: p.state, callId: p.callId }
+      }
+    }
+  }
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m?.parts) {
+      for (let j = m.parts.length - 1; j >= 0; j--) {
+        const p = m.parts[j]
+        if (p.type === 'tool') {
+          if (p.children) {
+            for (let k = p.children.length - 1; k >= 0; k--) {
+              const c = p.children[k]
+              if (c.type === 'tool') {
+                const title =
+                  c.tool === 'bash'
+                    ? typeof c.input?.command === 'string'
+                      ? c.input.command
+                      : (c.title ?? 'bash')
+                    : (c.title ?? c.tool)
+                return { tool: c.tool, title, state: c.state, callId: c.callId }
+              }
+            }
+          }
+          const title =
+            p.tool === 'bash'
+              ? typeof p.input?.command === 'string'
+                ? p.input.command
+                : (p.title ?? 'bash')
+              : (p.title ?? p.tool)
+          return { tool: p.tool, title, state: p.state, callId: p.callId }
+        }
+      }
+    }
+  }
+
+  return null
+}
 
 export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } = {}): JSX.Element {
   const { pathname } = useLocation()
@@ -109,6 +215,26 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   const isEmpty = !hasContent && !loading
   const [loopPaneOpen, setLoopPaneOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [commandsOpen, setCommandsOpen] = useState(false)
+  const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | undefined>()
+  const [dismissedCommand, setDismissedCommand] = useState<string | null>(null)
+
+  const openIndependentTerminal = (): void => {
+    if (activeChat) {
+      setCommandsOpen(false)
+      void api.terminal.open(activeChat.id)
+    }
+  }
+
+  const runningCommand = findRunningTool(streaming)
+  const latestCommand = findLatestTool(streaming, messages)
+
+  // Reset dismissed banner when a new command runs
+  useEffect(() => {
+    if (runningCommand) {
+      setDismissedCommand(null)
+    }
+  }, [runningCommand?.title])
 
   // The keyed canvas owns bottom-first arrival and resize anchoring. Queue changes must not re-pin it.
   useLayoutEffect(() => {
@@ -166,186 +292,233 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-bg">
-      <header
-        className={cn(
-          'titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4',
-          !isOverlay && 'reserve-controls-right'
-        )}
-      >
-        {activeLoop ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <Repeat className="h-4 w-4 shrink-0 text-text-muted" />
-            <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
-            <span className="truncate text-xs text-text-subtle">
-              {t('chat.loopEvery', { interval: formatInterval(activeLoop.intervalMinutes) })}
-              {activeLoop.enabled ? t('chat.loopRunning') : t('chat.loopPaused')}
-            </span>
-          </div>
-        ) : (
-          <div className="flex min-w-0 items-center gap-2">
-            {isSub ? (
-              <Hammer className="h-4 w-4 shrink-0 text-text-muted" />
-            ) : (
-              <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
-            )}
-            <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
-            {/* A delegate's session is only legible in context — who sent it, and
+    <div className="relative flex h-full min-w-0 flex-1 flex-row bg-bg overflow-hidden">
+      <div className="relative flex h-full min-w-0 flex-1 flex-col">
+        <header
+          className={cn(
+            'titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4',
+            !isOverlay && 'reserve-controls-right'
+          )}
+        >
+          {activeLoop ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <Repeat className="h-4 w-4 shrink-0 text-text-muted" />
+              <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
+              <span className="truncate text-xs text-text-subtle">
+                {t('chat.loopEvery', { interval: formatInterval(activeLoop.intervalMinutes) })}
+                {activeLoop.enabled ? t('chat.loopRunning') : t('chat.loopPaused')}
+              </span>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              {isSub ? (
+                <Hammer className="h-4 w-4 shrink-0 text-text-muted" />
+              ) : (
+                <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
+              )}
+              <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
+              {/* A delegate's session is only legible in context — who sent it, and
                 a way back. The folder path is the parent's business. */}
-            {isSub ? (
-              parentChat && (
+              {isSub ? (
+                parentChat && (
+                  <button
+                    onClick={() => void selectChat(parentChat.id)}
+                    title={t('chat.backTo', { title: parentChat.title })}
+                    className="flex min-w-0 items-center gap-1 truncate text-xs text-text-subtle transition-colors hover:text-text"
+                  >
+                    <CornerUpLeft className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{parentChat.title}</span>
+                  </button>
+                )
+              ) : (
+                <WorkspacePath chat={activeChat} />
+              )}
+              {subagentRunning && activeChatId && (
+                // Clickable, because this used to be the one running thing in the
+                // app with no way to stop it: a subagent's turn is driven by its
+                // parent, so the composer's Stop was deliberately withheld here
+                // (it had no request of its own to abort) and the session was
+                // simply uninterruptible from its own view.
                 <button
-                  onClick={() => void selectChat(parentChat.id)}
-                  title={t('chat.backTo', { title: parentChat.title })}
-                  className="flex min-w-0 items-center gap-1 truncate text-xs text-text-subtle transition-colors hover:text-text"
+                  onClick={() => void cancelSubagent(activeChatId)}
+                  title={t('chat.cancelSubagent')}
+                  className="press-scale group flex shrink-0 items-center gap-1 sq sq-md rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent/20"
                 >
-                  <CornerUpLeft className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{parentChat.title}</span>
+                  <Loader2 className="h-3 w-3 animate-spin group-hover:hidden" />
+                  <Square className="hidden h-2.5 w-2.5 fill-current group-hover:block" />
+                  <span className="group-hover:hidden">{t('chat.working')}</span>
+                  <span className="hidden group-hover:inline">{t('chat.cancel')}</span>
                 </button>
-              )
-            ) : (
-              <WorkspacePath chat={activeChat} />
-            )}
-            {subagentRunning && activeChatId && (
-              // Clickable, because this used to be the one running thing in the
-              // app with no way to stop it: a subagent's turn is driven by its
-              // parent, so the composer's Stop was deliberately withheld here
-              // (it had no request of its own to abort) and the session was
-              // simply uninterruptible from its own view.
+              )}
+              {hasSessionInfo && (
+                <button
+                  onClick={() => setInfoOpen((o) => !o)}
+                  title={t('chat.descriptionAndTasks')}
+                  className={cn(
+                    'flex shrink-0 items-center gap-1 sq sq-md rounded-md px-1.5 py-0.5 text-[11px] transition-colors',
+                    infoOpen
+                      ? 'bg-elevated text-text'
+                      : 'text-text-muted hover:bg-white/5 hover:text-text'
+                  )}
+                >
+                  <ListTree className="h-3.5 w-3.5" />
+                  {sessionTasks.length > 0 && (
+                    <span className="tabular-nums">
+                      {tasksDone}/{sessionTasks.length}
+                    </span>
+                  )}
+                  <ChevronRight
+                    className={cn(
+                      'h-3 w-3 transition-transform duration-200 ease-out-quart',
+                      infoOpen && 'rotate-90'
+                    )}
+                  />
+                </button>
+              )}
+              {backgroundTaskCount > 0 && activeChatId && (
+                // Detached tasks were cancellable in main from day one
+                // (`tasks:cancel`) but nothing ever called it — this badge counted
+                // them and offered no way out. Cancels them all: they're detached
+                // by definition, so "stop the thing I didn't ask for" is the whole
+                // interaction, and per-task control lives on the task card.
+                <button
+                  onClick={() => {
+                    for (const t of runningTasks ?? []) {
+                      void cancelBackgroundTask(activeChatId, t.jobId)
+                    }
+                  }}
+                  title={t('chat.cancelBackground', { count: backgroundTaskCount })}
+                  className="press-scale group flex shrink-0 items-center gap-1 sq sq-md rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent/20"
+                >
+                  <Loader2 className="h-3 w-3 animate-spin group-hover:hidden" />
+                  <Square className="hidden h-2.5 w-2.5 fill-current group-hover:block" />
+                  <span className="tabular-nums">{backgroundTaskCount}</span>
+                </button>
+              )}
+              {latestCommand && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommandsInitialTab(runningCommand ? 'agent' : 'user')
+                    setCommandsOpen(true)
+                  }}
+                  title={runningCommand ? t('commands.viewRunning') : t('commands.openCommandLine')}
+                  className={cn(
+                    'press-scale group flex shrink-0 items-center gap-1.5 sq sq-md rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    runningCommand
+                      ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                      : 'bg-surface-2 text-text-muted hover:bg-elevated hover:text-text'
+                  )}
+                >
+                  <Terminal
+                    className={cn('h-3 w-3', runningCommand && 'animate-pulse text-accent')}
+                  />
+                  <span className="max-w-[160px] truncate font-mono">{latestCommand.title}</span>
+                  {runningCommand ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  ) : latestCommand.state === 'done' ? (
+                    <Check className="h-2.5 w-2.5 text-success" />
+                  ) : null}
+                </button>
+              )}
+            </div>
+          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {activeLoop && (
               <button
-                onClick={() => void cancelSubagent(activeChatId)}
-                title={t('chat.cancelSubagent')}
-                className="press-scale group flex shrink-0 items-center gap-1 sq sq-md rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent/20"
-              >
-                <Loader2 className="h-3 w-3 animate-spin group-hover:hidden" />
-                <Square className="hidden h-2.5 w-2.5 fill-current group-hover:block" />
-                <span className="group-hover:hidden">{t('chat.working')}</span>
-                <span className="hidden group-hover:inline">{t('chat.cancel')}</span>
-              </button>
-            )}
-            {hasSessionInfo && (
-              <button
-                onClick={() => setInfoOpen((o) => !o)}
-                title={t('chat.descriptionAndTasks')}
+                onClick={() => setLoopPaneOpen((o) => !o)}
+                title={t('chat.loopSettings')}
                 className={cn(
-                  'flex shrink-0 items-center gap-1 sq sq-md rounded-md px-1.5 py-0.5 text-[11px] transition-colors',
-                  infoOpen
+                  'press-scale flex h-7 shrink-0 items-center gap-1.5 sq sq-lg rounded-lg px-2 text-xs',
+                  loopPaneOpen
                     ? 'bg-elevated text-text'
                     : 'text-text-muted hover:bg-white/5 hover:text-text'
                 )}
               >
-                <ListTree className="h-3.5 w-3.5" />
-                {sessionTasks.length > 0 && (
-                  <span className="tabular-nums">
-                    {tasksDone}/{sessionTasks.length}
-                  </span>
-                )}
-                <ChevronRight
-                  className={cn(
-                    'h-3 w-3 transition-transform duration-200 ease-out-quart',
-                    infoOpen && 'rotate-90'
-                  )}
-                />
+                <Settings className="h-3.5 w-3.5" /> {t('chat.settings')}
               </button>
             )}
-            {backgroundTaskCount > 0 && activeChatId && (
-              // Detached tasks were cancellable in main from day one
-              // (`tasks:cancel`) but nothing ever called it — this badge counted
-              // them and offered no way out. Cancels them all: they're detached
-              // by definition, so "stop the thing I didn't ask for" is the whole
-              // interaction, and per-task control lives on the task card.
+            <button
+              type="button"
+              onClick={() => {
+                setCommandsInitialTab('user')
+                setCommandsOpen((o) => !o)
+              }}
+              title={t('commands.title')}
+              aria-label={t('commands.title')}
+              className={cn(
+                'press-scale flex h-7 items-center gap-1.5 sq sq-lg rounded-lg px-2 text-xs transition-colors',
+                runningCommand
+                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                  : commandsOpen
+                    ? 'bg-elevated text-text'
+                    : 'text-text-muted hover:bg-white/5 hover:text-text'
+              )}
+            >
+              <Terminal className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t('commands.commandLine')}</span>
+            </button>
+            <UsageMeter />
+            {isOverlay && (
               <button
-                onClick={() => {
-                  for (const t of runningTasks ?? []) {
-                    void cancelBackgroundTask(activeChatId, t.jobId)
-                  }
-                }}
-                title={t('chat.cancelBackground', { count: backgroundTaskCount })}
-                className="press-scale group flex shrink-0 items-center gap-1 sq sq-md rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent/20"
+                type="button"
+                onClick={() => void api.showMainWindow()}
+                title={t('chat.goToMainWindow')}
+                aria-label={t('chat.goToMainWindow')}
+                className="press-scale flex h-7 w-7 shrink-0 items-center justify-center sq sq-lg rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
               >
-                <Loader2 className="h-3 w-3 animate-spin group-hover:hidden" />
-                <Square className="hidden h-2.5 w-2.5 fill-current group-hover:block" />
-                <span className="tabular-nums">{backgroundTaskCount}</span>
+                <AppWindow className="h-4 w-4" />
               </button>
             )}
           </div>
+        </header>
+
+        {infoOpen && <SessionInfo chat={activeChat} />}
+
+        {messagesError ? (
+          // A failed load used to be indistinguishable from an empty session:
+          // silent, blank, and with no way back other than clicking away and
+          // returning. Name it and make it recoverable.
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <p className="max-w-xs text-sm text-text-muted">{t('chat.loadFailed')}</p>
+            <Button variant="ghost" onClick={() => void selectChat(activeChat.id)}>
+              <RotateCw className="h-4 w-4" /> {t('common.retry')}
+            </Button>
+          </div>
+        ) : loading ? (
+          // Deliberately blank: a transcript read is a local SQLite query, so it
+          // resolves within a frame or two and a spinner would be a flash of
+          // chrome rather than information. This branch exists to stop the EMPTY
+          // state (and its loop copy) from claiming the session has no messages
+          // before we know that.
+          <div className="min-h-0 flex-1" />
+        ) : isEmpty ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
+            {activeLoop ? (
+              <p className="max-w-xs text-sm text-text-muted">
+                <Trans
+                  i18nKey="chat.loopEmpty"
+                  values={{
+                    title: activeChat.title,
+                    interval: formatInterval(activeLoop.intervalMinutes)
+                  }}
+                  components={{ strong: <span className="font-medium text-text" /> }}
+                />
+              </p>
+            ) : (
+              <p className="text-sm text-text-muted"></p>
+            )}
+          </div>
+        ) : (
+          <CanvasTranscript
+            messages={messages}
+            streaming={streaming}
+            chatId={activeChatId}
+            onCancelSubagent={(subChatId) => void cancelSubagent(subChatId)}
+            onCancelTool={(callId) => void cancelToolCall(callId)}
+          />
         )}
-        <div className="flex shrink-0 items-center gap-2">
-          {activeLoop && (
-            <button
-              onClick={() => setLoopPaneOpen((o) => !o)}
-              title={t('chat.loopSettings')}
-              className={cn(
-                'press-scale flex h-7 shrink-0 items-center gap-1.5 sq sq-lg rounded-lg px-2 text-xs',
-                loopPaneOpen
-                  ? 'bg-elevated text-text'
-                  : 'text-text-muted hover:bg-white/5 hover:text-text'
-              )}
-            >
-              <Settings className="h-3.5 w-3.5" /> {t('chat.settings')}
-            </button>
-          )}
-          <UsageMeter />
-          {isOverlay && (
-            <button
-              type="button"
-              onClick={() => void api.showMainWindow()}
-              title={t('chat.goToMainWindow')}
-              aria-label={t('chat.goToMainWindow')}
-              className="press-scale flex h-7 w-7 shrink-0 items-center justify-center sq sq-lg rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
-            >
-              <AppWindow className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </header>
-
-      {infoOpen && <SessionInfo chat={activeChat} />}
-
-      {messagesError ? (
-        // A failed load used to be indistinguishable from an empty session:
-        // silent, blank, and with no way back other than clicking away and
-        // returning. Name it and make it recoverable.
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="max-w-xs text-sm text-text-muted">{t('chat.loadFailed')}</p>
-          <Button variant="ghost" onClick={() => void selectChat(activeChat.id)}>
-            <RotateCw className="h-4 w-4" /> {t('common.retry')}
-          </Button>
-        </div>
-      ) : loading ? (
-        // Deliberately blank: a transcript read is a local SQLite query, so it
-        // resolves within a frame or two and a spinner would be a flash of
-        // chrome rather than information. This branch exists to stop the EMPTY
-        // state (and its loop copy) from claiming the session has no messages
-        // before we know that.
-        <div className="min-h-0 flex-1" />
-      ) : isEmpty ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-          {activeLoop ? (
-            <p className="max-w-xs text-sm text-text-muted">
-              <Trans
-                i18nKey="chat.loopEmpty"
-                values={{
-                  title: activeChat.title,
-                  interval: formatInterval(activeLoop.intervalMinutes)
-                }}
-                components={{ strong: <span className="font-medium text-text" /> }}
-              />
-            </p>
-          ) : (
-            <p className="text-sm text-text-muted"></p>
-          )}
-        </div>
-      ) : (
-        <CanvasTranscript
-          messages={messages}
-          streaming={streaming}
-          chatId={activeChatId}
-          onCancelSubagent={(subChatId) => void cancelSubagent(subChatId)}
-          onCancelTool={(callId) => void cancelToolCall(callId)}
-        />
-      )}
-      {/* The transcript used to end on a hard clip: the scrollport edge sliced
+        {/* The transcript used to end on a hard clip: the scrollport edge sliced
           text mid-glyph, straight into the composer’s flat gutter, and the two
           together read as a black bar cutting the pane in half. This is a
           gradient of the pane’s own background laid over the last 24px of the
@@ -361,59 +534,139 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
           in main.css). The bar occupies the scroller’s right edge, so a
           full-width fade would paint over its last 24px and wash out the
           thumb exactly when you drag it to the end. */}
-      <div
-        aria-hidden
-        className="pointer-events-none relative z-10 -mt-6 mr-2.5 h-6 shrink-0 bg-gradient-to-b from-transparent to-bg"
-      />
+        <div
+          aria-hidden
+          className="pointer-events-none relative z-10 -mt-6 mr-2.5 h-6 shrink-0 bg-gradient-to-b from-transparent to-bg"
+        />
 
-      {queue.length > 0 && (
-        <div className="bg-bg px-4 pt-2">
-          <div className="mx-auto max-w-3xl">
-            <Queue>
-              <QueueSection defaultOpen>
-                <QueueSectionTrigger>
-                  <QueueSectionLabel
-                    label={t('chat.queued')}
-                    count={queue.length}
-                    icon={<ListTree className="h-3.5 w-3.5 text-text-subtle" />}
-                  />
-                  {sending && (
-                    <span className="ml-auto text-[10px] text-text-subtle">
-                      {t('chat.runsAfterReply')}
-                    </span>
-                  )}
-                </QueueSectionTrigger>
-                <QueueSectionContent>
-                  <QueueList>
-                    {queue.map((item, i) => (
-                      <QueuedMessage key={item.id} item={item} index={i} total={queue.length} />
-                    ))}
-                  </QueueList>
-                </QueueSectionContent>
-              </QueueSection>
-            </Queue>
+        {queue.length > 0 && (
+          <div className="bg-bg px-4 pt-2">
+            <div className="mx-auto max-w-3xl">
+              <Queue>
+                <QueueSection defaultOpen>
+                  <QueueSectionTrigger>
+                    <QueueSectionLabel
+                      label={t('chat.queued')}
+                      count={queue.length}
+                      icon={<ListTree className="h-3.5 w-3.5 text-text-subtle" />}
+                    />
+                    {sending && (
+                      <span className="ml-auto text-[10px] text-text-subtle">
+                        {t('chat.runsAfterReply')}
+                      </span>
+                    )}
+                  </QueueSectionTrigger>
+                  <QueueSectionContent>
+                    <QueueList>
+                      {queue.map((item, i) => (
+                        <QueuedMessage key={item.id} item={item} index={i} total={queue.length} />
+                      ))}
+                    </QueueList>
+                  </QueueSectionContent>
+                </QueueSection>
+              </Queue>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* A subagent's session can now be stopped from its own composer: the Stop
+        {/* A subagent's session can now be stopped from its own composer: the Stop
           cancels the DELEGATE (there is no local request here to abort), which
           is what the button visibly means in this view. */}
-      <Composer
-        onSend={submit}
-        sending={sending || subagentRunning}
-        onStop={
-          subagentRunning && activeChatId ? () => void cancelSubagent(activeChatId) : () => stop()
-        }
-      />
+        {latestCommand && dismissedCommand !== latestCommand.title && (
+          <div className="bg-bg px-4 pb-1.5">
+            <div className="mx-auto max-w-3xl">
+              <div
+                className={cn(
+                  'flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                  runningCommand
+                    ? 'border-accent/25 bg-accent/10 text-accent'
+                    : 'border-border bg-surface-2/60 text-text-muted hover:bg-surface-2 hover:text-text'
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommandsInitialTab(runningCommand ? 'agent' : 'user')
+                    setCommandsOpen(true)
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <Terminal
+                    className={cn(
+                      'h-3.5 w-3.5 shrink-0',
+                      runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
+                    )}
+                  />
+                  <span className="shrink-0 font-medium">
+                    {runningCommand
+                      ? `${t('commands.runningNow')}:`
+                      : latestCommand.state === 'done'
+                        ? `${t('commands.completed')}:`
+                        : `${t('commands.error')}:`}
+                  </span>
+                  <span className="truncate font-mono text-[11px] text-text">
+                    {latestCommand.title}
+                  </span>
+                  {runningCommand ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
+                  ) : (
+                    <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
+                      {t('commands.openCommandLine')}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={openIndependentTerminal}
+                  title={t('commands.popOut')}
+                  className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+                {!runningCommand && (
+                  <button
+                    type="button"
+                    onClick={() => setDismissedCommand(latestCommand.title)}
+                    title={t('common.close')}
+                    className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
-      <WorkstreamStrip />
+        <Composer
+          onSend={submit}
+          sending={sending || subagentRunning}
+          onStop={
+            subagentRunning && activeChatId ? () => void cancelSubagent(activeChatId) : () => stop()
+          }
+          onOpenCommands={() => {
+            setCommandsInitialTab('user')
+            setCommandsOpen(true)
+          }}
+        />
 
-      {loopPaneOpen && activeLoop && (
-        <LoopDetailsPane
-          loop={activeLoop}
+        <WorkstreamStrip />
+
+        {loopPaneOpen && activeLoop && (
+          <LoopDetailsPane
+            loop={activeLoop}
+            chat={activeChat}
+            onClose={() => setLoopPaneOpen(false)}
+          />
+        )}
+      </div>
+
+      {commandsOpen && activeChat && (
+        <CommandsDialog
           chat={activeChat}
-          onClose={() => setLoopPaneOpen(false)}
+          onClose={() => setCommandsOpen(false)}
+          onPopOut={openIndependentTerminal}
+          initialTab={commandsInitialTab ?? (runningCommand ? 'agent' : 'user')}
         />
       )}
     </div>

@@ -7,7 +7,7 @@ import {
   type KeyboardEvent
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Loader2, Mic, MicOff, Monitor, Plus, Square, X } from 'lucide-react'
+import { ArrowUp, Loader2, Mic, MicOff, Monitor, Plus, Square, Terminal, X } from 'lucide-react'
 import { ModelPicker } from './ModelPicker'
 import {
   ContextMeter,
@@ -27,11 +27,13 @@ import { matchesKeybindDown, matchesKeybindRelease } from '../lib/keybind'
 export function Composer({
   onSend,
   sending,
-  onStop
+  onStop,
+  onOpenCommands
 }: {
   onSend: (text: string, images?: ComposerImage[]) => void
   sending?: boolean
   onStop?: () => void
+  onOpenCommands?: () => void
 }): JSX.Element {
   const { t } = useTranslation()
   const voiceKeybind = useRoxyStore((s) => s.settings?.voiceKeybind ?? 'Alt+V')
@@ -497,6 +499,16 @@ export function Composer({
             <ThinkingPicker />
             <ContextPicker />
             <ContextMeter />
+            {onOpenCommands && (
+              <button
+                type="button"
+                onClick={onOpenCommands}
+                title={t('commands.commandLine')}
+                className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text transition-colors"
+              >
+                <Terminal className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           {showStop ? (
             <button

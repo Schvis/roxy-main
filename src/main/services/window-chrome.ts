@@ -43,7 +43,7 @@ const FALLBACK_BG = '#0a0a0a'
 const FALLBACK_SYMBOL = '#9a9aa3'
 
 /** The window-control heights this app uses, per window kind. */
-export const OVERLAY_HEIGHT = { main: 48, browser: 40 } as const
+export const OVERLAY_HEIGHT = { main: 48, browser: 40, terminal: 40 } as const
 
 /**
  * The glyph color for the window controls.

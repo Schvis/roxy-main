@@ -32,8 +32,15 @@ export function setSpeakingStateListener(
   speakingStateListener = listener
 }
 
+const EMOTION_TAG_RE = /\[[a-zA-Z\s-]+\]\s*/g
+
+export function stripEmotionTags(text: string): string {
+  return text.replace(EMOTION_TAG_RE, '')
+}
+
 function notifySpeaking(speaking: boolean, text?: string): void {
-  speakingStateListener?.({ speaking, text })
+  const clean = text ? stripEmotionTags(text).trim() : undefined
+  speakingStateListener?.({ speaking, text: clean })
 }
 
 export function getTtsServerLogs(): string {
@@ -517,15 +524,99 @@ export const LANG_VOICES: Record<string, string> = {
   en: 'en-US-JennyNeural'
 }
 
-/** Translate text to target language via free Google Translate API. */
-export async function translateText(text: string, targetLang: string): Promise<string> {
+const DEEPL_LANG_MAP: Record<string, string> = {
+  ja: 'JA',
+  zh: 'ZH',
+  ko: 'KO',
+  es: 'ES',
+  fr: 'FR',
+  de: 'DE',
+  en: 'EN-US'
+}
+
+/** Translate text to target language via DeepL (if API key provided) or Google Translate fallback. */
+export async function translateText(
+  text: string,
+  targetLang: string,
+  apiKey?: string
+): Promise<string> {
+  const trimmed = text.trim()
+  if (!trimmed || !targetLang || targetLang.toLowerCase() === 'none') {
+    return text
+  }
+
+  const langLower = targetLang.toLowerCase()
+
+  // 1. Prefer DeepL if API key is provided
+  const deepLKey = apiKey?.trim()
+  if (deepLKey) {
+    try {
+      const endpoint = deepLKey.endsWith(':fx')
+        ? 'https://api-free.deepl.com/v2/translate'
+        : 'https://api.deepl.com/v2/translate'
+      const targetCode = DEEPL_LANG_MAP[langLower] || targetLang.toUpperCase()
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `DeepL-Auth-Key ${deepLKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: [trimmed],
+          target_lang: targetCode
+        }),
+        signal: AbortSignal.timeout(8000)
+      })
+
+      if (res.ok) {
+        const data = (await res.json()) as { translations?: Array<{ text: string }> }
+        if (data.translations?.[0]?.text) {
+          appendTtsServerLog(
+            `[DeepL] Translated (${targetCode}): "${data.translations[0].text.slice(0, 50)}..."\n`
+          )
+          return data.translations[0].text
+        }
+      } else {
+        const errText = await res.text().catch(() => res.statusText)
+        appendTtsServerLog(`[DeepL ERR] HTTP ${res.status}: ${errText}\n`)
+      }
+    } catch (err) {
+      appendTtsServerLog(`[DeepL ERR] ${err instanceof Error ? err.message : String(err)}\n`)
+    }
+  }
+
+  // 2. Fallback to Google Translate
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`
-    const res = await fetch(url, { signal: AbortSignal.timeout(2000) })
-    if (!res.ok) return text
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t`
+    const body = new URLSearchParams({ q: trimmed })
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      body: body.toString(),
+      signal: AbortSignal.timeout(8000)
+    })
+    if (!res.ok) {
+      appendTtsServerLog(`[Google Translate ERR] HTTP ${res.status}: ${res.statusText}\n`)
+      return text
+    }
     const data = (await res.json()) as [[string[]]]
-    return data[0].map((item) => item[0]).join('')
-  } catch {
+    const translated = data[0].map((item) => item[0]).join('')
+    if (translated) {
+      appendTtsServerLog(
+        `[Google Translate] Translated (${targetLang}): "${translated.slice(0, 50)}..."\n`
+      )
+      return translated
+    }
+    return text
+  } catch (err) {
+    appendTtsServerLog(
+      `[Google Translate ERR] ${err instanceof Error ? err.message : String(err)}\n`
+    )
     return text
   }
 }
@@ -645,6 +736,356 @@ export async function playAudioBufferInRenderer(
   })
 }
 
+export interface EmotionRule {
+  tag: string
+  pattern: RegExp
+}
+
+export const FISH_AUDIO_EMOTION_RULES: EmotionRule[] = [
+  // Sound effects & explicit delivery cues
+  {
+    tag: 'whispering',
+    pattern:
+      /\b(\*whispers?\*|whisper(ing|ed|s)?|psst\b|off the record|between (you and me|us)|keep (this|it) quiet|secretly|softly|hush|shh+)\b/i
+  },
+  {
+    tag: 'laughing',
+    pattern:
+      /\b(ha(ha)+|he(he)+|rofl|lmao|\*laughs?\*|laugh(ing|ed|ter)?|hilarious|cracks? me up)\b|[😂🤣😆]/i
+  },
+  {
+    tag: 'chuckling',
+    pattern: /\b(heh+|lol|\*chuckles?\*|chuckle(s|d|ing)?|giggle(s|d|ing)?|snicker|smirk)\b|[😏🤭]/i
+  },
+  {
+    tag: 'sighing',
+    pattern: /\b(\*sighs?\*|sigh(s|ed|ing)?|phew|whew|heavy breath|alas)\b|[😮‍💨]/i
+  },
+  {
+    tag: 'gasping',
+    pattern: /\b(\*gasps?\*|gasp(s|ed|ing)?|holy cow|oh my god|omg\b|gosh|jeez)\b/i
+  },
+  {
+    tag: 'yawning',
+    pattern:
+      /\b(\*yawns?\*|yawn(s|ed|ing)?|so sleepy|exhausted|tired|drowsy|need (a nap|coffee|sleep))\b|[🥱]/i
+  },
+  {
+    tag: 'sobbing',
+    pattern: /\b(\*sobs?\*|\*cries\*|sobbing|crying|weep(ing)?|tears|heartbroken)\b|[😭😢]/i
+  },
+  {
+    tag: 'shouting',
+    pattern: /\b(\*shouts?\*|\*yells?\*|shout(ing|ed)?|yell(ing|ed)?|scream(ing|ed)?)\b/i
+  },
+
+  // Extreme / emergency / fear
+  {
+    tag: 'hysterical',
+    pattern:
+      /\b(total disaster|everything is on fire|system crash emergency|emergency|meltdown|mayhem|panic|catastrophe)\b/i
+  },
+  {
+    tag: 'scared',
+    pattern:
+      /\b(danger|critical vulnerability|malicious|exploit|threat|scary|terrifying|scared|fear|frightened|spooky|creepy)\b|[😱]/i
+  },
+  {
+    tag: 'sarcastic',
+    pattern:
+      /\b(oh brilliant|what a surprise|yeah right|as if|surely nothing could go wrong|wow so helpful|big deal)\b|[🙄]/i
+  },
+  {
+    tag: 'angry',
+    pattern:
+      /\b(unacceptable|outrageous|infuriating|furious|how dare|pissed off|angry|mad\b|rage|hate this)\b|[😡🤬]/i
+  },
+  {
+    tag: 'frustrated',
+    pattern:
+      /\b(\bugh\b|annoy(ing|ed)?|frustrat(ing|ed|ion)?|timed out again|stuck on|broken again|headache|irritat(ing|ed)?|pain in the)\b|[😤]/i
+  },
+
+  // Positive / high energy
+  {
+    tag: 'excited',
+    pattern:
+      /([!?]{2,}|\b(awesome|amazing|fantastic|incredible|superb|woohoo|hooray|yay|let's go|congrat(s|ulations)?|can't wait|epic|thrilled|hyped)\b|[🎉🔥✨])/i
+  },
+  {
+    tag: 'surprised',
+    pattern:
+      /\b(wow\b|whoa\b|unbeliev(able)?|astonish(ing)?|no way|didn't expect|surprise(d)?|shock(ing)?)\b/i
+  },
+  {
+    tag: 'delighted',
+    pattern: /\b(delighted|splendid|marvelous|it's a pleasure|what a joy|lovely|delightful)\b/i
+  },
+  {
+    tag: 'grateful',
+    pattern:
+      /\b(thank(s| you)?|much appreciated|deeply appreciate|grateful(ly)?|gratitude|much obliged|props to)\b|[🙏]/i
+  },
+  {
+    tag: 'proud',
+    pattern:
+      /\b(proud (of|to)|great (achievement|work|job)|well deserved|kudos|nailed it|bravo|killed it)\b/i
+  },
+  {
+    tag: 'confident',
+    pattern:
+      /\b(definitely|certainly|guarantee(d)?|absolutely|without a doubt|i'm confident|i am confident|positive|for sure|rest assured|sure thing|this will|ensures that|ensures|prevents|solves this|correctly|properly|without issue|clear(ly)?|of course|as expected)\b/i
+  },
+  {
+    tag: 'satisfied',
+    pattern:
+      /\b(all set|resolved|looks? good|working (as expected|properly|now)|fixed (successfully)?|ready to go|perfect\b|done deal|good to go|passes|passing|passed|succeeded|successful(ly)?|done\b|finished|completed|all working)/i
+  },
+  {
+    tag: 'happy',
+    pattern:
+      /\b(glad to|happy to|pleased to|welcome\b|great to see you|have a (great|wonderful|good)|great to|nice to|enjoy|cheers|smile)\b|[😊🙂😃]/i
+  },
+  {
+    tag: 'cheerful',
+    pattern:
+      /\b(hello|hi\b|hey\b|welcome\b|good (morning|afternoon|evening)|greetings|happy to help|glad to assist|my pleasure|anytime)\b/i
+  },
+
+  // Disdain & contempt
+  { tag: 'disdainful', pattern: /\b(pathetic|worthless|laughable|amateurish|beneath us)\b/i },
+  {
+    tag: 'contemptuous',
+    pattern: /\b(despicable|scorn|utter nonsense|complete garbage|disgraceful)\b/i
+  },
+  {
+    tag: 'disgusted',
+    pattern:
+      /\b(disgust(ing|ed)?|gross\b|nasty|repulsive|nauseating|yuck|eww?|code smell)\b|[🤢🤮]/i
+  },
+
+  // Empathy, support, apologies
+  {
+    tag: 'embarrassed',
+    pattern:
+      /\b(my bad|oops|whoops|my mistake|pardon me|clumsy of me|apologies for that|awkward|blunder)\b|[😅😳]/i
+  },
+  {
+    tag: 'empathetic',
+    pattern:
+      /\b(i understand your|i hear you|feel you|understandable|hang in there|sorry for the trouble|tough (situation|time))\b/i
+  },
+  {
+    tag: 'reassuring',
+    pattern:
+      /\b(don't worry|no need to worry|nothing to worry|easy fix|quick fix|straightforward|simple fix|we got this|no big deal|no problem at all)\b/i
+  },
+  {
+    tag: 'sympathetic',
+    pattern: /\b(my condolences|deepest sympathies|sorry for your loss|grieving)\b/i
+  },
+  {
+    tag: 'compassionate',
+    pattern:
+      /\b(take care|be gentle|be kind|here (to help|for you)|you're not alone|take your time)\b/i
+  },
+  {
+    tag: 'regretful',
+    pattern:
+      /\b(i regret|regrettable|wish i hadn't|should have (known|checked)|unfortunate mistake)\b/i
+  },
+  {
+    tag: 'guilty',
+    pattern: /\b(my fault|i caused this|blame is on me|i take the blame|guilty of)\b/i
+  },
+  { tag: 'ashamed', pattern: /\b(mortified|deeply ashamed|humiliated|shameful)\b/i },
+
+  // Sadness, depression, disappointment
+  { tag: 'depressed', pattern: /\b(hopeless|pointless|given up|miserable|despair|gloomy)\b/i },
+  {
+    tag: 'sad',
+    pattern: /\b(sad(ly)?|unfortunate(ly)?|i'm sorry|too bad|shame that|bummer|sorrow)\b|[😞]/i
+  },
+  {
+    tag: 'disappointed',
+    pattern: /\b(disappoint(ed|ing)?|let down|missed opportunity|fell short|not what we wanted)\b/i
+  },
+  { tag: 'unhappy', pattern: /\b(discontent|dissatisfied|unhappy|not pleased)\b/i },
+  { tag: 'upset', pattern: /\b(distressing|upsetting|chaos|disrupted|upset|vexed|troubled)\b/i },
+
+  // Worry, doubt, confusion
+  {
+    tag: 'confused',
+    pattern:
+      /\b(\bhuh\b|baffl(ed|ing)|confus(ed|ing)|doesn't make sense|unclear to me|can't figure out|weird|strange|odd)\b/i
+  },
+  {
+    tag: 'doubtful',
+    pattern: /\b(doubt(ful)?|skeptic(al)?|hard to believe|unlikely|questionable|not convinced)\b/i
+  },
+  {
+    tag: 'worried',
+    pattern:
+      /\b(worr(y|ied|ying)|be careful|caution|heads up|risky|risk|potential issue|watch out|concern(ed)?)\b/i
+  },
+  {
+    tag: 'nervous',
+    pattern: /\b(nervous|shaky|jittery|proceed with caution|tense|uneasy|butterflies)\b/i
+  },
+  {
+    tag: 'anxious',
+    pattern:
+      /\b(urgently|urgent\b|asap\b|deadline approaching|running out of time|hurry|pressing)\b/i
+  },
+  {
+    tag: 'uncertain',
+    pattern: /\b(not sure|maybe|perhaps|might be|could possibly|it depends|uncertain|tentative)\b/i
+  },
+  {
+    tag: 'curious',
+    pattern:
+      /(\?|\b(curious|wonder(ing)?|why|how come|what if|how about|explore|investigate|tell me more|can you|could you)\b|[🤔🧐])/i
+  },
+
+  // Social & interpersonal
+  { tag: 'jealous', pattern: /\b(jealous (of)?|envious (of)?|wish i had that)\b/i },
+  { tag: 'envious', pattern: /\b(envious|covet)\b/i },
+  { tag: 'lonely', pattern: /\b(feeling alone|isolated|solitary|lonely)\b/i },
+  {
+    tag: 'nostalgic',
+    pattern: /\b(nostalgic|reminisce|back in the day|remember when|good old days|legacy days)\b/i
+  },
+  { tag: 'moved', pattern: /\b(heartwarming|deeply touched|moved by|means a lot)\b/i },
+
+  // Attitude, resolution, perspective, reasoning
+  {
+    tag: 'determined',
+    pattern:
+      /\b(let's|i('ll| will| have)|we('ll| will| can)|determined|won't give up|on it now|tackle|handle|updat(e|ing|ed)|add(ing|ed)?|implement(ing|ed)?|creat(e|ing|ed)|modif(y|ying|ied)|replac(e|ing|ed)|fix(ing|ed)?|refactor(ing|ed)?|start by|next (step|we)|now we)\b|[💪]/i
+  },
+  {
+    tag: 'thoughtful',
+    pattern:
+      /\b(here (is|are)|this (means|is|shows|represents|handles)|the (reason|issue|problem|cause)|because|based on|analyz(e|ing|ed)|inspect(ing|ed)?|look(ing)? at|examin(e|ing|ed)|observ(e|ing|ed)|notice(d)?|specifically|in this case|for example|for instance|note that|it appears|such as|according to|considering)\b/i
+  },
+  {
+    tag: 'hopeful',
+    pattern: /\b(hope(ful|fully|s)?|looking forward|fingers crossed|with any luck|promising)\b/i
+  },
+  {
+    tag: 'optimistic',
+    pattern:
+      /\b(optimis(tic|m)|things are looking up|bright side|promising|upbeat|positive outlook)\b/i
+  },
+  {
+    tag: 'pessimistic',
+    pattern: /\b(pessimis(tic|m)|worst case|probably fail|doomed|downhill)\b/i
+  },
+  {
+    tag: 'relaxed',
+    pattern:
+      /\b(no problem|no worries|anytime|take it easy|chill|all good|no stress|smooth sailing)\b|[😎]/i
+  },
+  {
+    tag: 'calm',
+    pattern:
+      /\b(calm(ly|ness)?|peaceful(ly)?|tranquil|serene|deep breath|quietly|soothing|take a breather)\b|[🧘🕊️]/i
+  },
+  {
+    tag: 'indifferent',
+    pattern: /\b(doesn't matter|either way|up to you|whatever you prefer|don't mind|fine by me)\b/i
+  },
+  {
+    tag: 'resigned',
+    pattern: /\b(it is what it is|nothing we can do|have to accept|oh well|so be it)\b/i
+  },
+  { tag: 'bored', pattern: /\b(tedious|repetitive|boring|bored|dull|monotonous)\b/i }
+]
+
+export function detectFishAudioEmotion(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return 'relaxed'
+
+  // If text already has an emotion tag
+  const existing = trimmed.match(/^\[([a-zA-Z\s-]+)\]/)
+  if (existing) {
+    const rawTag = existing[1].toLowerCase().trim()
+    if (rawTag !== 'calm') {
+      return rawTag
+    }
+    // If tag is 'calm', check if the text content warrants a more expressive tag
+    const rest = trimmed.slice(existing[0].length).trim()
+    for (const rule of FISH_AUDIO_EMOTION_RULES) {
+      if (rule.tag !== 'calm' && rule.pattern.test(rest)) {
+        return rule.tag
+      }
+    }
+    // Only keep 'calm' if text is genuinely calm/peaceful
+    if (/\b(calm|peaceful|quiet|breathe|serene|tranquil)\b/i.test(rest)) {
+      return 'calm'
+    }
+    return 'confident'
+  }
+
+  for (const rule of FISH_AUDIO_EMOTION_RULES) {
+    if (rule.pattern.test(trimmed)) {
+      return rule.tag
+    }
+  }
+
+  // Technical terms or code terms default to thoughtful
+  if (
+    /\b(code|file|folder|dir|function|class|method|component|variable|api|server|port|database|config|schema|error|log|output|build|test|script|branch|repo)\b/i.test(
+      trimmed
+    )
+  ) {
+    return 'thoughtful'
+  }
+
+  return 'relaxed'
+}
+
+export function ensureEmotionTags(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return text
+
+  // If text starts with [calm], upgrade it if the content warrants a better tone
+  const calmMatch = trimmed.match(/^\[calm\]\s*(.*)/i)
+  if (calmMatch) {
+    const rest = calmMatch[1].trim()
+    const detected = detectFishAudioEmotion(rest)
+    if (detected !== 'calm') {
+      const match = text.match(/^(\s*)/)
+      const leading = match ? match[1] : ''
+      return `${leading}[${detected}] ${rest}`
+    }
+  }
+
+  // If already contains bracketed emotion tags, keep as-is
+  if (/\[[a-zA-Z\s-]+\]/.test(trimmed)) {
+    return text
+  }
+
+  const sentences = text.split(/(?<=[.!?\n])\s+/)
+  if (sentences.length <= 1) {
+    const tag = detectFishAudioEmotion(trimmed)
+    const match = text.match(/^(\s*)/)
+    const leading = match ? match[1] : ''
+    return `${leading}[${tag}] ${trimmed}`
+  }
+
+  return sentences
+    .map((s) => {
+      const sTrim = s.trim()
+      if (!sTrim || sTrim.startsWith('```')) return s
+      const tag = detectFishAudioEmotion(sTrim)
+      const match = s.match(/^(\s*)/)
+      const leading = match ? match[1] : ''
+      return `${leading}[${tag}] ${sTrim}`
+    })
+    .join(' ')
+}
+
 export async function synthesizeFishAudio(
   text: string,
   settings: AppSettings,
@@ -660,8 +1101,13 @@ export async function synthesizeFishAudio(
   const speed = settings.ttsSpeed ?? 15
   const speedMultiplier = Math.max(0.5, Math.min(2.0, Math.round((1 + speed / 100) * 100) / 100))
 
+  const trimmedText = text.trim()
+  const tagMatch = trimmedText.match(/^\[([a-zA-Z\s-]+)\]/)
+  const emotionTag = tagMatch ? tagMatch[1] : detectFishAudioEmotion(trimmedText)
+  const fishText = tagMatch ? trimmedText : `[${emotionTag}] ${trimmedText}`
+
   const body: Record<string, unknown> = {
-    text,
+    text: fishText,
     format: 'mp3',
     prosody: {
       speed: speedMultiplier
@@ -671,7 +1117,9 @@ export async function synthesizeFishAudio(
     body.reference_id = voiceId
   }
 
-  appendTtsServerLog(`[Fish Audio] Synthesizing (${model}): "${text.slice(0, 50)}..."\n`)
+  appendTtsServerLog(
+    `[Fish Audio] Synthesizing (${model}, [${emotionTag}]): "${stripEmotionTags(trimmedText).slice(0, 50)}..."\n`
+  )
 
   const res = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
@@ -718,6 +1166,7 @@ export async function speakSentence(
     return
   }
 
+  const cleanText = stripEmotionTags(trimmed).trim() || trimmed
   const lang = targetLang || TTS_LANG || 'ja'
   const rate = formatRate(speed)
 
@@ -725,7 +1174,7 @@ export async function speakSentence(
     await fetch(`${TTS_URL}/speak`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: trimmed, wait: false, lang, rate }),
+      body: JSON.stringify({ text: cleanText, wait: false, lang, rate }),
       signal: AbortSignal.timeout(2000)
     })
   } catch {
@@ -749,14 +1198,37 @@ export async function speakSentenceAndWait(
 
   if (settings.ttsProvider === 'fish') {
     try {
-      let textToSynthesize = trimmed
       const lang =
         targetLang || (settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja')
-      if (settings.ttsTranslate && lang !== 'none') {
-        textToSynthesize = await translateText(trimmed, lang)
+      const tagMatch = trimmed.match(/^\[([a-zA-Z\s-]+)\]\s*/)
+      const cleanText = stripEmotionTags(trimmed).trim()
+      let rawTag = tagMatch ? tagMatch[1] : undefined
+
+      // If tag was omitted or was a lazy [calm], determine active emotion from English text
+      let effectiveTag = rawTag
+      if (!effectiveTag || effectiveTag.toLowerCase() === 'calm') {
+        const detected = detectFishAudioEmotion(cleanText)
+        if (detected !== 'calm' || !effectiveTag) {
+          effectiveTag = detected
+        }
       }
+
+      let textToSynthesize: string
+      if (settings.ttsTranslate && lang !== 'none' && cleanText) {
+        const deeplKey = apiKey?.trim() || settings.ttsApiKey?.trim() || undefined
+        const translated = await translateText(cleanText, lang, deeplKey)
+        textToSynthesize = effectiveTag ? `[${effectiveTag}] ${translated}` : translated
+      } else {
+        textToSynthesize = effectiveTag ? `[${effectiveTag}] ${cleanText}` : trimmed
+      }
+
       const audioBuffer = await synthesizeFishAudio(textToSynthesize, settings, signal)
-      return await playAudioBufferInRenderer(audioBuffer, 'audio/mp3', trimmed, signal)
+      const displayTag = settings.ttsShowEmotions
+        ? effectiveTag
+          ? `[${effectiveTag}] ${cleanText}`
+          : trimmed
+        : cleanText || trimmed
+      return await playAudioBufferInRenderer(audioBuffer, 'audio/mp3', displayTag, signal)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendTtsServerLog(`[Fish Audio] Failed: ${msg}\n`)
@@ -764,6 +1236,7 @@ export async function speakSentenceAndWait(
     }
   }
 
+  const cleanTrimmed = stripEmotionTags(trimmed).trim() || trimmed
   const lang = targetLang || TTS_LANG || 'ja'
   const rate = formatRate(speed)
 
@@ -781,7 +1254,7 @@ export async function speakSentenceAndWait(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        text: trimmed,
+        text: cleanTrimmed,
         wait: true,
         api_key: apiKey?.trim() || undefined,
         lang,
@@ -832,7 +1305,7 @@ export async function testTtsVoice(sampleText?: string): Promise<{ ok: boolean; 
       let text = sampleText?.trim() || 'Hello! Welcome to Fish Audio on Roxy.'
       const lang = settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja'
       if (settings.ttsTranslate && lang !== 'none') {
-        text = await translateText(text, lang)
+        text = await translateText(text, lang, settings.ttsApiKey)
       }
       const audioBuffer = await synthesizeFishAudio(text, settings)
       const res = await playAudioBufferInRenderer(audioBuffer, 'audio/mp3', text)
@@ -967,11 +1440,19 @@ export class SyncTtsStreamer {
       )
       // 2. Server is ready! Display message in chat at exact moment it plays
       if (!this.aborted) {
-        this.onDisplay(textToSpeak)
+        const textToDisplay = this.settings.ttsShowEmotions
+          ? ensureEmotionTags(textToSpeak)
+          : stripEmotionTags(textToSpeak)
+        if (textToDisplay) {
+          this.onDisplay(textToDisplay)
+        }
       }
       // If server was offline, still notify speaking briefly so bubble/display works
       if (!serverOk && !this.aborted && textToSpeak.trim()) {
-        notifySpeaking(true, textToSpeak.trim())
+        const bubbleText = this.settings.ttsShowEmotions
+          ? ensureEmotionTags(textToSpeak.trim())
+          : stripEmotionTags(textToSpeak).trim()
+        notifySpeaking(true, bubbleText)
         await new Promise<void>((resolve) => setTimeout(resolve, 3000))
         if (!this.aborted) notifySpeaking(false)
         return
@@ -1006,10 +1487,18 @@ export class SyncTtsStreamer {
           this.settings
         )
         if (!this.aborted && entireText) {
-          this.onDisplay(entireText)
+          const textToDisplay = this.settings.ttsShowEmotions
+            ? ensureEmotionTags(entireText)
+            : stripEmotionTags(entireText)
+          if (textToDisplay) {
+            this.onDisplay(textToDisplay)
+          }
         }
         if (!serverOk && !this.aborted && entireText.trim()) {
-          notifySpeaking(true, entireText.trim())
+          const bubbleText = this.settings.ttsShowEmotions
+            ? ensureEmotionTags(entireText.trim())
+            : stripEmotionTags(entireText).trim()
+          notifySpeaking(true, bubbleText)
           await new Promise<void>((resolve) => setTimeout(resolve, 3000))
           if (!this.aborted) notifySpeaking(false)
           return
@@ -1034,7 +1523,10 @@ export class SyncTtsStreamer {
     this.abortController.abort()
     notifySpeaking(false)
     if (this.buffer) {
-      this.onDisplay(this.buffer)
+      const textToDisplay = this.settings.ttsShowEmotions
+        ? ensureEmotionTags(this.buffer)
+        : stripEmotionTags(this.buffer)
+      if (textToDisplay) this.onDisplay(textToDisplay)
       this.buffer = ''
     }
     void stopTts()
