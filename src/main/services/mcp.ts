@@ -85,8 +85,19 @@ const toolIndex = new Map<string, McpToolInfo>()
 // Transport construction
 // ---------------------------------------------------------------------------
 
+function resolveLocalCommand(cmd: string, args: string[]): { command: string; args: string[] } {
+  if (process.platform === 'win32') {
+    const base = path.basename(cmd).toLowerCase()
+    if (base === 'npx' || base === 'npm') {
+      return { command: 'cmd.exe', args: ['/c', cmd, ...args] }
+    }
+  }
+  return { command: cmd, args }
+}
+
 function makeStdioTransport(cfg: McpLocalConfig, workspaceCwd: string): Transport {
-  const [command, ...args] = cfg.command
+  const [rawCommand, ...rawArgs] = cfg.command
+  const { command, args } = resolveLocalCommand(rawCommand, rawArgs)
   const cwd = cfg.cwd
     ? path.resolve(workspaceCwd || process.cwd(), cfg.cwd)
     : workspaceCwd || undefined

@@ -194,10 +194,28 @@ export function getOrCreateVtuberWindow(): BrowserWindow {
   const primary = screen.getPrimaryDisplay()
   const defaultWidth = savedBounds?.width ?? 340
   const defaultHeight = savedBounds?.height ?? 440
-  const defaultX =
+  let defaultX =
     savedBounds?.x ?? Math.round(primary.workArea.x + primary.workArea.width - defaultWidth - 20)
-  const defaultY =
+  let defaultY =
     savedBounds?.y ?? Math.round(primary.workArea.y + primary.workArea.height - defaultHeight - 20)
+
+  // Ensure window is reachable on an active display
+  if (savedBounds?.x !== undefined && savedBounds?.y !== undefined) {
+    const isVisible = screen.getAllDisplays().some((d) => {
+      const wa = d.workArea
+      return (
+        defaultX + defaultWidth - 40 >= wa.x &&
+        defaultX + 40 <= wa.x + wa.width &&
+        defaultY + defaultHeight - 40 >= wa.y &&
+        defaultY + 40 <= wa.y + wa.height
+      )
+    })
+    if (!isVisible) {
+      defaultX = Math.round(primary.workArea.x + primary.workArea.width - defaultWidth - 20)
+      defaultY = Math.round(primary.workArea.y + primary.workArea.height - defaultHeight - 20)
+      repo.setVtuberWindowBounds(defaultWidth, defaultHeight, defaultX, defaultY)
+    }
+  }
 
   vtuberWindow = new BrowserWindow({
     width: defaultWidth,
@@ -268,6 +286,34 @@ export function closeVtuberWindow(): void {
   }
 }
 
+export function resetVtuberPosition(): AppSettings {
+  const primary = screen.getPrimaryDisplay()
+  const defaultWidth = 340
+  const defaultHeight = 440
+  const defaultX = Math.round(primary.workArea.x + primary.workArea.width - defaultWidth - 20)
+  const defaultY = Math.round(primary.workArea.y + primary.workArea.height - defaultHeight - 20)
+
+  if (vtuberWindow && !vtuberWindow.isDestroyed()) {
+    if (vtuberWindow.isMinimized()) {
+      vtuberWindow.restore()
+    }
+    vtuberWindow.setBounds({
+      width: defaultWidth,
+      height: defaultHeight,
+      x: defaultX,
+      y: defaultY
+    })
+    if (!vtuberWindow.isVisible()) {
+      vtuberWindow.show()
+    }
+    vtuberWindow.focus()
+  } else if (repo.getSettings().vtuberEnabled) {
+    openVtuberWindow()
+  }
+
+  return repo.setVtuberWindowBounds(defaultWidth, defaultHeight, defaultX, defaultY)
+}
+
 export function isVtuberWindow(win: BrowserWindow): boolean {
   return win === vtuberWindow
 }
@@ -328,6 +374,12 @@ export function updateOverlayShortcut(settings: AppSettings): void {
             } else {
               app.emit('activate')
             }
+          }
+        },
+        {
+          label: 'Reset VTuber Position',
+          click: () => {
+            resetVtuberPosition()
           }
         },
         { type: 'separator' },

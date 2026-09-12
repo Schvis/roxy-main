@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import { Braces, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Braces, Loader2, Monitor, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { McpServerView } from '@shared/api'
 import {
   parseMcpJson,
@@ -48,8 +48,53 @@ export function McpServers({ showBackup = false }: { showBackup?: boolean } = {}
   const [value, setValue] = useState('')
   const [json, setJson] = useState('')
   const [formErr, setFormErr] = useState('')
+  const [presetErr, setPresetErr] = useState('')
   /** id of the server whose raw JSON is open in the editor (only one at a time). */
   const [editing, setEditing] = useState<string | null>(null)
+
+  const isWindows =
+    document.documentElement.dataset.platform === 'win32' ||
+    window.electron?.process?.platform === 'win32'
+  const isScreenhandSupported =
+    isWindows ||
+    document.documentElement.dataset.platform === 'darwin' ||
+    window.electron?.process?.platform === 'darwin'
+  const hasWindowsMcp = servers.some((s) => s.id === 'windows-mcp')
+  const hasScreenhand = servers.some((s) => s.id === 'screenhand')
+
+  const installWindowsMcp = async (): Promise<void> => {
+    setBusy('__windows_mcp__')
+    setPresetErr('')
+    try {
+      const res = await api.mcp.setupWindowsMcp()
+      if (!res.ok) {
+        setPresetErr(t('mcp.windowsMcpFailed', { error: res.error || 'Setup failed' }))
+      } else {
+        await reload()
+      }
+    } catch (e) {
+      setPresetErr(t('mcp.windowsMcpFailed', { error: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const installScreenhand = async (): Promise<void> => {
+    setBusy('__screenhand__')
+    setPresetErr('')
+    try {
+      const res = await api.mcp.setupScreenhand()
+      if (!res.ok) {
+        setPresetErr(t('mcp.screenhandFailed', { error: res.error || 'Setup failed' }))
+      } else {
+        await reload()
+      }
+    } catch (e) {
+      setPresetErr(t('mcp.screenhandFailed', { error: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const reload = async (): Promise<void> => {
     setServers(await api.mcp.list())
@@ -273,6 +318,84 @@ export function McpServers({ showBackup = false }: { showBackup?: boolean } = {}
             )}
           </div>
         ))
+      )}
+
+      {isWindows && !hasWindowsMcp && !loading && (
+        <div className="flex flex-col gap-2 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 text-text-muted">
+                <Monitor className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium text-text">
+                    {t('mcp.windowsMcpTitle')}
+                  </span>
+                  <Badge>{t('mcp.windowsMcpBadge')}</Badge>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-text-subtle">
+                  {t('mcp.windowsMcpDesc')}
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy !== null}
+              onClick={() => void installWindowsMcp()}
+            >
+              {busy === '__windows_mcp__' ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  {t('mcp.windowsMcpInstalling')}
+                </>
+              ) : (
+                t('mcp.windowsMcpInstall')
+              )}
+            </Button>
+          </div>
+          {presetErr && <p className="text-xs text-danger">{presetErr}</p>}
+        </div>
+      )}
+
+      {isScreenhandSupported && !hasScreenhand && !loading && (
+        <div className="flex flex-col gap-2 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 text-text-muted">
+                <Monitor className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium text-text">
+                    {t('mcp.screenhandTitle')}
+                  </span>
+                  <Badge>{t('mcp.screenhandBadge')}</Badge>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-text-subtle">
+                  {t('mcp.screenhandDesc')}
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy !== null}
+              onClick={() => void installScreenhand()}
+            >
+              {busy === '__screenhand__' ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  {t('mcp.screenhandInstalling')}
+                </>
+              ) : (
+                t('mcp.screenhandInstall')
+              )}
+            </Button>
+          </div>
+          {presetErr && <p className="text-xs text-danger">{presetErr}</p>}
+        </div>
       )}
 
       {showAdd ? (

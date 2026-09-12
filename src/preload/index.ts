@@ -59,6 +59,8 @@ const roxy: RoxyApi = {
     setFishAudioApiKey: (apiKey) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioApiKey, apiKey),
     setFishAudioModel: (model) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioModel, model),
     setFishAudioVoice: (voice) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioVoice, voice),
+    setFishAudioMaxWords: (maxWords) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetFishAudioMaxWords, maxWords),
     setTtsShowEmotions: (show) => ipcRenderer.invoke(CHANNELS.settingsSetTtsShowEmotions, show),
     setVtuberEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberEnabled, enabled),
     setVtuberModelPath: (path) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberModelPath, path),
@@ -75,6 +77,7 @@ const roxy: RoxyApi = {
     setVtuberShowStatus: (show) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberShowStatus, show),
     setVtuberFollowCursor: (follow) =>
       ipcRenderer.invoke(CHANNELS.settingsSetVtuberFollowCursor, follow),
+    resetVtuberPosition: () => ipcRenderer.invoke(CHANNELS.settingsResetVtuberPosition),
     setDiscordRpcEnabled: (enabled) =>
       ipcRenderer.invoke(CHANNELS.settingsSetDiscordRpcEnabled, enabled),
     setDiscordRpcClientId: (clientId) =>
@@ -175,7 +178,9 @@ const roxy: RoxyApi = {
     upsert: (input) => ipcRenderer.invoke(CHANNELS.mcpUpsert, input),
     remove: (id) => ipcRenderer.invoke(CHANNELS.mcpRemove, id),
     setEnabled: (id, enabled) => ipcRenderer.invoke(CHANNELS.mcpSetEnabled, id, enabled),
-    reconnect: (id) => ipcRenderer.invoke(CHANNELS.mcpReconnect, id)
+    reconnect: (id) => ipcRenderer.invoke(CHANNELS.mcpReconnect, id),
+    setupWindowsMcp: () => ipcRenderer.invoke(CHANNELS.mcpSetupWindowsMcp),
+    setupScreenhand: () => ipcRenderer.invoke(CHANNELS.mcpSetupScreenhand)
   },
   skills: {
     list: (cwd) => ipcRenderer.invoke(CHANNELS.skillsList, cwd),

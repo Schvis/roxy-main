@@ -38,6 +38,16 @@ export function stripEmotionTags(text: string): string {
   return text.replace(EMOTION_TAG_RE, '')
 }
 
+/** Count words in text (supports space-delimited words and CJK characters). */
+export function countWords(text: string): number {
+  const clean = stripEmotionTags(text).trim()
+  if (!clean) return 0
+  const matches = clean.match(
+    /[\p{L}\p{N}'-]+|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu
+  )
+  return matches ? matches.length : clean.split(/\s+/).filter(Boolean).length
+}
+
 function notifySpeaking(speaking: boolean, text?: string): void {
   const clean = text ? stripEmotionTags(text).trim() : undefined
   speakingStateListener?.({ speaking, text: clean })
@@ -1197,11 +1207,16 @@ export async function speakSentenceAndWait(
   const settings = customSettings || getSettings()
 
   if (settings.ttsProvider === 'fish') {
+    const cleanText = stripEmotionTags(trimmed).trim()
+    const maxWords = settings.fishAudioMaxWords ?? 0
+    if (maxWords > 0 && countWords(cleanText) > maxWords) {
+      return { duration: 0, serverOk: true }
+    }
+
     try {
       const lang =
         targetLang || (settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja')
       const tagMatch = trimmed.match(/^\[([a-zA-Z\s-]+)\]\s*/)
-      const cleanText = stripEmotionTags(trimmed).trim()
       let rawTag = tagMatch ? tagMatch[1] : undefined
 
       // If tag was omitted or was a lazy [calm], determine active emotion from English text

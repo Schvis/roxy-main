@@ -249,6 +249,9 @@ async function main(): Promise<void> {
   check('fish audio voice defaults to empty', repo.getSettings().fishAudioVoice === '')
   repo.setFishAudioVoice('voice_ref_abc')
   check('setFishAudioVoice persists', repo.getSettings().fishAudioVoice === 'voice_ref_abc')
+  check('fish audio max words defaults to 0', repo.getSettings().fishAudioMaxWords === 0)
+  repo.setFishAudioMaxWords(50)
+  check('setFishAudioMaxWords persists', repo.getSettings().fishAudioMaxWords === 50)
   check('tts show emotions defaults to false', repo.getSettings().ttsShowEmotions === false)
   repo.setTtsShowEmotions(true)
   check('setTtsShowEmotions persists', repo.getSettings().ttsShowEmotions === true)
@@ -294,6 +297,8 @@ async function main(): Promise<void> {
       repo.getSettings().vtuberWindowBounds?.x === 100 &&
       repo.getSettings().vtuberWindowBounds?.y === 200
   )
+  repo.resetVtuberWindowBounds()
+  check('resetVtuberWindowBounds persists null', repo.getSettings().vtuberWindowBounds === null)
 
   check('discord rpc enabled by default', repo.getSettings().discordRpcEnabled === true)
   repo.setDiscordRpcEnabled(false)

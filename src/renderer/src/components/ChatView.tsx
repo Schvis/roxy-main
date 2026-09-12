@@ -172,6 +172,27 @@ function findLatestTool(
   return null
 }
 
+/** Sessions where user dismissed command line bar for the remainder of the session. */
+const dismissedCommandLineSessions = new Set<string>()
+
+function isCommandLineDismissedForSession(chatId: string): boolean {
+  if (dismissedCommandLineSessions.has(chatId)) return true
+  try {
+    return sessionStorage.getItem(`roxy.dismissedCommandLine.${chatId}`) === '1'
+  } catch {
+    return false
+  }
+}
+
+function dismissCommandLineForSession(chatId: string): void {
+  dismissedCommandLineSessions.add(chatId)
+  try {
+    sessionStorage.setItem(`roxy.dismissedCommandLine.${chatId}`, '1')
+  } catch {
+    // Ignore storage quota or security errors
+  }
+}
+
 export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } = {}): JSX.Element {
   const { pathname } = useLocation()
   const isOverlay = propIsOverlay ?? pathname === '/overlay'
@@ -219,6 +240,10 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   const [commandsOpen, setCommandsOpen] = useState(false)
   const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | undefined>()
   const [dismissedCommand, setDismissedCommand] = useState<string | null>(null)
+  const [askingSessionDismiss, setAskingSessionDismiss] = useState(false)
+  const [, setSessionDismissNonce] = useState(0)
+
+  const isSessionDismissed = Boolean(activeChatId && isCommandLineDismissedForSession(activeChatId))
 
   const openIndependentTerminal = (): void => {
     if (activeChat) {
@@ -234,8 +259,13 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   useEffect(() => {
     if (runningCommand) {
       setDismissedCommand(null)
+      setAskingSessionDismiss(false)
     }
   }, [runningCommand?.title])
+
+  useEffect(() => {
+    setAskingSessionDismiss(false)
+  }, [activeChatId, latestCommand?.callId, latestCommand?.title])
 
   // The keyed canvas owns bottom-first arrival and resize anchoring. Queue changes must not re-pin it.
   useLayoutEffect(() => {
@@ -582,7 +612,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
         {/* A subagent's session can now be stopped from its own composer: the Stop
           cancels the DELEGATE (there is no local request here to abort), which
           is what the button visibly means in this view. */}
-        {latestCommand && dismissedCommand !== latestCommand.title && (
+        {latestCommand && !isSessionDismissed && dismissedCommand !== latestCommand.title && (
           <div className="bg-bg px-4 pb-1.5">
             <div className="mx-auto max-w-3xl">
               <div
@@ -593,55 +623,101 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
                     : 'border-border bg-surface-2/60 text-text-muted hover:bg-surface-2 hover:text-text'
                 )}
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCommandsInitialTab(runningCommand ? 'agent' : 'user')
-                    setCommandsOpen(true)
-                  }}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                >
-                  <Terminal
-                    className={cn(
-                      'h-3.5 w-3.5 shrink-0',
-                      runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
+                {askingSessionDismiss ? (
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Terminal className="h-3.5 w-3.5 shrink-0 text-accent" />
+                      <span className="truncate text-xs font-medium text-text">
+                        {t('commands.dontShowAgainSession')}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeChatId) {
+                            dismissCommandLineForSession(activeChatId)
+                            setSessionDismissNonce((n) => n + 1)
+                          }
+                          setAskingSessionDismiss(false)
+                        }}
+                        className="press-scale rounded px-2 py-0.5 text-[11px] font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+                      >
+                        {t('commands.dontShowAgain')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDismissedCommand(latestCommand.title)
+                          setAskingSessionDismiss(false)
+                        }}
+                        className="press-scale rounded px-2 py-0.5 text-[11px] font-medium text-text-muted hover:bg-white/5 hover:text-text transition-colors"
+                      >
+                        {t('commands.justOnce')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAskingSessionDismiss(false)}
+                        title={t('common.cancel')}
+                        className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCommandsInitialTab(runningCommand ? 'agent' : 'user')
+                        setCommandsOpen(true)
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    >
+                      <Terminal
+                        className={cn(
+                          'h-3.5 w-3.5 shrink-0',
+                          runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
+                        )}
+                      />
+                      <span className="shrink-0 font-medium">
+                        {runningCommand
+                          ? `${t('commands.runningNow')}:`
+                          : latestCommand.state === 'done'
+                            ? `${t('commands.completed')}:`
+                            : `${t('commands.error')}:`}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
+                        {latestCommand.title}
+                      </span>
+                      {runningCommand ? (
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
+                      ) : (
+                        <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
+                          {t('commands.openCommandLine')}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openIndependentTerminal}
+                      title={t('commands.popOut')}
+                      className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
+                    {!runningCommand && (
+                      <button
+                        type="button"
+                        onClick={() => setAskingSessionDismiss(true)}
+                        title={t('common.close')}
+                        className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     )}
-                  />
-                  <span className="shrink-0 font-medium">
-                    {runningCommand
-                      ? `${t('commands.runningNow')}:`
-                      : latestCommand.state === 'done'
-                        ? `${t('commands.completed')}:`
-                        : `${t('commands.error')}:`}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
-                    {latestCommand.title}
-                  </span>
-                  {runningCommand ? (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
-                  ) : (
-                    <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
-                      {t('commands.openCommandLine')}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={openIndependentTerminal}
-                  title={t('commands.popOut')}
-                  className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-                {!runningCommand && (
-                  <button
-                    type="button"
-                    onClick={() => setDismissedCommand(latestCommand.title)}
-                    title={t('common.close')}
-                    className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+                  </>
                 )}
               </div>
             </div>

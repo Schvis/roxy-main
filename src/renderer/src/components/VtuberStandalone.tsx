@@ -13,7 +13,8 @@ import {
   X,
   MessageSquare,
   MessageSquareOff,
-  Activity
+  Activity,
+  RotateCcw
 } from 'lucide-react'
 import { useRoxyStore } from '../lib/store'
 import { useTranslation } from 'react-i18next'
@@ -499,6 +500,17 @@ export function VtuberStandalone(): JSX.Element {
 
         {/* Window action buttons */}
         <div className="flex items-center gap-1 rounded-full bg-black/60 p-0.5 backdrop-blur-md border border-white/10 shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              setCustomPos(null)
+              void api.settings.resetVtuberPosition()
+            }}
+            className="p-1 rounded-full text-white/80 hover:bg-white/20 hover:text-white transition-colors"
+            title={t('vtuber.resetPosition')}
+          >
+            <RotateCcw className="h-3 w-3" />
+          </button>
           <button
             type="button"
             onClick={() => void handleClose()}

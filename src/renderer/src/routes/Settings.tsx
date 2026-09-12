@@ -12,7 +12,8 @@ import {
   SlidersHorizontal,
   Cpu,
   Briefcase,
-  Sparkles
+  Sparkles,
+  RotateCcw
 } from 'lucide-react'
 import type { AppVersions, ConnectedProvider } from '@shared/types'
 import type { UpdateInfo } from '@shared/api'
@@ -94,6 +95,7 @@ export default function Settings(): JSX.Element {
   const setFishAudioApiKey = useRoxyStore((s) => s.setFishAudioApiKey)
   const setFishAudioModel = useRoxyStore((s) => s.setFishAudioModel)
   const setFishAudioVoice = useRoxyStore((s) => s.setFishAudioVoice)
+  const setFishAudioMaxWords = useRoxyStore((s) => s.setFishAudioMaxWords)
   const setVtuberEnabled = useRoxyStore((s) => s.setVtuberEnabled)
   const setVtuberModelPath = useRoxyStore((s) => s.setVtuberModelPath)
   const setVtuberVisionEnabled = useRoxyStore((s) => s.setVtuberVisionEnabled)
@@ -102,8 +104,10 @@ export default function Settings(): JSX.Element {
   const setVtuberShowChatBubble = useRoxyStore((s) => s.setVtuberShowChatBubble)
   const setVtuberShowStatus = useRoxyStore((s) => s.setVtuberShowStatus)
   const setVtuberFollowCursor = useRoxyStore((s) => s.setVtuberFollowCursor)
+  const resetVtuberPosition = useRoxyStore((s) => s.resetVtuberPosition)
   const setDiscordRpcEnabled = useRoxyStore((s) => s.setDiscordRpcEnabled)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
+  const [resetPositionSuccess, setResetPositionSuccess] = useState(false)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
   const [voiceKeybind, setVoiceKeybindState] = useState(settings?.voiceKeybind ?? 'Alt+V')
@@ -117,6 +121,9 @@ export default function Settings(): JSX.Element {
   const [apiKeyInput, setApiKeyInput] = useState(settings?.ttsApiKey ?? '')
   const [fishApiKeyInput, setFishApiKeyInput] = useState(settings?.fishAudioApiKey ?? '')
   const [fishVoiceInput, setFishVoiceInput] = useState(settings?.fishAudioVoice ?? '')
+  const [fishMaxWordsInput, setFishMaxWordsInput] = useState(
+    String(settings?.fishAudioMaxWords ?? 0)
+  )
   const [testingVoice, setTestingVoice] = useState(false)
   const [testVoiceFeedback, setTestVoiceFeedback] = useState<string | null>(null)
   const [cameraList, setCameraList] = useState<{ deviceId: string; label: string }[]>([])
@@ -440,6 +447,12 @@ export default function Settings(): JSX.Element {
     setSampleStatus(null)
   }
 
+  const handleResetVtuberPosition = async (): Promise<void> => {
+    await resetVtuberPosition()
+    setResetPositionSuccess(true)
+    setTimeout(() => setResetPositionSuccess(false), 2000)
+  }
+
   const [sttStatus, setSttStatus] = useState<{ installed: boolean; pythonPath?: string } | null>(
     null
   )
@@ -671,6 +684,10 @@ export default function Settings(): JSX.Element {
   useEffect(() => {
     setFishVoiceInput(settings?.fishAudioVoice ?? '')
   }, [settings?.fishAudioVoice])
+
+  useEffect(() => {
+    setFishMaxWordsInput(String(settings?.fishAudioMaxWords ?? 0))
+  }, [settings?.fishAudioMaxWords])
 
   const handleTestVoice = async (): Promise<void> => {
     setTestingVoice(true)
@@ -1654,6 +1671,38 @@ export default function Settings(): JSX.Element {
                       </div>
                     </div>
 
+                    <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                      <div className="text-sm font-medium text-text">
+                        {t('settings.tts.fishMaxWordsTitle')}
+                      </div>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        {t('settings.tts.fishMaxWordsDescription')}
+                      </p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={fishMaxWordsInput}
+                          onChange={(e) => setFishMaxWordsInput(e.target.value)}
+                          placeholder="0"
+                          className="w-32 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)]"
+                        />
+                        <Button
+                          onClick={() =>
+                            void setFishAudioMaxWords(
+                              Math.max(0, parseInt(fishMaxWordsInput, 10) || 0)
+                            )
+                          }
+                          disabled={
+                            (parseInt(fishMaxWordsInput, 10) || 0) ===
+                            (settings?.fishAudioMaxWords ?? 0)
+                          }
+                        >
+                          {t('common.save')}
+                        </Button>
+                      </div>
+                    </div>
+
                     <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-text">
@@ -2158,6 +2207,26 @@ export default function Settings(): JSX.Element {
                   </select>
                 </div>
               )}
+
+              {/* Reset Window Position */}
+              <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-text">
+                    {t('settings.vtuber.resetPositionTitle')}
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {t('settings.vtuber.resetPositionDescription')}
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => void handleResetVtuberPosition()}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  {resetPositionSuccess ? t('common.saved') : t('settings.vtuber.resetPosition')}
+                </Button>
+              </div>
             </>
           )}
         </section>

@@ -758,6 +758,7 @@ export interface RoxyApi {
     setFishAudioApiKey(apiKey: string): Promise<AppSettings>
     setFishAudioModel(model: string): Promise<AppSettings>
     setFishAudioVoice(voice: string): Promise<AppSettings>
+    setFishAudioMaxWords(maxWords: number): Promise<AppSettings>
     setTtsShowEmotions(show: boolean): Promise<AppSettings>
     setVtuberEnabled(enabled: boolean): Promise<AppSettings>
     setVtuberModelPath(path: string): Promise<AppSettings>
@@ -768,6 +769,7 @@ export interface RoxyApi {
     setVtuberShowChatBubble(show: boolean): Promise<AppSettings>
     setVtuberShowStatus(show: boolean): Promise<AppSettings>
     setVtuberFollowCursor(follow: boolean): Promise<AppSettings>
+    resetVtuberPosition(): Promise<AppSettings>
     setDiscordRpcEnabled(enabled: boolean): Promise<AppSettings>
     setDiscordRpcClientId(clientId: string): Promise<AppSettings>
     onChanged(callback: (settings: AppSettings) => void): () => void
@@ -863,6 +865,10 @@ export interface RoxyApi {
     setEnabled(id: string, enabled: boolean): Promise<McpServerView[]>
     /** Force a fresh connection attempt (to validate config); returns updated list. */
     reconnect(id: string): Promise<McpServerView[]>
+    /** Set up and register Windows-MCP on Windows. */
+    setupWindowsMcp(): Promise<{ ok: boolean; error?: string }>
+    /** Set up and register ScreenHand on macOS / Windows. */
+    setupScreenhand(): Promise<{ ok: boolean; error?: string }>
   }
   skills: {
     /** Discovered SKILL.md skills (workspace when a cwd is given, else the user's global skills). */

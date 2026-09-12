@@ -488,6 +488,8 @@ export interface AppSettings {
   fishAudioModel: string
   /** Selected Fish Audio voice reference ID (model ID from fish.audio or empty for default). */
   fishAudioVoice: string
+  /** Skip Fish Audio TTS if text exceeds this many words (0 for unlimited). Default 0. */
+  fishAudioMaxWords: number
   /** Whether to display emotion tags in chat replies (e.g. [happy], [curious]). Default false. */
   ttsShowEmotions: boolean
   /** Whether Vixevia Live2D VTuber avatar is active. */

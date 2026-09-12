@@ -49,6 +49,7 @@ import {
   isVtuberWindow,
   openVtuberWindow,
   closeVtuberWindow,
+  resetVtuberPosition,
   hideForScreenshot,
   restoreAfterScreenshot
 } from '../services/overlay'
@@ -141,6 +142,8 @@ import {
   writeActiveSessionToolInput
 } from '../services/tool-runs'
 import { mcpServerSummaries, reconnectMcpServer, disposeConnection } from '../services/mcp'
+import { setupWindowsMcp } from '../services/windows-mcp'
+import { setupScreenhand } from '../services/screenhand'
 import {
   listSkills,
   refreshSkills,
@@ -350,6 +353,9 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetFishAudioVoice, (_e, voice: string) =>
     repo.setFishAudioVoice(voice)
   )
+  ipcMain.handle(CHANNELS.settingsSetFishAudioMaxWords, (_e, maxWords: number) =>
+    repo.setFishAudioMaxWords(maxWords)
+  )
   ipcMain.handle(CHANNELS.settingsSetTtsShowEmotions, (_e, show: boolean) =>
     repo.setTtsShowEmotions(show)
   )
@@ -413,6 +419,11 @@ export function registerIpc(): void {
   })
   ipcMain.handle(CHANNELS.settingsSetVtuberFollowCursor, (_e, follow: boolean) => {
     const settings = repo.setVtuberFollowCursor(follow)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.settingsResetVtuberPosition, () => {
+    const settings = resetVtuberPosition()
     broadcastSettings(settings)
     return settings
   })
@@ -728,6 +739,12 @@ export function registerIpc(): void {
     const rec = repo.listMcpServers().find((r) => r.id === id)
     if (rec) await reconnectMcpServer(rec, app.getPath('home'))
     return listMcpServersWithStatus()
+  })
+  ipcMain.handle(CHANNELS.mcpSetupWindowsMcp, async () => {
+    return await setupWindowsMcp()
+  })
+  ipcMain.handle(CHANNELS.mcpSetupScreenhand, async () => {
+    return await setupScreenhand()
   })
 
   // ---- skills (SKILL.md discovery) ----

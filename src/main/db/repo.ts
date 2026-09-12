@@ -172,6 +172,9 @@ export function getSettings(): AppSettings {
     fishAudioApiKey: map.get('fish_audio_api_key') ?? '',
     fishAudioModel: map.get('fish_audio_model') ?? 's2.1-pro',
     fishAudioVoice: map.get('fish_audio_voice') ?? '',
+    fishAudioMaxWords: map.has('fish_audio_max_words')
+      ? Math.max(0, parseInt(map.get('fish_audio_max_words')!, 10) || 0)
+      : 0,
     ttsShowEmotions: map.get('tts_show_emotions') === '1',
     vtuberEnabled: map.get('vtuber_enabled') === '1',
     vtuberModelPath:
@@ -431,6 +434,12 @@ export function setFishAudioVoice(voice: string): AppSettings {
   return getSettings()
 }
 
+export function setFishAudioMaxWords(maxWords: number): AppSettings {
+  const clean = Math.max(0, Math.floor(Number(maxWords) || 0))
+  setSetting('fish_audio_max_words', String(clean))
+  return getSettings()
+}
+
 export function setTtsShowEmotions(show: boolean): AppSettings {
   setSetting('tts_show_emotions', show ? '1' : '0')
   return getSettings()
@@ -491,6 +500,14 @@ export function setVtuberWindowBounds(
   setSetting('vtuber_window_h', String(Math.round(height)))
   if (x !== undefined) setSetting('vtuber_window_x', String(Math.round(x)))
   if (y !== undefined) setSetting('vtuber_window_y', String(Math.round(y)))
+  return getSettings()
+}
+
+export function resetVtuberWindowBounds(): AppSettings {
+  setSetting('vtuber_window_w', null)
+  setSetting('vtuber_window_h', null)
+  setSetting('vtuber_window_x', null)
+  setSetting('vtuber_window_y', null)
   return getSettings()
 }
 
