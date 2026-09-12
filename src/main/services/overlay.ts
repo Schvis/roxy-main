@@ -36,8 +36,8 @@ function getOrCreateFloatingIconWindow(): BrowserWindow {
   const savedPos = repo.getSettings().overlayIconPosition
 
   floatingIconWindow = new BrowserWindow({
-    width: 80,
-    height: 80,
+    width: 96,
+    height: 96,
     x: savedPos?.x,
     y: savedPos?.y,
     show: false,

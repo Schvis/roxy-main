@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useRoxyStore } from './lib/store'
 import roxy from './assets/roxy.png'
+import overlayIcon from './assets/overlay.png'
 import Onboarding from './routes/Onboarding'
 import Chat from './routes/Chat'
 import Integrations from './routes/Integrations'
@@ -59,9 +60,9 @@ function FloatingIcon(): JSX.Element {
     <div className="flex h-full w-full items-center justify-center">
       <img
         ref={imgRef}
-        src={roxy}
+        src={overlayIcon}
         alt="Roxy"
-        className="h-14 w-14 rounded-full shadow-lg hover:scale-105 transition-transform cursor-pointer"
+        className="h-20 w-20 drop-shadow-md hover:scale-105 transition-transform cursor-pointer select-none object-contain"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
