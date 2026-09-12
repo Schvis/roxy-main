@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Message, MessagePart } from '@shared/types'
 import { getTool } from '@shared/tools'
+import { streamSignature } from '@shared/parts'
 import { CanvasSurface, type CanvasLayoutContext } from './CanvasSurface'
 import { transcriptCache, layoutTranscript } from './transcript'
 import type { HitAction } from './scene'
@@ -56,7 +57,10 @@ export function CanvasTranscript({
   const mounted = useRef(false)
   const [logo, setLogo] = useState(() => decodedLogo)
   const [clock, setClock] = useState(0)
+  const [quietSignature, setQuietSignature] = useState<string | null>(null)
   const prompts = useMemo(() => promptEntries(messages), [messages])
+  const signature = streaming === null ? null : streamSignature(streaming)
+  const quiet = signature !== null && quietSignature === signature
 
   useEffect(() => () => cache.detach(), [cache])
 
@@ -76,11 +80,18 @@ export function CanvasTranscript({
   }, [])
 
   useEffect(() => {
-    if (!streaming) return
-    // Reveal cancellation for a long-running tool even if no new tokens arrive.
-    const timer = setTimeout(() => setClock((n) => n + 1), 1250)
+    if (signature === null) {
+      setQuietSignature(null)
+      return
+    }
+    // After visible output goes quiet, restore the working row. The same tick
+    // also reveals cancellation for a long-running tool with no new deltas.
+    const timer = setTimeout(() => {
+      setQuietSignature(signature)
+      setClock((n) => n + 1)
+    }, 1250)
     return () => clearTimeout(timer)
-  }, [streaming])
+  }, [signature])
 
   const buildScene = useCallback(
     (context: CanvasLayoutContext) => {
@@ -93,6 +104,7 @@ export function CanvasTranscript({
           messages,
           streaming,
           workspacePath,
+          quiet,
           canCancel: (part) => {
             if (part.tool === 'task') return Boolean(part.subChatId)
             return (
@@ -104,7 +116,7 @@ export function CanvasTranscript({
         cache
       )
     },
-    [messages, streaming, clock, logo, cache, workspacePath]
+    [messages, streaming, quiet, clock, logo, cache, workspacePath]
   )
 
   const onAction = (action: HitAction): void => {
