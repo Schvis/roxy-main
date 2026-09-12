@@ -9,6 +9,7 @@ import {
   TOOL_CATEGORIES,
   isInterruptibleTool
 } from '../src/shared/tools'
+import { resolveImageSrc } from '../src/shared/images'
 import {
   AGENTS,
   getAgent,
@@ -6304,6 +6305,43 @@ async function main(): Promise<void> {
     'theme: dedupe ignores quoting differences',
     !resolveFontStack('SF Mono', 'mono', 'win32')!.match(/'SF Mono'.*'SF Mono'/),
     String(resolveFontStack('SF Mono', 'mono', 'win32'))
+  )
+
+  // ---- resolveImageSrc (resolving chat image paths) ----
+  check(
+    'image: http url passes through',
+    resolveImageSrc('http://example.com/a.png') === 'http://example.com/a.png'
+  )
+  check(
+    'image: https url passes through',
+    resolveImageSrc('https://example.com/a.png') === 'https://example.com/a.png'
+  )
+  check(
+    'image: data url passes through',
+    resolveImageSrc('data:image/png;base64,AAA') === 'data:image/png;base64,AAA'
+  )
+  check(
+    'image: roxy-local url passes through',
+    resolveImageSrc('roxy-local://image?path=abc') === 'roxy-local://image?path=abc'
+  )
+  check(
+    'image: file url converts to roxy-local',
+    resolveImageSrc('file:///home/user/pic.png') ===
+      'roxy-local://image?path=%2Fhome%2Fuser%2Fpic.png'
+  )
+  check(
+    'image: posix absolute path converts',
+    resolveImageSrc('/home/user/pic.png') === 'roxy-local://image?path=%2Fhome%2Fuser%2Fpic.png'
+  )
+  check(
+    'image: relative path with workspace',
+    resolveImageSrc('plot.png', '/home/user/proj') ===
+      'roxy-local://image?path=%2Fhome%2Fuser%2Fproj%2Fplot.png'
+  )
+  check(
+    'image: relative path with ./ and workspace',
+    resolveImageSrc('./sub/plot.png', '/home/user/proj') ===
+      'roxy-local://image?path=%2Fhome%2Fuser%2Fproj%2Fsub%2Fplot.png'
   )
 
   if (fails.length) {

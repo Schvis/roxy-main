@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow, session } from 'electron'
+import { app, shell, BrowserWindow, session, protocol, net } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import macDockIcon from '../../resources/icon-mac.png?asset'
@@ -132,6 +133,20 @@ async function warmCatalogThenBackfill(): Promise<void> {
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'roxy-local',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true,
+      stream: true
+    }
+  }
+])
+
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
@@ -142,6 +157,17 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(() => {
+    protocol.handle('roxy-local', async (request) => {
+      try {
+        const url = new URL(request.url)
+        const filePath = url.searchParams.get('path')
+        if (!filePath) return new Response('Missing path', { status: 400 })
+        return await net.fetch(pathToFileURL(filePath).toString())
+      } catch (err) {
+        return new Response(String(err), { status: 404 })
+      }
+    })
+
     electronApp.setAppUserModelId('com.roxy.app')
     // Give the agent's browser window the Roxy icon too (no asset import in the
     // browser service so the smoke's esbuild bundle stays happy).

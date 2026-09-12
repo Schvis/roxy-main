@@ -547,6 +547,60 @@ check('unfinished markdown boundaries always advance the parser', () => {
     assert.ok(Array.isArray(parsed))
   }
 })
+check('markdown parses standalone images into image blocks', () => {
+  const parsed = parseMarkdown('![Architecture](https://example.com/arch.png)')
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].type, 'image')
+  if (parsed[0].type === 'image') {
+    assert.equal(parsed[0].src, 'https://example.com/arch.png')
+    assert.equal(parsed[0].alt, 'Architecture')
+  }
+})
+check('markdown parses images with text before and after', () => {
+  const parsed = parseMarkdown('Here is the graph:\n![Graph](graph.png "Title")\nAll done.')
+  assert.equal(parsed.length, 3)
+  assert.equal(parsed[0].type, 'paragraph')
+  assert.equal(parsed[1].type, 'image')
+  assert.equal(parsed[2].type, 'paragraph')
+  if (parsed[1].type === 'image') {
+    assert.equal(parsed[1].src, 'graph.png')
+    assert.equal(parsed[1].alt, 'Graph')
+  }
+})
+check('markdown parses inline images inside a paragraph as inline links', () => {
+  const parsed = parseMarkdown('Text with inline ![icon](icon.png) embedded in sentence.')
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].type, 'paragraph')
+})
+check('markdown parses !(url) shorthand into image blocks', () => {
+  const parsed = parseMarkdown('!(.roxy\\screenshots\\shot-1789233520982.png)')
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].type, 'image')
+  if (parsed[0].type === 'image') {
+    assert.equal(parsed[0].src, '.roxy\\screenshots\\shot-1789233520982.png')
+  }
+
+  const parsedUrl = parseMarkdown(
+    '!(https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTn45&s=10)'
+  )
+  assert.equal(parsedUrl.length, 1)
+  assert.equal(parsedUrl[0].type, 'image')
+  if (parsedUrl[0].type === 'image') {
+    assert.equal(
+      parsedUrl[0].src,
+      'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTn45&s=10'
+    )
+  }
+})
+check('markdown parses trailing !(url) after text', () => {
+  const parsed = parseMarkdown('Here are the results: !(.roxy\\screenshots\\shot.png)')
+  assert.equal(parsed.length, 2)
+  assert.equal(parsed[0].type, 'paragraph')
+  assert.equal(parsed[1].type, 'image')
+  if (parsed[1].type === 'image') {
+    assert.equal(parsed[1].src, '.roxy\\screenshots\\shot.png')
+  }
+})
 check('large markdown replies only lay out nearby sections', () => {
   const content = Array.from(
     { length: 400 },

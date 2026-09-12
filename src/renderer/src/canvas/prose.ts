@@ -14,6 +14,7 @@ import { FONT_SIZE, SPACE } from './metrics'
 import { highlight, tokenColors, familyFor } from './highlight'
 import { alpha, mix } from './theme'
 import { linkUrl } from './links'
+import { resolveImageSrc } from '../../../shared/images'
 
 /** Gap after each block kind — the prose rhythm. */
 const BLOCK_GAP = 10
@@ -24,6 +25,8 @@ export interface ProseStyle {
   /** Base size. Tool output and nested transcripts render a step smaller. */
   size: number
   italic?: boolean
+  /** Workspace path for resolving relative image links. */
+  workspacePath?: string | null
 }
 
 /**
@@ -186,7 +189,52 @@ export function layoutBlock(
 
     case 'table':
       return layoutTable(builder, block, x, y, width, style)
+
+    case 'image':
+      return layoutImageBlock(builder, block.src, block.alt, x, y, width, style.workspacePath)
   }
+}
+
+/** An embedded image block in markdown prose. */
+export function layoutImageBlock(
+  builder: Builder,
+  src: string,
+  alt: string | undefined,
+  x: number,
+  y: number,
+  width: number,
+  workspacePath?: string | null
+): number {
+  const palette = builder.palette
+  const resolvedSrc = resolveImageSrc(src, workspacePath)
+  const maxW = Math.min(width, 480)
+  const maxH = 288
+  builder.push({
+    kind: 'image',
+    x,
+    y,
+    w: maxW,
+    h: maxH,
+    src: resolvedSrc,
+    radius: SPACE.radiusLg,
+    border: palette.border
+  })
+  builder.region(
+    x,
+    y,
+    maxW,
+    maxH,
+    { type: 'image', src: resolvedSrc },
+    { hover: 'none', title: alt || builder.t('transcript.openImage') }
+  )
+  if (alt) {
+    const captionFont = font(FONT_SIZE.micro, 500, 'sans')
+    builder.text(x + 4, y + maxH + 6, alt, captionFont, palette.textSubtle, {
+      maxWidth: maxW - 8
+    })
+    return maxH + 22
+  }
+  return maxH
 }
 
 /**

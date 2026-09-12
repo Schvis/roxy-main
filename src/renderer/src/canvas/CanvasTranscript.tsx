@@ -39,12 +39,14 @@ export interface CanvasTranscriptProps {
   onScrollStateChange?: (atBottom: boolean) => void
   pinSignal?: number
   chatId: string | null
+  workspacePath?: string | null
 }
 
 export function CanvasTranscript({
   messages,
   streaming,
   chatId,
+  workspacePath,
   pinSignal,
   onCancelSubagent,
   onCancelTool,
@@ -90,6 +92,7 @@ export function CanvasTranscript({
           ...context,
           messages,
           streaming,
+          workspacePath,
           canCancel: (part) => {
             if (part.tool === 'task') return Boolean(part.subChatId)
             return (
@@ -101,7 +104,7 @@ export function CanvasTranscript({
         cache
       )
     },
-    [messages, streaming, clock, logo, cache]
+    [messages, streaming, clock, logo, cache, workspacePath]
   )
 
   const onAction = (action: HitAction): void => {

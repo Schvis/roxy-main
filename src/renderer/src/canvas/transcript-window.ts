@@ -162,7 +162,9 @@ export class TranscriptWindow {
                     ? block.code.split('\n').length * 19 + 40
                     : block.type === 'paragraph' || block.type === 'heading'
                       ? estimateText(block.text, bodyWidth) + 10
-                      : 80,
+                      : block.type === 'image'
+                        ? 310
+                        : 80,
                   block,
                   section
                 )
@@ -293,7 +295,8 @@ export class TranscriptWindow {
             height =
               layoutBlock(builder, item.markdown, bodyX, 0, bodyWidth, {
                 color: input.theme.palette.text,
-                size: FONT_SIZE.body
+                size: FONT_SIZE.body,
+                workspacePath: input.workspacePath
               }) + 10
           else
             height = layoutParts(
@@ -413,10 +416,14 @@ function sameSource(a: unknown, b: unknown): boolean {
     Array.isArray(b)
   )
     return false
-  const x = a as MessagePart,
-    y = b as MessagePart
+  const x = a as any,
+    y = b as any
   if (x.type !== y.type) return false
-  if (x.type === 'image' && y.type === 'image') return x.dataUrl === y.dataUrl && x.name === y.name
+  if (x.type === 'image' && y.type === 'image') {
+    if ('dataUrl' in x && 'dataUrl' in y) return x.dataUrl === y.dataUrl && x.name === y.name
+    if ('src' in x && 'src' in y) return x.src === y.src && x.alt === y.alt
+    return false
+  }
   return (
     (x.type === 'text' || x.type === 'reasoning') &&
     (y.type === 'text' || y.type === 'reasoning') &&

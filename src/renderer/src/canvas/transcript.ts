@@ -35,6 +35,7 @@ export interface LayoutInput {
   view: ViewState
   now: number
   language?: string
+  workspacePath?: string | null
   viewport?: {
     top: number
     height: number
@@ -355,7 +356,8 @@ export function layoutParts(
     if (part.text.trim() === '') return
     cursor += layoutMarkdown(builder, part.text, x, cursor, width, {
       color: palette.text,
-      size: FONT_SIZE.body
+      size: FONT_SIZE.body,
+      workspacePath: input.workspacePath
     })
     cursor += SPACE.partGap
   })

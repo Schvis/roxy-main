@@ -141,6 +141,9 @@ If you are not writing the prompt in a file, you should always wrap the prompt i
 
 Remember that todo lists must always be written in markdown format and must always be wrapped in triple backticks.
 
+# Embedding Images
+You can embed images in your chat responses using standard Markdown image syntax: `![alt text](path/or/url)`. Relative workspace paths (e.g. `.roxy/screenshots/shot-123.png`, `plot.png`), absolute paths, remote URLs, and data URLs are all supported. Use this to show screenshots, plots, diagrams, or web images directly in chat.
+
 # Git 
 If the user tells you to stage and commit, you may do so. 
 

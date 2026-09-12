@@ -554,6 +554,13 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
             messages={messages}
             streaming={streaming}
             chatId={activeChatId}
+            workspacePath={
+              activeChat?.worktreePath ??
+              activeChat?.workspacePath ??
+              parentChat?.worktreePath ??
+              parentChat?.workspacePath ??
+              null
+            }
             onCancelSubagent={(subChatId) => void cancelSubagent(subChatId)}
             onCancelTool={(callId) => void cancelToolCall(callId)}
           />

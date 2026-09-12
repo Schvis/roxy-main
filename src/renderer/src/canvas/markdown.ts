@@ -39,6 +39,64 @@ export type MdBlock =
   | { type: 'quote'; blocks: MdBlock[] }
   | { type: 'rule' }
   | { type: 'table'; header: MdInline[][]; rows: MdInline[][][]; align: ('l' | 'c' | 'r')[] }
+  | { type: 'image'; src: string; alt?: string; title?: string }
+
+/** Parse inside !(...) image shorthand. */
+function parseParenImage(inner: string): { src: string; alt?: string } | null {
+  const clean = inner.trim().replace(/&amp;/g, '&')
+  if (!clean) return null
+  const quoted = clean.match(/^["']([^"']+)["'](?:\s+["']([^"']*)["'])?$/)
+  if (quoted) return { src: quoted[1], alt: quoted[2] || undefined }
+  const angle = clean.match(/^<([^>]+)>(?:\s+["']([^"']*)["'])?$/)
+  if (angle) return { src: angle[1], alt: angle[2] || undefined }
+  const withTitle = clean.match(/^(\S+)\s+["']([^"']+)["']$/)
+  if (withTitle) return { src: withTitle[1], alt: withTitle[2] }
+  return { src: clean }
+}
+
+/** Match a standalone or trailing markdown/HTML image block on a line. */
+function matchImageBlock(trimmed: string): { src: string; alt?: string; leadText?: string } | null {
+  if (trimmed.startsWith('![')) {
+    const link = matchLink(trimmed, 1)
+    if (link && link.end === trimmed.length) {
+      const src = link.href
+        .replace(/^<|>$/g, '')
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/&amp;/g, '&')
+      return { src, alt: link.label || undefined }
+    }
+  }
+  if (trimmed.startsWith('!(') && trimmed.endsWith(')')) {
+    const paren = parseParenImage(trimmed.slice(2, -1))
+    if (paren) return paren
+  }
+  const lastBang = trimmed.lastIndexOf('![')
+  if (lastBang > 0) {
+    const link = matchLink(trimmed.slice(lastBang), 1)
+    if (link && link.end === trimmed.length - lastBang) {
+      const src = link.href
+        .replace(/^<|>$/g, '')
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/&amp;/g, '&')
+      const leadText = trimmed.slice(0, lastBang).trim()
+      return { src, alt: link.label || undefined, leadText }
+    }
+  }
+  const lastBangParen = trimmed.lastIndexOf('!(')
+  if (lastBangParen > 0 && trimmed.endsWith(')')) {
+    const paren = parseParenImage(trimmed.slice(lastBangParen + 2, -1))
+    if (paren) {
+      const leadText = trimmed.slice(0, lastBangParen).trim()
+      return { ...paren, leadText }
+    }
+  }
+  const htmlMatch = trimmed.match(/^<img\s+[^>]*src=["']([^"']+)["'][^>]*\/?>$/i)
+  if (htmlMatch) {
+    const altMatch = trimmed.match(/\balt=["']([^"']*)["']/i)
+    return { src: htmlMatch[1].replace(/&amp;/g, '&'), alt: altMatch ? altMatch[1] : undefined }
+  }
+  return null
+}
 
 /** Split a document into blocks. */
 export function parseMarkdown(src: string): MdBlock[] {
@@ -51,6 +109,21 @@ export function parseMarkdown(src: string): MdBlock[] {
     const trimmed = line.trim()
 
     if (trimmed === '') {
+      i++
+      continue
+    }
+
+    // Image block — standalone line or trailing image at the end of a line.
+    const img = matchImageBlock(trimmed)
+    if (img) {
+      if (img.leadText) {
+        blocks.push({
+          type: 'paragraph',
+          inlines: parseInline(img.leadText),
+          text: img.leadText
+        })
+      }
+      blocks.push({ type: 'image', src: img.src, alt: img.alt })
       i++
       continue
     }
@@ -176,6 +249,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       if (l.trim() === '') break
       if (/^\s*(#{1,6}\s|>|```|~~~)/.test(l)) break
       if (/^(\s*)([-*+])\s+/.test(l) || /^(\s*)\d{1,9}[.)]\s+/.test(l)) break
+      if (matchImageBlock(l.trim())) break
       body.push(l.trim())
       i++
     }
@@ -269,6 +343,18 @@ export function parseInline(src: string): MdInline[] {
         push({ text: link.label || link.href, href: link.href }, i + 2)
         i = link.end
         continue
+      }
+    }
+
+    if (ch === '!' && src[i + 1] === '(') {
+      const close = src.indexOf(')', i + 2)
+      if (close !== -1) {
+        const paren = parseParenImage(src.slice(i + 2, close))
+        if (paren) {
+          push({ text: paren.alt || paren.src, href: paren.src }, i + 2)
+          i = close + 1
+          continue
+        }
       }
     }
 
@@ -399,6 +485,8 @@ export function blockText(block: MdBlock): string {
       return block.items.map((it) => `${it.marker} ${it.text}`).join('\n')
     case 'quote':
       return block.blocks.map(blockText).join('\n')
+    case 'image':
+      return block.alt ? `![${block.alt}](${block.src})` : `![](${block.src})`
     case 'rule':
       return '---'
     case 'table':
