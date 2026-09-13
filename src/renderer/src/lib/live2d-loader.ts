@@ -632,7 +632,10 @@ export class Live2dModelController {
 
       // Set default mouth form & resize
       try {
-        this.model.internalModel?.coreModel?.setParameterValueById?.('ParamMouthForm', MOUTH_FORM_MIN)
+        this.model.internalModel?.coreModel?.setParameterValueById?.(
+          'ParamMouthForm',
+          MOUTH_FORM_MIN
+        )
       } catch {
         // ignore
       }
