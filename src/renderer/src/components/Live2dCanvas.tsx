@@ -18,6 +18,10 @@ interface Live2dCanvasProps {
   speaking?: boolean
   className?: string
   followCursor?: boolean
+  /** Standing blush amount, 0..1 (ParamCheek). */
+  blush?: number
+  /** Called once the Live2D controller is ready, for imperative control (e.g. setBlush). */
+  onControllerReady?: (controller: Live2dModelController | null) => void
   onHeadMove?: (pos: { x: number; y: number; width: number; height: number }) => void
   onHeadpatMessage?: (text: string) => void
   onPokeMessage?: (text: string) => void
@@ -28,6 +32,8 @@ export function Live2dCanvas({
   speaking = false,
   className = '',
   followCursor = true,
+  blush = 0,
+  onControllerReady,
   onHeadMove,
   onHeadpatMessage,
   onPokeMessage
@@ -77,6 +83,11 @@ export function Live2dCanvas({
   useEffect(() => {
     lipSyncRef.current?.setSpeaking(speaking)
   }, [speaking])
+
+  // Sync standing blush amount
+  useEffect(() => {
+    controllerRef.current?.setBlush(blush)
+  }, [blush, modelLoaded])
 
   // Fallback avatar blinking loop if Live2D engine not active
   useEffect(() => {
@@ -129,8 +140,37 @@ export function Live2dCanvas({
     setFallbackPan({ x: 0, y: 0 })
   }
 
+  /** Stop any currently-playing headpat voiceline. */
+  const stopHeadpatAudio = (): void => {
+    if (headpatAudioRef.current) {
+      try {
+        headpatAudioRef.current.pause()
+        headpatAudioRef.current.src = ''
+      } catch {
+        // ignore
+      }
+      headpatAudioRef.current = null
+    }
+  }
+
+  /** Stop any currently-playing poke (chest) voiceline. */
+  const stopPokeAudio = (): void => {
+    if (pokeAudioRef.current) {
+      try {
+        pokeAudioRef.current.pause()
+        pokeAudioRef.current.src = ''
+      } catch {
+        // ignore
+      }
+      pokeAudioRef.current = null
+    }
+  }
+
   const triggerHeadpatAudio = async (): Promise<void> => {
     try {
+      // Headpat and poke voicelines are mutually exclusive: cancel any poke audio.
+      stopPokeAudio()
+
       let audio: HTMLAudioElement | null = null
       let fileName = ''
       let mappedText = ''
@@ -155,13 +195,7 @@ export function Live2dCanvas({
       }
 
       if (headpatAudioRef.current) {
-        try {
-          headpatAudioRef.current.pause()
-          headpatAudioRef.current.src = ''
-        } catch {
-          // ignore
-        }
-        headpatAudioRef.current = null
+        stopHeadpatAudio()
       }
 
       headpatAudioRef.current = audio
@@ -191,6 +225,9 @@ export function Live2dCanvas({
 
   const triggerPokeAudio = async (): Promise<void> => {
     try {
+      // Headpat and poke voicelines are mutually exclusive: cancel any headpat audio.
+      stopHeadpatAudio()
+
       let audio: HTMLAudioElement | null = null
       let fileName = ''
       let mappedText = ''
@@ -215,13 +252,7 @@ export function Live2dCanvas({
       }
 
       if (pokeAudioRef.current) {
-        try {
-          pokeAudioRef.current.pause()
-          pokeAudioRef.current.src = ''
-        } catch {
-          // ignore
-        }
-        pokeAudioRef.current = null
+        stopPokeAudio()
       }
 
       pokeAudioRef.current = audio
@@ -323,6 +354,17 @@ export function Live2dCanvas({
 
       // Chest hit: intercept pointer event and poke Roxy
       e.stopPropagation()
+      // Poke and headpat are mutually exclusive: cancel any in-progress headpat.
+      if (isHeadpattingRef.current) {
+        isHeadpattingRef.current = false
+        if (modelLoaded && controllerRef.current) {
+          controllerRef.current.endHeadpat()
+        } else {
+          setIsHeadpattingFallback(false)
+          setFallbackTilt(0)
+        }
+      }
+      stopHeadpatAudio()
       isPokingRef.current = true
       pokeStartTimeRef.current = performance.now()
       try {
@@ -347,6 +389,18 @@ export function Live2dCanvas({
 
     // Head hit: intercept pointer event and pet Roxy
     e.stopPropagation()
+    // Poke and headpat are mutually exclusive: cancel any in-progress poke.
+    if (isPokingRef.current) {
+      isPokingRef.current = false
+      if (modelLoaded && controllerRef.current) {
+        controllerRef.current.endPoke()
+      } else {
+        setIsPokingFallback(false)
+      }
+    } else if (controllerRef.current?.getIsPoking()) {
+      controllerRef.current.endPoke()
+    }
+    stopPokeAudio()
     isHeadpattingRef.current = true
     headpatStartTimeRef.current = performance.now()
     try {
@@ -619,6 +673,8 @@ export function Live2dCanvas({
 
         if (success) {
           controllerRef.current = controller
+          controller.setBlush(blush)
+          onControllerReady?.(controller)
           setModelLoaded(true)
         }
       } catch (err) {
@@ -651,6 +707,7 @@ export function Live2dCanvas({
       if (controllerRef.current) {
         controllerRef.current.destroy()
         controllerRef.current = null
+        onControllerReady?.(null)
       }
       if (pixiAppRef.current) {
         pixiAppRef.current.destroy(false, { children: true })

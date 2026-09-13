@@ -148,6 +148,8 @@ export class Live2dModelController {
   private pokeBodyAngleX = 0
   private pokeBodyAngleZ = 0
   private pokeEndTimer: any = null
+  private cheekTarget = 0
+  private cheekValue = 0
   private onHeadMoveCallback:
     | ((pos: { x: number; y: number; width: number; height: number }) => void)
     | null = null
@@ -527,10 +529,6 @@ export class Live2dModelController {
                 )
                 core.setParameterValueById?.('ParamEyeBallY', curEyeY * (1 - w) + 0.15 * w)
 
-                // Cheeks blush
-                const curCheek = core.getParameterValueById?.('ParamCheek') ?? 0
-                core.setParameterValueById?.('ParamCheek', Math.max(curCheek, 0.75 * w))
-
                 // Squinting happy smile
                 const curSmileL = core.getParameterValueById?.('ParamEyeLSmile') ?? 0
                 const curSmileR = core.getParameterValueById?.('ParamEyeRSmile') ?? 0
@@ -548,7 +546,6 @@ export class Live2dModelController {
                 core.setParameterValueById?.('ParamEyeROpen', 1)
                 core.setParameterValueById?.('ParamEyeLSmile', 0)
                 core.setParameterValueById?.('ParamEyeRSmile', 0)
-                core.setParameterValueById?.('ParamCheek', 0)
                 if (!this.followCursor) {
                   core.setParameterValueById?.('ParamEyeBallX', 0)
                   core.setParameterValueById?.('ParamEyeBallY', 0)
@@ -611,14 +608,19 @@ export class Live2dModelController {
                   'ParamAngleZ',
                   curAngleZ * (1 - w) + this.pokeOffset.x * 5.5 * w
                 )
-
-                // Startled blush
-                const curCheek = core.getParameterValueById?.('ParamCheek') ?? 0
-                core.setParameterValueById?.('ParamCheek', Math.max(curCheek, 0.75 * w))
               } else {
                 this.pokeBodyAngleX = 0
                 this.pokeBodyAngleZ = 0
               }
+
+              // Blush: smooth toward a standing target, boosted while headpat/poke.
+              const transientBlush = Math.max(
+                this.headpatWeight > 0.001 ? 0.75 * this.headpatWeight : 0,
+                this.pokeWeight > 0.001 ? 0.75 * this.pokeWeight : 0
+              )
+              const blushGoal = Math.max(this.cheekTarget, transientBlush)
+              this.cheekValue += (blushGoal - this.cheekValue) * 0.08
+              core.setParameterValueById?.('ParamCheek', this.cheekValue)
             }
           } catch {
             // ignore
@@ -675,6 +677,18 @@ export class Live2dModelController {
     } catch {
       // Model might not expose ParamMouthOpenY
     }
+  }
+
+  /**
+   * Set the standing blush amount (ParamCheek), 0..1.
+   * Ramps smoothly in the frame loop; headpat/poke still add a transient boost.
+   */
+  setBlush(value: number): void {
+    this.cheekTarget = Math.max(0, Math.min(1, value))
+  }
+
+  getBlush(): number {
+    return this.cheekTarget
   }
 
   setEyeParameters(blinkValue: number): void {
