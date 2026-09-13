@@ -265,7 +265,9 @@ const roxy: RoxyApi = {
   },
   vtuber: {
     openWindow: () => ipcRenderer.invoke(CHANNELS.vtuberOpenWindow),
-    closeWindow: () => ipcRenderer.invoke(CHANNELS.vtuberCloseWindow)
+    closeWindow: () => ipcRenderer.invoke(CHANNELS.vtuberCloseWindow),
+    getHeadpatAudio: () => ipcRenderer.invoke(CHANNELS.vtuberGetHeadpatAudio),
+    getChestAudio: () => ipcRenderer.invoke(CHANNELS.vtuberGetChestAudio)
   },
   screen: {
     getCursorPosition: () => ipcRenderer.invoke(CHANNELS.screenGetCursorPosition),

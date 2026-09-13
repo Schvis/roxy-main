@@ -965,6 +965,18 @@ export interface RoxyApi {
   vtuber: {
     openWindow(): Promise<void>
     closeWindow(): Promise<void>
+    getHeadpatAudio(): Promise<{
+      audioBase64: string
+      format: string
+      name: string
+      text?: string
+    } | null>
+    getChestAudio(): Promise<{
+      audioBase64: string
+      format: string
+      name: string
+      text?: string
+    } | null>
   }
   screen: {
     getCursorPosition(): Promise<{ x: number; y: number }>

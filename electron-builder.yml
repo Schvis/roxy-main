@@ -14,6 +14,8 @@ extraResources:
     to: RoxyMigurdia
   - from: resources/models/live2d
     to: models/live2d
+  - from: resources/voicelines
+    to: voicelines
   - from: script/rvc_tts_server.py
     to: script/rvc_tts_server.py
   - from: script/setup_tts_env.py

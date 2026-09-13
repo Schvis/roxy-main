@@ -602,6 +602,30 @@ export function VtuberStandalone(): JSX.Element {
           speaking={isSpeaking}
           followCursor={followCursor}
           onHeadMove={setHeadPos}
+          onHeadpatMessage={(text) => {
+            if (text?.trim()) {
+              setBubbleText(text.trim())
+              setBubbleVisible(true)
+              if (bubbleTimeoutRef.current) {
+                clearTimeout(bubbleTimeoutRef.current)
+              }
+              bubbleTimeoutRef.current = setTimeout(() => {
+                setBubbleVisible(false)
+              }, 4000)
+            }
+          }}
+          onPokeMessage={(text) => {
+            if (text?.trim()) {
+              setBubbleText(text.trim())
+              setBubbleVisible(true)
+              if (bubbleTimeoutRef.current) {
+                clearTimeout(bubbleTimeoutRef.current)
+              }
+              bubbleTimeoutRef.current = setTimeout(() => {
+                setBubbleVisible(false)
+              }, 4000)
+            }
+          }}
           className="h-full w-full bg-transparent drop-shadow-[0_10px_25px_rgba(0,0,0,0.5)]"
         />
 

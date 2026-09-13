@@ -58,6 +58,8 @@ export const CHANNELS = {
 
   vtuberOpenWindow: 'vtuber:openWindow',
   vtuberCloseWindow: 'vtuber:closeWindow',
+  vtuberGetHeadpatAudio: 'vtuber:getHeadpatAudio',
+  vtuberGetChestAudio: 'vtuber:getChestAudio',
 
   ttsGetStatus: 'tts:getStatus',
   ttsInstallDependencies: 'tts:installDependencies',

@@ -115,6 +115,12 @@ export async function ensureLive2dLoaded(): Promise<boolean> {
   return loadPromise
 }
 
+// Mouth smile ("corners") tuning.
+// ParamMouthForm 1 = full smile (corners pulled up). When the mouth is closed
+// a full smile reads as unnaturally high, so we scale it down at rest.
+const MOUTH_FORM_MAX = 0.55 // smile amount when mouth is open/speaking
+const MOUTH_FORM_MIN = 0 // smile amount when mouth is closed (0 = flat)
+
 export class Live2dModelController {
   private app: any = null
   private model: any = null
@@ -127,6 +133,21 @@ export class Live2dModelController {
   private panY: number = 0
   private currentMouthOpenY = 0
   private followCursor = true
+  private isHeadpatting = false
+  private headpatWeight = 0
+  private headpatTime = 0
+  private headpatOffset = { x: 0, y: 0 }
+  private headpatAngleX = 0
+  private headpatAngleY = 0
+  private headpatAngleZ = 0
+  private headpatEndTimer: any = null
+  private isPoking = false
+  private pokeWeight = 0
+  private pokeTime = 0
+  private pokeOffset = { x: 0, y: 0 }
+  private pokeBodyAngleX = 0
+  private pokeBodyAngleZ = 0
+  private pokeEndTimer: any = null
   private onHeadMoveCallback:
     | ((pos: { x: number; y: number; width: number; height: number }) => void)
     | null = null
@@ -183,6 +204,171 @@ export class Live2dModelController {
       width: origWidth * scale * 0.4,
       height: origHeight * scale * 0.25
     }
+  }
+
+  isHeadHit(localX: number, localY: number): boolean {
+    const head = this.getHeadPosition()
+    const dx = Math.abs(localX - head.x)
+    const halfWidth = Math.max(35, head.width * 0.6)
+    if (dx > halfWidth) return false
+    if (localY < head.y - 25 || localY > head.y + head.height * 1.25) return false
+    return true
+  }
+
+  private computeHeadpatOffset(x: number, y: number): void {
+    const head = this.getHeadPosition()
+    const spanX = Math.max(30, head.width * 0.45)
+    const spanY = Math.max(30, head.height * 0.45)
+    const centerY = head.y + head.height * 0.5
+    this.headpatOffset = {
+      x: Math.max(-1.5, Math.min(1.5, (x - head.x) / spanX)),
+      y: Math.max(-1.5, Math.min(1.5, (y - centerY) / spanY))
+    }
+  }
+
+  startHeadpat(initialX?: number, initialY?: number): void {
+    if (this.headpatEndTimer) {
+      clearTimeout(this.headpatEndTimer)
+      this.headpatEndTimer = null
+    }
+    this.isHeadpatting = true
+    if (initialX !== undefined && initialY !== undefined) {
+      this.computeHeadpatOffset(initialX, initialY)
+    } else {
+      this.headpatOffset = { x: 0, y: 0 }
+    }
+
+    const fc = this.model?.internalModel?.focusController
+    if (fc) {
+      fc.focus?.(0, 0, true)
+      fc.x = 0
+      fc.y = 0
+      fc.vx = 0
+      fc.vy = 0
+    }
+  }
+
+  updateHeadpat(currentX: number, currentY: number): void {
+    if (!this.isHeadpatting) return
+    this.computeHeadpatOffset(currentX, currentY)
+  }
+
+  endHeadpat(): void {
+    if (this.headpatEndTimer) {
+      clearTimeout(this.headpatEndTimer)
+      this.headpatEndTimer = null
+    }
+    this.isHeadpatting = false
+  }
+
+  pulseHeadpat(durationMs = 1400, clickX?: number, clickY?: number): void {
+    this.startHeadpat(clickX, clickY)
+    if (Math.abs(this.headpatOffset.x) < 0.15) {
+      this.headpatOffset.x = 0.35
+    }
+    this.headpatEndTimer = setTimeout(() => {
+      this.endHeadpat()
+    }, durationMs)
+  }
+
+  getIsHeadpatting(): boolean {
+    return this.isHeadpatting || this.headpatWeight > 0.05
+  }
+
+  /** Chest region sits below the head, roughly the upper torso of the model. */
+  getChestPosition(): { x: number; y: number; width: number; height: number } {
+    if (this.model) {
+      try {
+        const bounds = this.model.getBounds()
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          return {
+            x: bounds.x + bounds.width * 0.5,
+            y: bounds.y + bounds.height * 0.36,
+            width: bounds.width * 0.4,
+            height: bounds.height * 0.16
+          }
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    const head = this.getHeadPosition()
+    return {
+      x: head.x,
+      y: head.y + head.height * 2.3,
+      width: head.width * 1.25,
+      height: head.height * 0.95
+    }
+  }
+
+  isChestHit(localX: number, localY: number): boolean {
+    const chest = this.getChestPosition()
+    const dx = Math.abs(localX - chest.x)
+    const halfWidth = Math.max(30, chest.width * 0.5)
+    if (dx > halfWidth) return false
+    if (localY < chest.y - chest.height * 0.3 || localY > chest.y + chest.height * 1.3) return false
+    return true
+  }
+
+  private computePokeOffset(x: number, y: number): void {
+    const chest = this.getChestPosition()
+    const spanX = Math.max(30, chest.width * 0.5)
+    const spanY = Math.max(30, chest.height * 0.6)
+    this.pokeOffset = {
+      x: Math.max(-1.5, Math.min(1.5, (x - chest.x) / spanX)),
+      y: Math.max(-1.5, Math.min(1.5, (y - chest.y) / spanY))
+    }
+  }
+
+  startPoke(initialX?: number, initialY?: number): void {
+    if (this.pokeEndTimer) {
+      clearTimeout(this.pokeEndTimer)
+      this.pokeEndTimer = null
+    }
+    this.isPoking = true
+    if (initialX !== undefined && initialY !== undefined) {
+      this.computePokeOffset(initialX, initialY)
+    } else {
+      this.pokeOffset = { x: 0, y: 0 }
+    }
+
+    // Release any cursor-following focus so the poke reaction fully controls the body
+    const fc = this.model?.internalModel?.focusController
+    if (fc) {
+      fc.focus?.(0, 0, true)
+      fc.x = 0
+      fc.y = 0
+      fc.vx = 0
+      fc.vy = 0
+    }
+  }
+
+  updatePoke(currentX: number, currentY: number): void {
+    if (!this.isPoking) return
+    this.computePokeOffset(currentX, currentY)
+  }
+
+  endPoke(): void {
+    if (this.pokeEndTimer) {
+      clearTimeout(this.pokeEndTimer)
+      this.pokeEndTimer = null
+    }
+    this.isPoking = false
+  }
+
+  pulsePoke(durationMs = 1200, clickX?: number, clickY?: number): void {
+    this.startPoke(clickX, clickY)
+    if (Math.abs(this.pokeOffset.x) < 0.15) {
+      this.pokeOffset.x = this.pokeOffset.x >= 0 ? 0.4 : -0.4
+    }
+    this.pokeEndTimer = setTimeout(() => {
+      this.endPoke()
+    }, durationMs)
+  }
+
+  getIsPoking(): boolean {
+    return this.isPoking || this.pokeWeight > 0.05
   }
 
   getZoom(): number {
@@ -271,13 +457,167 @@ export class Live2dModelController {
             const core = this.model?.internalModel?.coreModel
             if (core) {
               core.setParameterValueById?.('ParamMouthOpenY', this.currentMouthOpenY)
-              core.setParameterValueById?.('ParamMouthForm', 1)
-              if (!this.followCursor) {
-                core.setParameterValueById?.('ParamEyeBallX', 0)
-                core.setParameterValueById?.('ParamEyeBallY', 0)
-                core.setParameterValueById?.('ParamAngleX', 0)
-                core.setParameterValueById?.('ParamAngleY', 0)
-                core.setParameterValueById?.('ParamBodyAngleX', 0)
+              // Lower the smile (mouth corners) when the mouth is closed so the
+              // resting face looks natural; scale up as she opens her mouth.
+              const mouthFormT = Math.min(1, Math.max(0, this.currentMouthOpenY / 0.6))
+              core.setParameterValueById?.(
+                'ParamMouthForm',
+                MOUTH_FORM_MIN + (MOUTH_FORM_MAX - MOUTH_FORM_MIN) * mouthFormT
+              )
+
+              // Update headpat transition weight and animation time
+              if (this.isHeadpatting) {
+                this.headpatWeight = Math.min(1, this.headpatWeight + 0.08)
+                this.headpatTime += 0.025
+              } else if (this.headpatWeight > 0) {
+                this.headpatWeight = Math.max(0, this.headpatWeight - 0.03)
+                this.headpatTime += 0.015
+                // Relax offset towards center when pointer released
+                this.headpatOffset.x *= 0.94
+                this.headpatOffset.y *= 0.94
+              }
+
+              if (this.headpatWeight > 0.001) {
+                const w = this.headpatWeight
+
+                // Head movement directly relative to mouse position across the head
+                // Mouse left -> head turns left (negative angle); mouse right -> head turns right (positive angle)
+                const subtleBreathing = Math.sin(this.headpatTime * 2.5) * 0.6
+                const targetAngleX = this.headpatOffset.x * 12.0
+                const targetAngleZ = this.headpatOffset.x * 6.5 + subtleBreathing
+                const targetAngleY = -2.0 + this.headpatOffset.y * 3.5
+
+                // Smoothly and slowly interpolate towards target relative to mouse
+                const lerpFactor = 0.06
+                this.headpatAngleX += (targetAngleX - this.headpatAngleX) * lerpFactor
+                this.headpatAngleY += (targetAngleY - this.headpatAngleY) * lerpFactor
+                this.headpatAngleZ += (targetAngleZ - this.headpatAngleZ) * lerpFactor
+
+                const curAngleX = core.getParameterValueById?.('ParamAngleX') ?? 0
+                const curAngleY = core.getParameterValueById?.('ParamAngleY') ?? 0
+                const curAngleZ = core.getParameterValueById?.('ParamAngleZ') ?? 0
+
+                core.setParameterValueById?.(
+                  'ParamAngleX',
+                  curAngleX * (1 - w) + this.headpatAngleX * w
+                )
+                core.setParameterValueById?.(
+                  'ParamAngleY',
+                  curAngleY * (1 - w) + this.headpatAngleY * w
+                )
+                core.setParameterValueById?.(
+                  'ParamAngleZ',
+                  curAngleZ * (1 - w) + this.headpatAngleZ * w
+                )
+
+                // Ensure entire body stays completely stationary (no whole-model shaking)
+                const curBodyX = core.getParameterValueById?.('ParamBodyAngleX') ?? 0
+                const curBodyY = core.getParameterValueById?.('ParamBodyAngleY') ?? 0
+                const curBodyZ = core.getParameterValueById?.('ParamBodyAngleZ') ?? 0
+                core.setParameterValueById?.('ParamBodyAngleX', curBodyX * (1 - w))
+                core.setParameterValueById?.('ParamBodyAngleY', curBodyY * (1 - w))
+                core.setParameterValueById?.('ParamBodyAngleZ', curBodyZ * (1 - w))
+
+                // Eyeballs: gently follow head turn relative to mouse
+                const curEyeX = core.getParameterValueById?.('ParamEyeBallX') ?? 0
+                const curEyeY = core.getParameterValueById?.('ParamEyeBallY') ?? 0
+                core.setParameterValueById?.(
+                  'ParamEyeBallX',
+                  curEyeX * (1 - w) + (this.headpatAngleX / 28) * w
+                )
+                core.setParameterValueById?.('ParamEyeBallY', curEyeY * (1 - w) + 0.15 * w)
+
+                // Cheeks blush
+                const curCheek = core.getParameterValueById?.('ParamCheek') ?? 0
+                core.setParameterValueById?.('ParamCheek', Math.max(curCheek, 0.75 * w))
+
+                // Squinting happy smile
+                const curSmileL = core.getParameterValueById?.('ParamEyeLSmile') ?? 0
+                const curSmileR = core.getParameterValueById?.('ParamEyeRSmile') ?? 0
+                core.setParameterValueById?.('ParamEyeLSmile', Math.max(curSmileL, 1.0 * w))
+                core.setParameterValueById?.('ParamEyeRSmile', Math.max(curSmileR, 1.0 * w))
+
+                // Eyes close completely during headpats
+                core.setParameterValueById?.('ParamEyeLOpen', Math.max(0, 1 - w))
+                core.setParameterValueById?.('ParamEyeROpen', Math.max(0, 1 - w))
+              } else {
+                this.headpatAngleX = 0
+                this.headpatAngleY = 0
+                this.headpatAngleZ = 0
+                core.setParameterValueById?.('ParamEyeLOpen', 1)
+                core.setParameterValueById?.('ParamEyeROpen', 1)
+                core.setParameterValueById?.('ParamEyeLSmile', 0)
+                core.setParameterValueById?.('ParamEyeRSmile', 0)
+                core.setParameterValueById?.('ParamCheek', 0)
+                if (!this.followCursor) {
+                  core.setParameterValueById?.('ParamEyeBallX', 0)
+                  core.setParameterValueById?.('ParamEyeBallY', 0)
+                  core.setParameterValueById?.('ParamAngleX', 0)
+                  core.setParameterValueById?.('ParamAngleY', 0)
+                  core.setParameterValueById?.('ParamBodyAngleX', 0)
+                }
+              }
+
+              // Chest poke: squirm reaction relative to the mouse, like headpats
+              if (this.isPoking) {
+                this.pokeWeight = Math.min(1, this.pokeWeight + 0.08)
+                this.pokeTime += 0.025
+              } else if (this.pokeWeight > 0) {
+                this.pokeWeight = Math.max(0, this.pokeWeight - 0.03)
+                this.pokeTime += 0.015
+                this.pokeOffset.x *= 0.94
+                this.pokeOffset.y *= 0.94
+              }
+
+              if (this.pokeWeight > 0.001) {
+                const w = this.pokeWeight
+
+                // Subtle breathing/wriggle so she never looks frozen
+                const squirm = Math.sin(this.pokeTime * 2.5) * 0.6
+
+                // Body follows the mouse across the chest (mirrors headpat head-turn),
+                // leaning away from the poke point, with a gentle wriggle.
+                const targetBodyX = this.pokeOffset.x * 9.0
+                const targetBodyZ = this.pokeOffset.x * 4.5 + squirm
+
+                const lerpFactor = 0.06
+                this.pokeBodyAngleX += (targetBodyX - this.pokeBodyAngleX) * lerpFactor
+                this.pokeBodyAngleZ += (targetBodyZ - this.pokeBodyAngleZ) * lerpFactor
+
+                const curBodyX = core.getParameterValueById?.('ParamBodyAngleX') ?? 0
+                const curBodyZ = core.getParameterValueById?.('ParamBodyAngleZ') ?? 0
+                core.setParameterValueById?.(
+                  'ParamBodyAngleX',
+                  curBodyX * (1 - w) + this.pokeBodyAngleX * w
+                )
+                core.setParameterValueById?.(
+                  'ParamBodyAngleZ',
+                  curBodyZ * (1 - w) + this.pokeBodyAngleZ * w
+                )
+
+                // Head turns/tilts relative to the mouse along with the body
+                const curAngleX = core.getParameterValueById?.('ParamAngleX') ?? 0
+                const curAngleY = core.getParameterValueById?.('ParamAngleY') ?? 0
+                const curAngleZ = core.getParameterValueById?.('ParamAngleZ') ?? 0
+                core.setParameterValueById?.(
+                  'ParamAngleX',
+                  curAngleX * (1 - w) + this.pokeOffset.x * 11.0 * w
+                )
+                core.setParameterValueById?.(
+                  'ParamAngleY',
+                  curAngleY * (1 - w) + (-2.0 + this.pokeOffset.y * 3.5) * w
+                )
+                core.setParameterValueById?.(
+                  'ParamAngleZ',
+                  curAngleZ * (1 - w) + this.pokeOffset.x * 5.5 * w
+                )
+
+                // Startled blush
+                const curCheek = core.getParameterValueById?.('ParamCheek') ?? 0
+                core.setParameterValueById?.('ParamCheek', Math.max(curCheek, 0.75 * w))
+              } else {
+                this.pokeBodyAngleX = 0
+                this.pokeBodyAngleZ = 0
               }
             }
           } catch {
@@ -290,7 +630,7 @@ export class Live2dModelController {
 
       // Set default mouth form & resize
       try {
-        this.model.internalModel?.coreModel?.setParameterValueById?.('ParamMouthForm', 1)
+        this.model.internalModel?.coreModel?.setParameterValueById?.('ParamMouthForm', MOUTH_FORM_MIN)
       } catch {
         // ignore
       }
@@ -339,6 +679,7 @@ export class Live2dModelController {
 
   setEyeParameters(blinkValue: number): void {
     if (!this.model?.internalModel?.coreModel) return
+    if (this.headpatWeight > 0.01 || this.isHeadpatting) return
     try {
       this.model.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', blinkValue)
       this.model.internalModel.coreModel.setParameterValueById('ParamEyeROpen', blinkValue)
@@ -349,6 +690,7 @@ export class Live2dModelController {
 
   setGaze(targetX: number, targetY: number): void {
     if (!this.model?.internalModel?.coreModel || !this.followCursor) return
+    if (this.headpatWeight > 0.05 || this.isHeadpatting) return
     try {
       if (this.model.internalModel?.focusController) {
         this.model.internalModel.focusController.focus(targetX, targetY)
@@ -464,6 +806,8 @@ export class Live2dModelController {
   }
 
   destroy(): void {
+    this.endHeadpat()
+    this.endPoke()
     this.stopBlinking()
     this.stopBreathing()
     if (this.model && this.app?.stage) {

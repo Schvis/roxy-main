@@ -55,6 +55,8 @@ import {
 } from '../services/overlay'
 import { openTerminalWindow, closeTerminalWindow } from '../services/terminal-window'
 import { focusMainWindow } from '../services/main-window'
+import { getRandomHeadpatAudio } from '../services/headpat'
+import { getRandomChestAudio } from '../services/chest'
 import {
   updateVoiceShortcut,
   setRecordingStateFromRenderer,
@@ -441,6 +443,8 @@ export function registerIpc(): void {
   })
   ipcMain.handle(CHANNELS.vtuberOpenWindow, () => openVtuberWindow())
   ipcMain.handle(CHANNELS.vtuberCloseWindow, () => closeVtuberWindow())
+  ipcMain.handle(CHANNELS.vtuberGetHeadpatAudio, () => getRandomHeadpatAudio())
+  ipcMain.handle(CHANNELS.vtuberGetChestAudio, () => getRandomChestAudio())
 
   // ---- TTS server & setup ----
   ipcMain.handle(CHANNELS.ttsGetStatus, () => getLocalTtsStatus())
