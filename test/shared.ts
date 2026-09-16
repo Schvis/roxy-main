@@ -5370,6 +5370,8 @@ async function main(): Promise<void> {
 
   // ---- model picker rows (renderer/lib/modelRows) ----------------------------
   //
+  // Rows are keyed provider:model; with one section per provider that is unique.
+  // It was not when sections overlapped — see modelRows.ts.
   // Asserts provider model rows generation, hidden filtering and search matching.
   const mkModel = (id: string, name: string) => ({ id, name, reasoning: true, toolCall: true })
   const pickerProviders = [

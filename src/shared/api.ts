@@ -1008,7 +1008,7 @@ export interface RoxyApi {
     recent(providerId: string): Promise<{ model: string; usedAt: number }[]>
     /** Every model the user has hidden, across every provider. */
     hidden(): Promise<{ providerId: string; model: string }[]>
-    /** Hide/show one model in the picker. Hiding also unpins it. */
+    /** Hide/show one model in the picker. */
     setHidden(providerId: string, model: string, hidden: boolean): Promise<void>
     /** Replace one provider's entire hidden set (Hide all / Show all). */
     setProviderHidden(providerId: string, models: string[]): Promise<void>

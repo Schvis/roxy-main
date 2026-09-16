@@ -204,7 +204,7 @@ interface RoxyStore {
   ensureRecentModels: (providerId: string) => Promise<void>
   /** Load the hidden-model deny-list once (cached until toggled). */
   ensureHiddenModels: () => Promise<void>
-  /** Hide or show one model in the picker. Hiding also unpins it. */
+  /** Hide or show one model in the picker. */
   setModelHidden: (providerId: string, model: string, hidden: boolean) => Promise<void>
   /** Replace one provider's entire hidden set — Hide all / Show all, in one write. */
   setProviderHiddenModels: (providerId: string, models: string[]) => Promise<void>
