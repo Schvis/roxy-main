@@ -209,6 +209,7 @@ export const CHANNELS = {
   systemOpenMicrophoneSettings: 'system:openMicrophoneSettings',
 
   copilotStart: 'copilot:start',
+  copilotNeedsReauthentication: 'copilot:needs-reauthentication',
   copilotPoll: 'copilot:poll',
 
   /**
@@ -323,8 +324,6 @@ export const CHANNELS = {
 
   modelsList: 'models:list',
   modelsRecent: 'models:recent',
-  modelsPinned: 'models:pinned',
-  modelsSetPinned: 'models:setPinned',
   modelsHidden: 'models:hidden',
   modelsSetHidden: 'models:setHidden',
   modelsSetProviderHidden: 'models:setProviderHidden',

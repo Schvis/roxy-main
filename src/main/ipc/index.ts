@@ -40,6 +40,7 @@ import type {
   AddMessageInput,
   AppSettings,
   ConnectProviderInput,
+  Message,
   QueueImage,
   ReasoningEffort
 } from '../../shared/types'
@@ -77,7 +78,7 @@ import * as cliproxy from '../services/cliproxy'
 import * as browser from '../services/browser'
 import * as cookies from '../services/cookies'
 import { invalidateCopilotModels, listModels } from '../services/models'
-import { invalidateCopilotToken } from '../services/llm'
+import { copilotNeedsReauthentication, invalidateCopilotToken } from '../services/llm'
 import {
   beginActiveTurn,
   applyTurnEvent,
@@ -833,20 +834,24 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.projectsReorder, (_e, paths: string[]) => repo.reorderProjects(paths))
 
   // ---- messages ----
+  function dedupeAssistantMessage(input: AddMessageInput): Message | null {
+    if (input.role !== 'assistant') return null
+    if (isTurnAlreadyFlushed(input.chatId)) {
+      const existing = repo.listMessages(input.chatId)
+      const last = existing[existing.length - 1]
+      if (last && last.role === 'assistant') return last
+    }
+    markTurnPersisted(input.chatId)
+    return null
+  }
+
   ipcMain.handle(CHANNELS.messagesList, (_e, chatId: string) => repo.listMessages(chatId))
   ipcMain.handle(CHANNELS.messagesAdd, (_e, input: AddMessageInput) => {
-    if (input.role === 'assistant') {
-      if (isTurnAlreadyFlushed(input.chatId)) {
-        const existing = repo.listMessages(input.chatId)
-        const last = existing[existing.length - 1]
-        if (last && last.role === 'assistant') {
-          return last
-        }
-      }
-      markTurnPersisted(input.chatId)
-    }
+    const existing = dedupeAssistantMessage(input)
+    if (existing) return existing
     const message = repo.addMessage(input)
     emitMessagesUpdated(input.chatId)
+    remote.notifyTranscriptChanged(input.chatId)
     return message
   })
 
@@ -1089,6 +1094,7 @@ export function registerIpc(): void {
   })
 
   // ---- github copilot device flow ----
+  ipcMain.handle(CHANNELS.copilotNeedsReauthentication, () => copilotNeedsReauthentication())
   ipcMain.handle(CHANNELS.copilotStart, () => copilot.startDeviceFlow())
   ipcMain.handle(CHANNELS.copilotPoll, async (_e, deviceCode: string, interval: number) => {
     const token = await copilot.pollForToken(deviceCode, interval)
@@ -1468,13 +1474,6 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.modelsRecent, (_e, providerId: string) =>
     repo.listRecentModels(providerId)
   )
-  ipcMain.handle(CHANNELS.modelsPinned, () => repo.listPinnedModels())
-  ipcMain.handle(
-    CHANNELS.modelsSetPinned,
-    (_e, providerId: string, model: string, pinned: boolean) =>
-      repo.setModelPinned(providerId, model, pinned)
-  )
-
   ipcMain.handle(CHANNELS.modelsHidden, () => repo.listHiddenModels())
   ipcMain.handle(
     CHANNELS.modelsSetHidden,

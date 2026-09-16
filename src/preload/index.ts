@@ -364,6 +364,7 @@ const roxy: RoxyApi = {
     }
   },
   copilot: {
+    needsReauthentication: () => ipcRenderer.invoke(CHANNELS.copilotNeedsReauthentication),
     start: () => ipcRenderer.invoke(CHANNELS.copilotStart),
     poll: (deviceCode, interval) => ipcRenderer.invoke(CHANNELS.copilotPoll, deviceCode, interval)
   },
@@ -487,9 +488,6 @@ const roxy: RoxyApi = {
   models: {
     list: (providerId) => ipcRenderer.invoke(CHANNELS.modelsList, providerId),
     recent: (providerId) => ipcRenderer.invoke(CHANNELS.modelsRecent, providerId),
-    pinned: () => ipcRenderer.invoke(CHANNELS.modelsPinned),
-    setPinned: (providerId, model, pinned) =>
-      ipcRenderer.invoke(CHANNELS.modelsSetPinned, providerId, model, pinned),
     hidden: () => ipcRenderer.invoke(CHANNELS.modelsHidden),
     setHidden: (providerId, model, hidden) =>
       ipcRenderer.invoke(CHANNELS.modelsSetHidden, providerId, model, hidden),

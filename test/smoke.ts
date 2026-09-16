@@ -152,6 +152,7 @@ import {
 } from '../src/main/services/turn-metrics'
 import { isSeedProviderId } from '../src/shared/providers'
 import { createServer } from 'node:http'
+import { testCopilot } from './copilot'
 
 let pass = 0
 const fails: string[] = []
@@ -184,6 +185,7 @@ app.setPath('userData', tmp)
 app.on('window-all-closed', () => undefined)
 
 async function main(): Promise<void> {
+  await testCopilot()
   const ws = path.join(tmp, 'workspace')
   await fs.mkdir(ws, { recursive: true })
   const run = (name: string, input: Record<string, unknown>): ReturnType<typeof runTool> =>
@@ -351,16 +353,11 @@ async function main(): Promise<void> {
   repo.setLanguage('en')
 
   // ---- hidden models (v22: the picker deny-list) ----
-  // Against the real DB because the behaviour lives in SQL: hiding unpins.
-  repo.setModelPinned('openai', 'gpt-5', true)
+  // Against the real DB.
   repo.setModelHidden('openai', 'gpt-5', true)
   check(
     'setModelHidden records the model',
     repo.listHiddenModels().some((h) => h.providerId === 'openai' && h.model === 'gpt-5')
-  )
-  check(
-    'hiding a model also unpins it',
-    !repo.listPinnedModels().some((p) => p.providerId === 'openai' && p.model === 'gpt-5')
   )
   repo.setModelHidden('openai', 'gpt-5', true)
   check('hiding twice does not duplicate the row', repo.listHiddenModels().length === 1)
@@ -4018,7 +4015,7 @@ async function main(): Promise<void> {
       return Response.json(body, { status })
     }
     try {
-      repo.storeCopilotCredential('test-account-a')
+      repo.storeCopilotCredential({ accessToken: 'test-account-a' })
       const a = await openaiEndpoint('github-copilot')
       check('Copilot: exchanges the stored OAuth token', exchanges[0] === 'token test-account-a')
       check(
@@ -4114,7 +4111,7 @@ async function main(): Promise<void> {
         (await listModels('github-copilot')).length === 1 && exchanges.length === beforeRetry + 1
       )
 
-      repo.storeCopilotCredential('test-account-b')
+      repo.storeCopilotCredential({ accessToken: 'test-account-b' })
       const beforeSwitch = exchanges.length
       const b = await openaiEndpoint('github-copilot')
       check(
@@ -4137,7 +4134,7 @@ async function main(): Promise<void> {
       now += 60_001
       const stale = listModels('github-copilot')
       while (!pending.release) await new Promise((resolve) => setTimeout(resolve, 0))
-      repo.storeCopilotCredential('test-account-a')
+      repo.storeCopilotCredential({ accessToken: 'test-account-a' })
       paused = false
       body = { data: [{ ...enabled, id: 'account-a-model' }] }
       const accountA = await listModels('github-copilot')

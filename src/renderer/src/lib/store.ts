@@ -71,6 +71,7 @@ interface RoxyStore {
    */
   telemetryEnabled: boolean
   providers: ConnectedProvider[]
+  copilotNeedsReauthentication: boolean
   /** Provider model lists; Copilot availability is refreshed from the account. */
   modelCatalog: Record<string, ModelInfo[]>
   /**
@@ -85,15 +86,8 @@ interface RoxyStore {
   /** Last 5 distinct model picks per provider, lazy-loaded + refreshed on selection. */
   recentModels: Record<string, { model: string; usedAt: number }[]>
   /**
-   * A deliberate, user-curated shortlist of models - pinned models show above
-   * everything else in the picker, across all providers. Unlike `recentModels`
-   * this never reshuffles on its own; only `setModelPinned` changes it.
-   */
-  pinnedModels: { providerId: string; model: string }[]
-  /**
-   * Models omitted from the picker, as `providerId:model` keys. A Set, not the
-   * array `pinnedModels` uses: membership is queried once per row over a long
-   * list, and there is no order to preserve.
+   * Models omitted from the picker, as `providerId:model` keys. A Set:
+   * membership is queried once per row over a long list, and there is no order to preserve.
    */
   hiddenModels: Set<string>
   chats: Chat[]
@@ -223,13 +217,9 @@ interface RoxyStore {
   ensureModels: (providerId: string) => Promise<void>
   clearModelCache: (providerId: string) => void
   ensureRecentModels: (providerId: string) => Promise<void>
-  /** Load the pinned-model shortlist once (cached until toggled). */
-  ensurePinnedModels: () => Promise<void>
-  /** Pin or unpin a model in the shortlist; updates the cache optimistically. */
-  setModelPinned: (providerId: string, model: string, pinned: boolean) => Promise<void>
   /** Load the hidden-model deny-list once (cached until toggled). */
   ensureHiddenModels: () => Promise<void>
-  /** Hide or show one model in the picker. Hiding also unpins it. */
+  /** Hide or show one model in the picker. */
   setModelHidden: (providerId: string, model: string, hidden: boolean) => Promise<void>
   /** Replace one provider's entire hidden set — Hide all / Show all, in one write. */
   setProviderHiddenModels: (providerId: string, models: string[]) => Promise<void>
@@ -455,8 +445,6 @@ const inFlightTurns = new Map<string, Promise<void>>()
  * they queue behind a process launch. One promise per provider, shared.
  */
 const modelCatalogInflight = new Map<string, Promise<void>>()
-/** Loaded once per app session — `ensurePinnedModels` is called from every ModelPicker mount. */
-let pinnedModelsLoaded = false
 /** Same, for the hidden-model deny-list — every ModelPicker and Settings mount asks. */
 let hiddenModelsLoaded = false
 /** Set when a remote turn lands while a local send streams into the shared chat. */
@@ -967,10 +955,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   // the toggle would otherwise flicker off on every Settings open.
   telemetryEnabled: true,
   providers: [],
+  copilotNeedsReauthentication: false,
   modelCatalog: {},
   modelsTried: {},
   recentModels: {},
-  pinnedModels: [],
   hiddenModels: new Set<string>(),
   chats: [],
   activeChatId: null,
@@ -1042,7 +1030,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     // A factory reset truncates these tables and re-bootstraps, so the load
     // guards have to fall with them or the picker keeps filtering on a
     // deny-list the database no longer has.
-    pinnedModelsLoaded = false
     hiddenModelsLoaded = false
     // Before `ready` flips: the splash is still up, so switching the catalog
     // here means the first painted frame is already in the right language
@@ -1059,7 +1046,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       modelCatalog: {},
       modelsTried: {},
       recentModels: {},
-      pinnedModels: [],
       hiddenModels: new Set(),
       customPrompts,
       ready: true
@@ -1314,7 +1300,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       const modelsTried = { ...s.modelsTried }
       delete modelCatalog['github-copilot']
       delete modelsTried['github-copilot']
-      return { providers, settings, modelCatalog, modelsTried }
+      return { providers, settings, modelCatalog, modelsTried, copilotNeedsReauthentication: false }
     })
     if (providers.some((p) => p.id === 'github-copilot')) {
       await get().ensureModels('github-copilot')
@@ -1587,11 +1573,17 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     const load = Promise.resolve().then(async () => {
       try {
         const list = await api.models.list(providerId)
+        const needsReauthentication = accountAware
+          ? await api.copilot.needsReauthentication()
+          : false
         if (modelCatalogInflight.get(providerId) !== load) return
         // Copilot's empty list revokes old entries. Other providers still retry
         // empty lists when a proxy or connection is starting up.
         if (accountAware || list.length > 0) {
-          set((s) => ({ modelCatalog: { ...s.modelCatalog, [providerId]: list } }))
+          set((s) => ({
+            modelCatalog: { ...s.modelCatalog, [providerId]: list },
+            ...(accountAware ? { copilotNeedsReauthentication: needsReauthentication } : {})
+          }))
         }
       } catch {
         if (accountAware && modelCatalogInflight.get(providerId) === load) {
@@ -1616,23 +1608,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set((s) => ({ recentModels: { ...s.recentModels, [providerId]: recent } }))
   },
 
-  ensurePinnedModels: async () => {
-    if (pinnedModelsLoaded) return
-    pinnedModelsLoaded = true
-    const pinned = await api.models.pinned()
-    set({ pinnedModels: pinned })
-  },
-
-  setModelPinned: async (providerId, model, pinned) => {
-    // Optimistic: the picker toggles instantly, no round trip flicker.
-    set((s) => ({
-      pinnedModels: pinned
-        ? [...s.pinnedModels, { providerId, model }]
-        : s.pinnedModels.filter((p) => !(p.providerId === providerId && p.model === model))
-    }))
-    await api.models.setPinned(providerId, model, pinned)
-  },
-
   ensureHiddenModels: async () => {
     if (hiddenModelsLoaded) return
     hiddenModelsLoaded = true
@@ -1646,17 +1621,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       const next = new Set(s.hiddenModels)
       if (hidden) next.add(key)
       else next.delete(key)
-      // Mirrors the main process, which unpins on hide.
-      return {
-        hiddenModels: next,
-        ...(hidden
-          ? {
-              pinnedModels: s.pinnedModels.filter(
-                (p) => !(p.providerId === providerId && p.model === model)
-              )
-            }
-          : {})
-      }
+      return { hiddenModels: next }
     })
     await api.models.setHidden(providerId, model, hidden)
   },
@@ -1668,12 +1633,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       const next = new Set<string>()
       for (const key of s.hiddenModels) if (!key.startsWith(`${providerId}:`)) next.add(key)
       for (const model of hiding) next.add(`${providerId}:${model}`)
-      return {
-        hiddenModels: next,
-        pinnedModels: s.pinnedModels.filter(
-          (p) => !(p.providerId === providerId && hiding.has(p.model))
-        )
-      }
+      return { hiddenModels: next }
     })
     await api.models.setProviderHidden(providerId, models)
   },
@@ -2532,6 +2492,12 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           chatRequests.delete(chatId)
         }
         if (!result.ok && !stopped()) {
+          if (provider.id === 'github-copilot') {
+            // Read the failure without another discovery request masking its auth status.
+            const providers = get().providers
+            const needed = await api.copilot.needsReauthentication().catch(() => false)
+            if (get().providers === providers) set({ copilotNeedsReauthentication: needed })
+          }
           parts = [
             ...parts,
             { type: 'text', text: `_\u26a0 ${result.error ?? 'Model request failed.'}_` }
