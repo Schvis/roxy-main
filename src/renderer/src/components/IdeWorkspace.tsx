@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCheck,
@@ -21,6 +21,15 @@ import { cn } from '../lib/cn'
 import { writeClipboardText } from '../lib/clipboard'
 import { useRoxyStore } from '../lib/store'
 import { subscribeFileReviews } from '../lib/agent-file-changes'
+import {
+  loadExpandedFolders,
+  saveExpandedFolders,
+  loadActiveFile,
+  saveActiveFile,
+  getAncestorPaths,
+  migrateRenamedPath,
+  pruneDeletedPath
+} from '../lib/ide-state'
 import { ContextMenuRow, ContextMenuSurface, CONTEXT_MENU_PAD, CONTEXT_ROW_H } from './ContextMenu'
 import { CommandsPane } from './CommandsDialog'
 import { FileEditor } from './FileEditor'
@@ -42,6 +51,10 @@ interface ExplorerActions {
   cancelRename: () => void
   deleteEntry: (entry: WorkspaceFileEntry) => Promise<void>
   openContextMenu: (e: React.MouseEvent, entry?: WorkspaceFileEntry, targetDir?: string) => void
+  isExpanded: (path: string) => boolean
+  toggleExpanded: (path: string) => void
+  setExpanded: (path: string, expanded: boolean) => void
+  renameEntry: (oldPath: string, newPath: string, isDirectory: boolean) => void
 }
 
 const ExplorerContext = createContext<ExplorerActions | null>(null)
@@ -53,8 +66,15 @@ function useExplorer(): ExplorerActions {
 
 function Directory({ path }: { path: string }): JSX.Element {
   const { t } = useTranslation()
-  const { sessionId, refreshNonce, creating, cancelCreate, onSelect, openContextMenu } =
-    useExplorer()
+  const {
+    sessionId,
+    refreshNonce,
+    creating,
+    cancelCreate,
+    onSelect,
+    openContextMenu,
+    setExpanded
+  } = useExplorer()
   const [entries, setEntries] = useState<WorkspaceFileEntry[] | null>(null)
   const [error, setError] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -100,6 +120,8 @@ function Directory({ path }: { path: string }): JSX.Element {
       const res = await api.files.create(sessionId, targetPath, creating?.isDirectory)
       if (!creating?.isDirectory) {
         onSelect({ path: res.path, name, directory: false })
+      } else {
+        setExpanded(res.path, true)
       }
     } catch {
       alert(creating?.isDirectory ? t('ide.folderCreateError') : t('ide.fileCreateError'))
@@ -190,9 +212,13 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
     startRename,
     cancelRename,
     deleteEntry,
-    openContextMenu
+    openContextMenu,
+    isExpanded,
+    toggleExpanded,
+    setExpanded,
+    renameEntry
   } = useExplorer()
-  const [expanded, setExpanded] = useState(false)
+  const expanded = entry.directory ? isExpanded(entry.path) : false
   const [renameName, setRenameName] = useState(entry.name)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const Icon = entry.directory ? (expanded ? FolderOpen : Folder) : FileText
@@ -218,9 +244,9 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
 
   useEffect(() => {
     if (creating && creating.parentPath === entry.path) {
-      setExpanded(true)
+      setExpanded(entry.path, true)
     }
-  }, [creating, entry.path])
+  }, [creating, entry.path, setExpanded])
 
   const handleCommitRename = async (): Promise<void> => {
     const val = renameName.trim()
@@ -234,6 +260,7 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
     const newPath = parentPath ? `${parentPath}/${val}` : val
     try {
       const res = await api.files.rename(sessionId, entry.path, newPath)
+      renameEntry(entry.path, res.newPath, entry.directory)
       if (selectedPath === entry.path) {
         onSelect({ path: res.newPath, name: val, directory: entry.directory })
       }
@@ -301,7 +328,7 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
           aria-current={isSelected ? 'true' : undefined}
           title={entry.path}
           className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${isSelected ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-2 hover:text-text'}`}
-          onClick={() => (entry.directory ? setExpanded((v) => !v) : onSelect(entry))}
+          onClick={() => (entry.directory ? toggleExpanded(entry.path) : onSelect(entry))}
         >
           <ChevronRight
             aria-hidden
@@ -325,7 +352,7 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
                 aria-label={t('ide.newFile')}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setExpanded(true)
+                  setExpanded(entry.path, true)
                   startCreate(entry.path, false)
                 }}
               >
@@ -338,7 +365,7 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
                 aria-label={t('ide.newFolder')}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setExpanded(true)
+                  setExpanded(entry.path, true)
                   startCreate(entry.path, true)
                 }}
               >
@@ -508,8 +535,31 @@ function WorkspaceContents({
   root: string | null
 }): JSX.Element {
   const { t } = useTranslation()
-  const [selected, setSelected] = useState<WorkspaceFileEntry | null>(null)
-  const [selectedLine, setSelectedLine] = useState<number | undefined>(undefined)
+  const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
+  const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
+  const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() =>
+    loadExpandedFolders(root)
+  )
+
+  const [selected, setSelected] = useState<WorkspaceFileEntry | null>(() => {
+    if (ideSelectedFile) return ideSelectedFile
+    const saved = loadActiveFile(root)
+    if (saved) {
+      return {
+        path: saved.path,
+        name: saved.name,
+        directory: false
+      }
+    }
+    return null
+  })
+  const [selectedLine, setSelectedLine] = useState<number | undefined>(() => {
+    if (ideSelectedFile) return ideSelectedLine
+    const saved = loadActiveFile(root)
+    return saved?.line
+  })
   const [copied, setCopied] = useState(0)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [creating, setCreating] = useState<{ parentPath: string; isDirectory: boolean } | null>(
@@ -538,9 +588,6 @@ function WorkspaceContents({
 
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
-  const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
-  const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
-  const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const chats = useRoxyStore((s) => s.chats)
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null
@@ -588,12 +635,132 @@ function WorkspaceContents({
     return () => clearInterval(timer)
   }, [])
 
+  // Handle root change if component is kept mounted across project switch
+  const prevRootRef = useRef(root)
+  useEffect(() => {
+    if (prevRootRef.current !== root) {
+      prevRootRef.current = root
+      setExpandedFolders(loadExpandedFolders(root))
+      const saved = loadActiveFile(root)
+      if (saved) {
+        setSelected({ path: saved.path, name: saved.name, directory: false })
+        setSelectedLine(saved.line)
+      } else {
+        setSelected(null)
+        setSelectedLine(undefined)
+      }
+    }
+  }, [root])
+
+  // Save expanded folders whenever they change
+  useEffect(() => {
+    if (!root) return
+    saveExpandedFolders(root, expandedFolders)
+  }, [root, expandedFolders])
+
+  // Save active file whenever selected or selectedLine changes
+  useEffect(() => {
+    if (!root) return
+    if (selected) {
+      saveActiveFile(root, {
+        path: selected.path,
+        name: selected.name,
+        line: selectedLine
+      })
+    } else {
+      saveActiveFile(root, null)
+    }
+  }, [root, selected, selectedLine])
+
+  // On initial mount, sync restored active file to store if store is empty
+  useEffect(() => {
+    if (selected && !useRoxyStore.getState().ideSelectedFile) {
+      setIdeSelectedFile(selected, selectedLine)
+    }
+  }, [])
+
+  const isExpanded = useCallback(
+    (dirPath: string) => expandedFolders.has(dirPath),
+    [expandedFolders]
+  )
+
+  const toggleExpanded = useCallback((dirPath: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(dirPath)) {
+        next.delete(dirPath)
+      } else {
+        next.add(dirPath)
+      }
+      return next
+    })
+  }, [])
+
+  const setExpanded = useCallback((dirPath: string, expand: boolean) => {
+    setExpandedFolders((prev) => {
+      if (prev.has(dirPath) === expand) return prev
+      const next = new Set(prev)
+      if (expand) {
+        next.add(dirPath)
+      } else {
+        next.delete(dirPath)
+      }
+      return next
+    })
+  }, [])
+
+  const expandAncestors = useCallback((filePath: string) => {
+    const ancestors = getAncestorPaths(filePath)
+    if (ancestors.length === 0) return
+    setExpandedFolders((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const a of ancestors) {
+        if (!next.has(a)) {
+          next.add(a)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  const handleRenameEntry = useCallback(
+    (oldPath: string, newPath: string, isDirectory: boolean) => {
+      if (isDirectory) {
+        setExpandedFolders((prev) => migrateRenamedPath(prev, oldPath, newPath))
+        if (selected && selected.path.startsWith(`${oldPath}/`)) {
+          const updatedPath = `${newPath}/${selected.path.slice(oldPath.length + 1)}`
+          const updatedEntry: WorkspaceFileEntry = {
+            ...selected,
+            path: updatedPath
+          }
+          setSelected(updatedEntry)
+          setIdeSelectedFile(updatedEntry, selectedLine)
+        }
+      } else {
+        if (selected && selected.path === oldPath) {
+          const newName = newPath.split('/').pop() || newPath
+          const updatedEntry: WorkspaceFileEntry = {
+            ...selected,
+            path: newPath,
+            name: newName
+          }
+          setSelected(updatedEntry)
+          setIdeSelectedFile(updatedEntry, selectedLine)
+        }
+      }
+    },
+    [selected, selectedLine, setIdeSelectedFile]
+  )
+
   useEffect(() => {
     if (ideSelectedFile) {
       setSelected(ideSelectedFile)
       setSelectedLine(ideSelectedLine)
+      expandAncestors(ideSelectedFile.path)
     }
-  }, [ideSelectedFile, ideSelectedLine])
+  }, [ideSelectedFile, ideSelectedLine, expandAncestors])
 
   useEffect(() => {
     if (!copied) return
@@ -685,17 +852,21 @@ function WorkspaceContents({
 
   const openSearchResult = (match: WorkspaceFileSearchMatch): void => {
     const fileName = match.path.split('/').pop() || match.path
-    setSelected({
+    const entry: WorkspaceFileEntry = {
       path: match.path,
       name: fileName,
       directory: false
-    })
+    }
+    setSelected(entry)
     setSelectedLine(match.line)
+    setIdeSelectedFile(entry, match.line)
+    expandAncestors(match.path)
   }
 
   const handleSelectFile = (entry: WorkspaceFileEntry): void => {
     setSelected(entry)
     setSelectedLine(undefined)
+    setIdeSelectedFile(entry, undefined)
   }
 
   const handleDeleteEntry = async (entry: WorkspaceFileEntry): Promise<void> => {
@@ -705,11 +876,14 @@ function WorkspaceContents({
       await api.files.delete(sessionId, entry.path)
       if (
         selected?.path === entry.path ||
-        (entry.directory && selected?.path.startsWith(entry.path + '/'))
+        (entry.directory && selected?.path.startsWith(`${entry.path}/`))
       ) {
         setSelected(null)
         setSelectedLine(undefined)
         setIdeSelectedFile(null, undefined)
+      }
+      if (entry.directory) {
+        setExpandedFolders((prev) => pruneDeletedPath(prev, entry.path))
       }
       setRefreshNonce((n) => n + 1)
     } catch {
@@ -736,7 +910,11 @@ function WorkspaceContents({
         entry,
         targetDir
       })
-    }
+    },
+    isExpanded,
+    toggleExpanded,
+    setExpanded,
+    renameEntry: handleRenameEntry
   }
 
   return (
@@ -1177,6 +1355,7 @@ function WorkspaceContents({
           onClose={() => setContextMenu(null)}
           onStartCreate={(parentPath, isDirectory) => {
             setContextMenu(null)
+            if (parentPath) setExpanded(parentPath, true)
             setCreating({ parentPath, isDirectory })
           }}
           onStartRename={(entry) => {

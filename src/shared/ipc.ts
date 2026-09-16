@@ -226,6 +226,8 @@ export const CHANNELS = {
   cliproxyState: 'cliproxy:state',
 
   dialogOpenWorkspace: 'dialog:openWorkspace',
+  dialogOpenFiles: 'dialog:openFiles',
+  dialogOpenFolders: 'dialog:openFolders',
 
   /** Portable backup: export/import global skills + MCP configs to a file. */
   configExport: 'config:export',

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -9,7 +10,11 @@ import {
 import { useTranslation } from 'react-i18next'
 import {
   ArrowUp,
+  Check,
   ChevronDown,
+  FileCode,
+  Folder,
+  Image as ImageIcon,
   Loader2,
   Mic,
   MicOff,
@@ -37,6 +42,11 @@ import { useRoxyStore } from '../lib/store'
 import { matchesKeybindDown, matchesKeybindRelease } from '../lib/keybind'
 import { cn } from '../lib/cn'
 import { useMenuAnchor } from '../lib/useMenuAnchor'
+import { createContextAttachment } from '@shared/context'
+import type { ChatContextAttachment } from '@shared/types'
+import { loadActiveFile } from '../lib/ide-state'
+
+const EMPTY_ATTACHMENTS: ChatContextAttachment[] = []
 
 export function Composer({
   onSend,
@@ -71,6 +81,63 @@ export function Composer({
   const [containerWidth, setContainerWidth] = useState(800)
   const [overflowOpen, setOverflowOpen] = useState(false)
   const overflowAnchor = useMenuAnchor(overflowMenuRef, overflowOpen, 240, { gap: 8 })
+
+  const activeChatId = useRoxyStore((s) => s.activeChatId)
+  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
+  const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
+  const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
+  const chats = useRoxyStore((s) => s.chats)
+  const rawAttachments = useRoxyStore((s) =>
+    s.activeChatId ? s.pendingContextAttachments[s.activeChatId] : undefined
+  )
+  const contextAttachments = rawAttachments ?? EMPTY_ATTACHMENTS
+  const addPendingContextAttachment = useRoxyStore((s) => s.addPendingContextAttachment)
+  const removePendingContextAttachment = useRoxyStore((s) => s.removePendingContextAttachment)
+  const setContextPickerOpen = useRoxyStore((s) => s.setContextPickerOpen)
+
+  const activeChat = chats.find((c) => c.id === activeChatId)
+  const parentChat = activeChat?.parentId
+    ? chats.find((c) => c.id === activeChat.parentId)
+    : undefined
+  const workspaceRoot =
+    activeChat?.worktreePath ??
+    activeChat?.workspacePath ??
+    parentChat?.worktreePath ??
+    parentChat?.workspacePath ??
+    null
+
+  const currentFile = useMemo(() => {
+    if (!ideMode) return null
+    if (ideSelectedFile && !ideSelectedFile.directory) {
+      return {
+        path: ideSelectedFile.path,
+        name: ideSelectedFile.name || ideSelectedFile.path.split('/').pop() || ideSelectedFile.path,
+        line: ideSelectedLine
+      }
+    }
+    const saved = loadActiveFile(workspaceRoot)
+    if (saved) {
+      return {
+        path: saved.path,
+        name: saved.name || saved.path.split('/').pop() || saved.path,
+        line: saved.line
+      }
+    }
+    return null
+  }, [ideMode, ideSelectedFile, ideSelectedLine, workspaceRoot])
+
+  const isCurrentFileAttached = Boolean(
+    currentFile &&
+    contextAttachments.some(
+      (a) =>
+        a.path === currentFile.path ||
+        (a.fullPath && currentFile.path && a.fullPath.endsWith(currentFile.path))
+    )
+  )
+
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+  const contextMenuAnchor = useMenuAnchor(contextMenuRef, contextMenuOpen, 240, { gap: 8 })
 
   isRecordingRef.current = isRecording
   isTranscribingRef.current = isTranscribing
@@ -114,10 +181,43 @@ export function Composer({
   }, [overflowOpen])
 
   useEffect(() => {
+    if (!contextMenuOpen) return
+    const onDown = (e: MouseEvent): void => {
+      if (!contextMenuRef.current?.contains(e.target as Node)) {
+        setContextMenuOpen(false)
+      }
+    }
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (e.key === 'Escape') setContextMenuOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [contextMenuOpen])
+
+  useEffect(() => {
     return () => {
       recorderRef.current?.cancel()
     }
   }, [])
+
+  const handleAttachCurrentFile = (): void => {
+    setContextMenuOpen(false)
+    if (activeChatId && currentFile) {
+      addPendingContextAttachment(
+        activeChatId,
+        createContextAttachment('file', currentFile.path, workspaceRoot, currentFile.line)
+      )
+    }
+  }
+
+  const handleOpenContextPicker = (): void => {
+    setContextMenuOpen(false)
+    setContextPickerOpen(true)
+  }
 
   const addFiles = async (files: File[]): Promise<void> => {
     if (files.length === 0) return
@@ -130,7 +230,7 @@ export function Composer({
 
   const submit = (force = false): void => {
     const text = value.trim()
-    if (!text && images.length === 0) return
+    if (!text && images.length === 0 && contextAttachments.length === 0) return
     onSend(text, images.length ? images : undefined, force)
     setValue('')
     setImages([])
@@ -178,11 +278,23 @@ export function Composer({
   }
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
-    const files = imageFilesFrom(event.dataTransfer)
     setDragging(false)
+    const files = imageFilesFrom(event.dataTransfer)
     if (files.length > 0) {
       event.preventDefault()
       void addFiles(files)
+    }
+    const allFiles = Array.from(event.dataTransfer.files ?? [])
+    const nonImages = allFiles.filter((f) => !f.type.startsWith('image/'))
+    if (nonImages.length > 0 && activeChatId) {
+      event.preventDefault()
+      for (const f of nonImages) {
+        const diskPath = (f as { path?: string }).path || f.name
+        addPendingContextAttachment(
+          activeChatId,
+          createContextAttachment('file', diskPath, workspaceRoot)
+        )
+      }
     }
   }
 
@@ -401,8 +513,9 @@ export function Composer({
   // Stop needs a handler to be honest: a session can be busy with a turn this
   // composer doesn't own (a subagent's run is driven by its parent), and a Stop
   // button that does nothing is worse than none. Fall through to a disabled Send.
-  const showStop = !!sending && !!onStop && !value.trim() && images.length === 0
-  const canSend = !!value.trim() || images.length > 0
+  const showStop =
+    !!sending && !!onStop && !value.trim() && images.length === 0 && contextAttachments.length === 0
+  const canSend = !!value.trim() || images.length > 0 || contextAttachments.length > 0
 
   return (
     <div className="w-full min-w-0 bg-bg px-4 pb-1.5 pt-2">
@@ -442,8 +555,52 @@ export function Composer({
             : 'border-border focus-within:border-border-strong focus-within:[--sq-ring:var(--edge-strong)]'
         }`}
       >
-        {images.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-3 pt-3">
+        {(contextAttachments.length > 0 ||
+          images.length > 0 ||
+          (ideMode && currentFile && !isCurrentFileAttached)) && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
+            {ideMode && currentFile && !isCurrentFileAttached && (
+              <button
+                type="button"
+                onClick={handleAttachCurrentFile}
+                className="press-scale inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20 transition-colors shadow-xs"
+                title={t('composer.attachCurrentFile', { path: currentFile.name })}
+              >
+                <Plus className="h-3 w-3 shrink-0" />
+                <FileCode className="h-3.5 w-3.5 shrink-0" />
+                <span className="font-mono text-[11px] truncate max-w-[220px]">
+                  {currentFile.name}
+                  {currentFile.line ? `:${currentFile.line}` : ''}
+                </span>
+              </button>
+            )}
+            {contextAttachments.map((item) => (
+              <span
+                key={item.id}
+                className="group inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text shadow-xs"
+                title={item.fullPath ?? item.path}
+              >
+                {item.type === 'folder' ? (
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+                ) : (
+                  <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
+                )}
+                <span className="max-w-[180px] truncate font-mono text-[11px]">
+                  {item.path}
+                  {item.line ? `:${item.line}` : ''}
+                </span>
+                {activeChatId && (
+                  <button
+                    type="button"
+                    onClick={() => removePendingContextAttachment(activeChatId, item.id)}
+                    title={t('composer.removeContext')}
+                    className="press-scale -mr-0.5 ml-0.5 rounded p-0.5 text-text-subtle hover:bg-white/10 hover:text-text"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            ))}
             {images.map((img) => (
               <ImagePreview
                 key={img.id}
@@ -502,14 +659,89 @@ export function Composer({
               control, which against the row's px-2.5 puts each label's first
               glyph exactly on the textarea's px-4 text column. */}
           <div className="flex items-center gap-1 min-w-0">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              title={t('composer.attachImages')}
-              className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+            <div ref={contextMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setContextMenuOpen((o) => !o)}
+                title={t('composer.addContext')}
+                aria-label={t('composer.addContext')}
+                aria-expanded={contextMenuOpen}
+                className={cn(
+                  'press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text',
+                  contextMenuOpen && 'bg-white/10 text-text'
+                )}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+
+              {contextMenuOpen && (
+                <div
+                  className="animate-pop-in absolute bottom-full left-0 z-50 mb-2 flex min-w-[220px] flex-col sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated shadow-float p-1 text-xs"
+                  style={contextMenuAnchor}
+                >
+                  {ideMode && (
+                    <>
+                      {currentFile ? (
+                        <button
+                          type="button"
+                          disabled={isCurrentFileAttached}
+                          onClick={handleAttachCurrentFile}
+                          className={cn(
+                            'press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                            isCurrentFileAttached
+                              ? 'opacity-50 cursor-not-allowed text-text-subtle'
+                              : 'text-text hover:bg-white/5'
+                          )}
+                          title={t('composer.attachCurrentFile', { path: currentFile.name })}
+                        >
+                          <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="truncate font-medium">{currentFile.name}</span>
+                            <span className="truncate text-[10px] text-text-subtle">
+                              {currentFile.path}
+                              {currentFile.line ? `:${currentFile.line}` : ''}
+                            </span>
+                          </div>
+                          {isCurrentFileAttached && (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                          )}
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 px-2.5 py-1.5 text-text-subtle">
+                          <FileCode className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                          <span className="truncate text-[11px]">
+                            {t('composer.noCurrentFile')}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="my-1 border-t border-border/40" />
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleOpenContextPicker}
+                    className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-text hover:bg-white/5 transition-colors"
+                  >
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                    <span>{t('composer.attachFilesOrFolders')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContextMenuOpen(false)
+                      fileRef.current?.click()
+                    }}
+                    className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-text hover:bg-white/5 transition-colors"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                    <span>{t('composer.attachImages')}</span>
+                  </button>
+                </div>
+              )}
+            </div>
             {!isCompact && (
               <button
                 type="button"

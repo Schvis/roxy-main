@@ -232,7 +232,9 @@ import {
   IMAGE_TOKEN_COST,
   COMPACTION_BUFFER,
   KEEP_RECENT_TOKENS,
-  TOOL_OUTPUT_MAX_CHARS
+  TOOL_OUTPUT_MAX_CHARS,
+  createContextAttachment,
+  formatMessageWithContext
 } from '../src/shared/context'
 import {
   MAX_PARALLEL_SUBAGENTS,
@@ -1535,6 +1537,41 @@ check(
 )
 
 check('messagesToCompact: empty in, empty out', messagesToCompact([]).length === 0)
+
+// ---- createContextAttachment / formatMessageWithContext ----
+const relFile = createContextAttachment('file', '/workspace/src/app.ts', '/workspace', 42)
+check('createContextAttachment relativizes workspace path', relFile.path === 'src/app.ts')
+check('createContextAttachment extracts name', relFile.name === 'app.ts')
+check('createContextAttachment keeps line', relFile.line === 42)
+check('createContextAttachment includes line in id', relFile.id.includes(':42'))
+
+const winFile = createContextAttachment('file', 'D:\\proj\\src\\index.ts', 'D:\\proj')
+check('createContextAttachment normalizes Windows backslashes', winFile.path === 'src/index.ts')
+
+const folderAtt = createContextAttachment('folder', '/workspace/src/components', '/workspace')
+check(
+  'createContextAttachment folder type',
+  folderAtt.type === 'folder' && folderAtt.path === 'src/components'
+)
+
+check(
+  'formatMessageWithContext empty returns text',
+  formatMessageWithContext('hello', []) === 'hello'
+)
+const formatted = formatMessageWithContext('Explain this', [relFile, folderAtt])
+check('formatMessageWithContext prepends Context:', formatted.startsWith('Context:'))
+check('formatMessageWithContext lists file with line', formatted.includes('- File: src/app.ts:42'))
+check(
+  'formatMessageWithContext lists folder with trailing slash',
+  formatted.includes('- Folder: src/components/')
+)
+check('formatMessageWithContext appends prompt text', formatted.endsWith('Explain this'))
+
+const noTextFormatted = formatMessageWithContext('', [relFile])
+check(
+  'formatMessageWithContext empty text returns context block only',
+  noTextFormatted === 'Context:\n- File: src/app.ts:42'
+)
 
 // cross-turn replay now previews (head + tail) instead of a head-only slice
 const replayTurn: Message = {

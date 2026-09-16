@@ -6,6 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent
 } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useMotion } from '../lib/motion'
@@ -17,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Settings,
   Square,
   SquarePen,
   Trash2
@@ -150,6 +152,7 @@ function FolderMorph({ open, className }: { open: boolean; className?: string })
 
 export function Sidebar(): JSX.Element {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const chats = useRoxyStore((s) => s.chats)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const selectChat = useRoxyStore((s) => s.selectChat)
@@ -518,6 +521,17 @@ export function Sidebar(): JSX.Element {
         >
           <FolderOpen className="h-4 w-4" />
         </button>
+
+        <div className="mt-auto flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            title={t('sidebar.settings')}
+            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
       </aside>
     )
   }
@@ -993,6 +1007,18 @@ export function Sidebar(): JSX.Element {
       )}
 
       <UpdateCard />
+
+      <div className="border-t border-border/40 p-2">
+        <button
+          type="button"
+          onClick={() => navigate('/settings')}
+          title={t('sidebar.settings')}
+          className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+        >
+          <Settings className="h-4 w-4 shrink-0" />
+          <span className="truncate font-medium">{t('sidebar.settings')}</span>
+        </button>
+      </div>
 
       {/* Drag the right edge to resize; double-click to reset to the default width. */}
       <div

@@ -280,6 +280,16 @@ export interface AddMessageInput {
   parts?: MessagePart[]
 }
 
+/** An attached workspace file or folder providing context for the chat. */
+export interface ChatContextAttachment {
+  id: string
+  type: 'file' | 'folder'
+  path: string
+  fullPath?: string
+  name: string
+  line?: number
+}
+
 // ---- Loops (scheduled agentic prompts) ---------------------------------------
 
 /** A Loop is a prompt that runs on a heartbeat (cron-like) into its own chat. */

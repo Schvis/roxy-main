@@ -5,6 +5,7 @@ import i18n, { applyLanguage } from '../i18n'
 import type {
   AppSettings,
   Chat,
+  ChatContextAttachment,
   ConnectedProvider,
   Loop,
   Message,
@@ -35,7 +36,12 @@ import {
 import { PROMPT_TEXT, AGENT_PROMPT_TEXT } from '@shared/prompt-text'
 import { reconstructTurn, REPLAY_OUTPUT_CAP } from '@shared/tool-history'
 import { PartsFold, partsToContent } from '@shared/parts'
-import { isOverflow, pruneToolMessages, KEEP_RECENT_TOKENS } from '@shared/context'
+import {
+  isOverflow,
+  pruneToolMessages,
+  KEEP_RECENT_TOKENS,
+  formatMessageWithContext
+} from '@shared/context'
 import { resolveProviderModel } from '@shared/models'
 import {
   clampReasoningEffort,
@@ -392,9 +398,15 @@ interface RoxyStore {
   /** Handle a background subagent task state change (Phase 11). */
   handleTaskUpdate: (update: TaskUpdate) => Promise<void>
   setCommandsOpen: (open: boolean) => void
+  contextPickerOpen: boolean
+  setContextPickerOpen: (open: boolean) => void
   setIdeTab: (tab: 'files' | 'search') => void
   setIdeSelectedFile: (entry: WorkspaceFileEntry | null, line?: number) => void
   setSidebarRailed: (railed: boolean) => void
+  pendingContextAttachments: Record<string, ChatContextAttachment[]>
+  addPendingContextAttachment: (chatId: string, item: ChatContextAttachment) => void
+  removePendingContextAttachment: (chatId: string, id: string) => void
+  clearPendingContextAttachments: (chatId: string) => void
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -964,6 +976,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   activeChatId: null,
   commandsOpen: false,
   setCommandsOpen: (open) => set({ commandsOpen: open }),
+  contextPickerOpen: false,
+  setContextPickerOpen: (open) => set({ contextPickerOpen: open }),
   ideTab: 'files',
   setIdeTab: (tab) => set({ ideTab: tab }),
   ideSelectedFile: null,
@@ -988,6 +1002,37 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       ...(autoIde && state.settings
         ? { settings: { ...state.settings, ideMode: true, ttsEnabled: false } }
         : {})
+    })
+  },
+  pendingContextAttachments: {},
+  addPendingContextAttachment: (chatId, item) => {
+    set((s) => {
+      const list = s.pendingContextAttachments[chatId] ?? []
+      if (list.some((x) => x.id === item.id)) return s
+      return {
+        pendingContextAttachments: {
+          ...s.pendingContextAttachments,
+          [chatId]: [...list, item]
+        }
+      }
+    })
+  },
+  removePendingContextAttachment: (chatId, id) => {
+    set((s) => {
+      const list = s.pendingContextAttachments[chatId] ?? []
+      return {
+        pendingContextAttachments: {
+          ...s.pendingContextAttachments,
+          [chatId]: list.filter((x) => x.id !== id)
+        }
+      }
+    })
+  },
+  clearPendingContextAttachments: (chatId) => {
+    set((s) => {
+      const next = { ...s.pendingContextAttachments }
+      delete next[chatId]
+      return { pendingContextAttachments: next }
     })
   },
   messages: [],
@@ -2105,8 +2150,13 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   submit: async (content, images, force = false) => {
     const chatId = get().activeChatId
     if (!chatId) return
-    const text = content.trim()
+    const pendingAttachments = get().pendingContextAttachments[chatId] ?? []
+    const formatted = formatMessageWithContext(content, pendingAttachments)
+    const text = formatted.trim()
     if (!text && (!images || images.length === 0)) return
+    if (pendingAttachments.length > 0) {
+      get().clearPendingContextAttachments(chatId)
+    }
 
     const now = Date.now()
     if (

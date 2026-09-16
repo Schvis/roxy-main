@@ -28,6 +28,7 @@ import { api } from '../lib/api'
 import { writeClipboardText } from '../lib/clipboard'
 import { CanvasTranscript } from '../canvas/CanvasTranscript'
 import { CommandsDialog } from './CommandsDialog'
+import { ContextFilePickerModal } from './ContextFilePickerModal'
 import { Composer } from './Composer'
 import { CopilotReconnect } from './CopilotReconnect'
 import { LoopDetailsPane } from './LoopDetailsPane'
@@ -262,6 +263,8 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   const [infoOpen, setInfoOpen] = useState(false)
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
+  const contextPickerOpen = useRoxyStore((s) => s.contextPickerOpen)
+  const setContextPickerOpen = useRoxyStore((s) => s.setContextPickerOpen)
   const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | undefined>()
   const [dismissedCommand, setDismissedCommand] = useState<string | null>(null)
   const [askingSessionDismiss, setAskingSessionDismiss] = useState(false)
@@ -316,6 +319,15 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   const parentChat = activeChat?.parentId
     ? chats.find((c) => c.id === activeChat.parentId)
     : undefined
+  const addPendingContextAttachment = useRoxyStore((s) => s.addPendingContextAttachment)
+
+  const workspaceRoot =
+    activeChat?.worktreePath ??
+    activeChat?.workspacePath ??
+    parentChat?.worktreePath ??
+    parentChat?.workspacePath ??
+    null
+
   const activeLoop = loops.find((l) => l.chatId === activeChatId)
   const sessionTasks = activeChat?.tasks ?? []
   const tasksDone = sessionTasks.filter((t) => t.status === 'completed').length
@@ -791,6 +803,19 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
           onClose={() => setCommandsOpen(false)}
           onPopOut={openIndependentTerminal}
           initialTab={commandsInitialTab ?? (runningCommand ? 'agent' : 'user')}
+        />
+      )}
+
+      {contextPickerOpen && activeChatId && (
+        <ContextFilePickerModal
+          sessionId={activeChatId}
+          workspaceRoot={workspaceRoot}
+          onClose={() => setContextPickerOpen(false)}
+          onAttach={(attachments) => {
+            for (const item of attachments) {
+              addPendingContextAttachment(activeChatId, item)
+            }
+          }}
         />
       )}
     </div>

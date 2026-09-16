@@ -245,3 +245,51 @@ export function pruneToolMessages<T extends PrunableMessage>(
   }
   return out
 }
+
+import type { ChatContextAttachment } from './types'
+
+/** Construct a context attachment with normalized and relative paths. */
+export function createContextAttachment(
+  type: 'file' | 'folder',
+  targetPath: string,
+  root?: string | null,
+  line?: number
+): ChatContextAttachment {
+  const normPath = targetPath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normRoot = root ? root.replace(/\\/g, '/').replace(/\/+$/, '') : null
+  let displayPath = normPath
+  if (normRoot && (normPath === normRoot || normPath.startsWith(`${normRoot}/`))) {
+    displayPath = normPath.slice(normRoot.length).replace(/^\/+/, '') || normPath
+  }
+  const name = displayPath.split('/').pop() || displayPath
+  return {
+    id: `${type}:${normPath}${line ? `:${line}` : ''}`,
+    type,
+    path: displayPath,
+    fullPath: normPath,
+    name,
+    line
+  }
+}
+
+/** Prepend attached context references to the user's message prompt text. */
+export function formatMessageWithContext(
+  text: string,
+  contextItems?: ChatContextAttachment[]
+): string {
+  if (!contextItems || contextItems.length === 0) return text
+  const lines = ['Context:']
+  for (const item of contextItems) {
+    const lineSuffix = item.line ? `:${item.line}` : ''
+    if (item.type === 'folder') {
+      lines.push(`- Folder: ${item.path}/`)
+    } else {
+      lines.push(`- File: ${item.path}${lineSuffix}`)
+    }
+  }
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return lines.join('\n')
+  }
+  return `${lines.join('\n')}\n\n${trimmed}`
+}

@@ -1214,6 +1214,8 @@ export interface RoxyApi {
   }
   dialog: {
     openWorkspace(): Promise<string | null>
+    openFiles(options?: { title?: string; defaultPath?: string }): Promise<string[] | null>
+    openFolders(options?: { title?: string; defaultPath?: string }): Promise<string[] | null>
   }
   config: {
     /** Export global skills + MCP configs to a file chosen via a save dialog. */

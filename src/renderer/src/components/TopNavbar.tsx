@@ -1,15 +1,7 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import {
-  Lightbulb,
-  MonitorSmartphone,
-  Palette,
-  PanelLeft,
-  Plug,
-  Settings as SettingsIcon,
-  Terminal
-} from 'lucide-react'
+import { Lightbulb, MonitorSmartphone, Palette, PanelLeft, Plug, Terminal } from 'lucide-react'
 import roxy from '../assets/roxy.png'
 import { cn } from '../lib/cn'
 import { api } from '../lib/api'
@@ -148,15 +140,6 @@ export function TopNavbar(): JSX.Element {
           )}
         >
           <Terminal className="h-3.5 w-3.5" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigate('/settings')}
-          title={t('sidebar.settings')}
-          className="press-scale flex h-7 w-7 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-        >
-          <SettingsIcon className="h-3.5 w-3.5" />
         </button>
       </div>
 

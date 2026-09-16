@@ -1179,6 +1179,38 @@ export function registerIpc(): void {
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
+  ipcMain.handle(
+    CHANNELS.dialogOpenFiles,
+    async (event, options?: { title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const opts = {
+        title: options?.title ?? 'Select files to attach',
+        defaultPath: options?.defaultPath,
+        properties: ['openFile', 'multiSelections'] as const
+      }
+      const result = win
+        ? await dialog.showOpenDialog(win, { ...opts, properties: [...opts.properties] })
+        : await dialog.showOpenDialog({ ...opts, properties: [...opts.properties] })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return result.filePaths
+    }
+  )
+  ipcMain.handle(
+    CHANNELS.dialogOpenFolders,
+    async (event, options?: { title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const opts = {
+        title: options?.title ?? 'Select folders to attach',
+        defaultPath: options?.defaultPath,
+        properties: ['openDirectory', 'multiSelections'] as const
+      }
+      const result = win
+        ? await dialog.showOpenDialog(win, { ...opts, properties: [...opts.properties] })
+        : await dialog.showOpenDialog({ ...opts, properties: [...opts.properties] })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return result.filePaths
+    }
+  )
 
   // ---- portable config (export/import global skills + MCP servers) ----
   // Export builds the bundle, then a native Save dialog picks the destination;

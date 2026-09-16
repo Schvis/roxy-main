@@ -382,7 +382,9 @@ const roxy: RoxyApi = {
     }
   },
   dialog: {
-    openWorkspace: () => ipcRenderer.invoke(CHANNELS.dialogOpenWorkspace)
+    openWorkspace: () => ipcRenderer.invoke(CHANNELS.dialogOpenWorkspace),
+    openFiles: (options) => ipcRenderer.invoke(CHANNELS.dialogOpenFiles, options),
+    openFolders: (options) => ipcRenderer.invoke(CHANNELS.dialogOpenFolders, options)
   },
   config: {
     export: () => ipcRenderer.invoke(CHANNELS.configExport),
