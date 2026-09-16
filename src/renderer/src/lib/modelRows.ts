@@ -182,3 +182,85 @@ export function buildModelRows(input: {
   }
   return out
 }
+
+export interface ProviderModelRow {
+  key: string
+  providerId: string
+  providerName: string
+  modelId: string
+  label: string
+  info: ModelInfo | undefined
+}
+
+/**
+ * Build the model rows for a single provider's view in the carousel picker.
+ */
+export function buildProviderModelRows(input: {
+  provider: RowProvider
+  catalog: ModelInfo[]
+  index: Map<string, IndexEntry>
+  query: string
+  hidden: ReadonlySet<string>
+}): ProviderModelRow[] {
+  const { provider, catalog, index, query, hidden } = input
+  const q = query.trim().toLowerCase()
+  const out: ProviderModelRow[] = []
+  const seen = new Set<string>()
+
+  for (const m of catalog) {
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    const key = `${provider.id}:${m.id}`
+    if (hidden.has(key)) continue
+    if (q) {
+      const entry = index.get(key)
+      if (!entry?.haystack.includes(q)) continue
+    }
+    const hit = index.get(key)
+    out.push({
+      key,
+      providerId: provider.id,
+      providerName: provider.name,
+      modelId: m.id,
+      label: modelLabel(provider.id, hit?.info.name ?? m.name ?? m.id, m.id),
+      info: hit?.info
+    })
+  }
+
+  return out
+}
+
+/**
+ * Count matching models for each provider when a search query is active.
+ */
+export function countMatchesByProvider(input: {
+  providers: RowProvider[]
+  catalogs: Record<string, ModelInfo[]>
+  index: Map<string, IndexEntry>
+  query: string
+  hidden: ReadonlySet<string>
+}): Record<string, number> {
+  const { providers, catalogs, index, query, hidden } = input
+  const q = query.trim().toLowerCase()
+  const counts: Record<string, number> = {}
+
+  for (const p of providers) {
+    const catalog = catalogs[p.id] ?? []
+    const seen = new Set<string>()
+    let count = 0
+    for (const m of catalog) {
+      if (seen.has(m.id)) continue
+      seen.add(m.id)
+      const key = `${p.id}:${m.id}`
+      if (hidden.has(key)) continue
+      if (q) {
+        const entry = index.get(key)
+        if (!entry?.haystack.includes(q)) continue
+      }
+      count++
+    }
+    counts[p.id] = count
+  }
+
+  return counts
+}

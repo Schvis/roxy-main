@@ -324,7 +324,12 @@ import {
   type Rect
 } from '../src/renderer/src/lib/anchor'
 import { rowOffsets, visibleRange, OVERSCAN } from '../src/renderer/src/lib/windowing'
-import { buildModelIndex, buildModelRows } from '../src/renderer/src/lib/modelRows'
+import {
+  buildModelIndex,
+  buildModelRows,
+  buildProviderModelRows,
+  countMatchesByProvider
+} from '../src/renderer/src/lib/modelRows'
 import {
   contextMenuItems as clipboardMenuItems,
   hasUsableItems,
@@ -5598,6 +5603,44 @@ async function main(): Promise<void> {
       query: '',
       hidden: new Set()
     }).length === baseRows.length
+  )
+
+  // ---- provider model rows for carousel picker (renderer/lib/modelRows) -----
+  const copilotRows = buildProviderModelRows({
+    provider: { id: 'github-copilot', name: 'GitHub Copilot' },
+    catalog: pickerCatalogs['github-copilot'],
+    index: pickerIndex,
+    query: '',
+    hidden: new Set(['github-copilot:claude-opus-5'])
+  })
+  check(
+    'provider rows: filters out hidden models and keeps remaining',
+    copilotRows.length === 2 &&
+      copilotRows.every((r) => r.providerId === 'github-copilot' && r.modelId !== 'claude-opus-5')
+  )
+
+  const copilotSearched = buildProviderModelRows({
+    provider: { id: 'github-copilot', name: 'GitHub Copilot' },
+    catalog: pickerCatalogs['github-copilot'],
+    index: pickerIndex,
+    query: 'sol',
+    hidden: new Set()
+  })
+  check(
+    'provider rows: query filters correctly within provider',
+    copilotSearched.length === 1 && copilotSearched[0].modelId === 'gpt-5.6-sol'
+  )
+
+  const providerCounts = countMatchesByProvider({
+    providers: pickerProviders,
+    catalogs: pickerCatalogs,
+    index: pickerIndex,
+    query: 'opus',
+    hidden: new Set()
+  })
+  check(
+    'provider match counts: counts matches per provider accurately',
+    providerCounts['github-copilot'] === 1 && providerCounts['roxy'] === 1
   )
 
   // ---- context menus open AT THE CURSOR (sidebar right-click) --------------

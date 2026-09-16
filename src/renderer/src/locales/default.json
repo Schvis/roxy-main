@@ -230,7 +230,11 @@
     "loadFailed": "Couldn't load models from models.dev — you can still send with the current model.",
     "sectionPinned": "Pinned",
     "sectionLatest": "Latest · {{provider}}",
-    "allHidden": "Every model is hidden. Bring some back in <settings>Settings → Models</settings>."
+    "allHidden": "Every model is hidden. Bring some back in <settings>Settings → Models</settings>.",
+    "noMatchInProvider": "No models match “{{query}}” in {{provider}}.",
+    "matchesInOther": "Available in:",
+    "reasoning": "Reasoning",
+    "tools": "Tools"
   },
   "onboarding": {
     "welcomeTagline": "This might be a complete disaster. It might also be the best thing you use all year!",
