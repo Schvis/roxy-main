@@ -25,13 +25,16 @@ import type {
   MultiSyncOutcome,
   RepoStatusView,
   RepoSyncResult,
+  LlmEvent,
   LlmStartInput,
   McpServerView,
   RemoteStartInput,
+  ShellType,
   SkillView,
   SkillWriteInput,
   SyncOutcome,
-  UpsertMcpServerInput
+  UpsertMcpServerInput,
+  WorkspaceFileSearchOptions
 } from '../../shared/api'
 import type {
   AddMessageInput,
@@ -76,6 +79,15 @@ import * as cookies from '../services/cookies'
 import { invalidateCopilotModels, listModels } from '../services/models'
 import { invalidateCopilotToken } from '../services/llm'
 import {
+  beginActiveTurn,
+  applyTurnEvent,
+  getActiveTurnParts,
+  markTurnPersisted,
+  isTurnAlreadyFlushed,
+  endActiveTurn,
+  flushAllActiveTurns
+} from '../services/turn-recovery'
+import {
   createSyncTtsStreamer,
   stopTts,
   getLocalTtsStatus,
@@ -116,11 +128,33 @@ import {
   restartService
 } from '../harness'
 import { sessionCwd, discoverRepos } from '../services/workspace'
+import {
+  createWorkspaceFile,
+  deleteWorkspaceFile,
+  getWorkspaceFileDiagnostics,
+  listWorkspaceFiles,
+  onWorkspaceFilesChanged,
+  readWorkspaceFile,
+  renameWorkspaceFile,
+  replaceWorkspaceFiles,
+  searchWorkspaceFiles,
+  watchWorkspace,
+  writeWorkspaceFile
+} from '../services/workspace-files'
 import nodePath from 'node:path'
 import * as git from '../services/git'
 import * as forge from '../services/forge'
 import type { ForgeKind } from '../../shared/forge'
 import { pruneWorktrees, removeWorktreeForChat, renameWorkstreamBranch } from '../services/worktree'
+import {
+  startShell,
+  writeShell,
+  killShell,
+  restartShell,
+  clearShell,
+  resizeShell,
+  getShellState
+} from '../services/shell-session'
 import { checkForUpdates, quitAndInstall, getUpdateState } from '../services/updater'
 import {
   cancelBackgroundJob,
@@ -261,6 +295,92 @@ async function discoverSkillViews(cwd?: string): Promise<SkillView[]> {
  * channel here + a matching bridge method.
  */
 export function registerIpc(): void {
+  onWorkspaceFilesChanged((root) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        if (!win.isDestroyed()) {
+          win.webContents.send(CHANNELS.filesChanged, { root })
+        }
+      } catch {}
+    }
+  })
+
+  ipcMain.handle(
+    CHANNELS.filesWrite,
+    (_e, sessionId: string, path: string, content: string, expectedRevision: string) => {
+      if (typeof sessionId !== 'string') throw new Error('Invalid session')
+      return writeWorkspaceFile(sessionCwd(sessionId), path, content, expectedRevision)
+    }
+  )
+  ipcMain.handle(CHANNELS.filesDelete, (_e, sessionId: string, path: string) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid session')
+    return deleteWorkspaceFile(sessionCwd(sessionId), path)
+  })
+  ipcMain.handle(
+    CHANNELS.filesCreate,
+    (_e, sessionId: string, path: string, isDirectory?: boolean) => {
+      if (typeof sessionId !== 'string') throw new Error('Invalid session')
+      return createWorkspaceFile(sessionCwd(sessionId), path, isDirectory)
+    }
+  )
+  ipcMain.handle(
+    CHANNELS.filesRename,
+    (_e, sessionId: string, oldPath: string, newPath: string) => {
+      if (typeof sessionId !== 'string') throw new Error('Invalid session')
+      return renameWorkspaceFile(sessionCwd(sessionId), oldPath, newPath)
+    }
+  )
+  ipcMain.handle(CHANNELS.settingsSetIdeChatDock, (_e, dock: AppSettings['ideChatDock']) => {
+    const settings = repo.setIdeChatDock(dock)
+    broadcastSettings(settings)
+    return settings
+  })
+  ipcMain.handle(CHANNELS.filesList, (_e, sessionId: string, path: string) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid session')
+    const cwd = sessionCwd(sessionId)
+    if (cwd) void watchWorkspace(cwd)
+    return listWorkspaceFiles(cwd, path)
+  })
+  ipcMain.handle(CHANNELS.filesRead, (_e, sessionId: string, path: string) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid session')
+    return readWorkspaceFile(sessionCwd(sessionId), path)
+  })
+  ipcMain.handle(
+    CHANNELS.filesDiagnostics,
+    (_e, sessionId: string, path: string, content: string) => {
+      if (typeof sessionId !== 'string') throw new Error('Invalid session')
+      return getWorkspaceFileDiagnostics(sessionCwd(sessionId), path, content)
+    }
+  )
+  ipcMain.handle(
+    CHANNELS.filesSearch,
+    (_e, sessionId: string, query: string, options?: WorkspaceFileSearchOptions) => {
+      if (typeof sessionId !== 'string') throw new Error('Invalid session')
+      return searchWorkspaceFiles(sessionCwd(sessionId), query, options)
+    }
+  )
+  ipcMain.handle(
+    CHANNELS.filesReplace,
+    (
+      _e,
+      sessionId: string,
+      query: string,
+      replacement: string,
+      options?: WorkspaceFileSearchOptions,
+      paths?: string[]
+    ) => {
+      if (typeof sessionId !== 'string') throw new Error('Invalid session')
+      return replaceWorkspaceFiles(sessionCwd(sessionId), query, replacement, options, paths)
+    }
+  )
+  ipcMain.handle(CHANNELS.settingsSetIdeMode, (_e, enabled: boolean) => {
+    const settings = repo.setIdeMode(enabled)
+    if (enabled && !settings.ttsEnabled) {
+      void stopTts()
+    }
+    broadcastSettings(settings)
+    return settings
+  })
   // ---- settings ----
   ipcMain.handle(CHANNELS.settingsGetAll, () => repo.getSettings())
   ipcMain.handle(
@@ -318,9 +438,14 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetLanguage, (_e, language: Language) =>
     repo.setLanguage(language)
   )
-  ipcMain.handle(CHANNELS.settingsSetTtsEnabled, (_e, enabled: boolean) =>
-    repo.setTtsEnabled(enabled)
-  )
+  ipcMain.handle(CHANNELS.settingsSetTtsEnabled, (_e, enabled: boolean) => {
+    const settings = repo.setTtsEnabled(enabled)
+    if (!settings.ttsEnabled) {
+      void stopTts()
+    }
+    broadcastSettings(settings)
+    return settings
+  })
   ipcMain.handle(CHANNELS.settingsSetTtsAutoStart, (_e, enabled: boolean) =>
     repo.setTtsAutoStart(enabled)
   )
@@ -710,6 +835,16 @@ export function registerIpc(): void {
   // ---- messages ----
   ipcMain.handle(CHANNELS.messagesList, (_e, chatId: string) => repo.listMessages(chatId))
   ipcMain.handle(CHANNELS.messagesAdd, (_e, input: AddMessageInput) => {
+    if (input.role === 'assistant') {
+      if (isTurnAlreadyFlushed(input.chatId)) {
+        const existing = repo.listMessages(input.chatId)
+        const last = existing[existing.length - 1]
+        if (last && last.role === 'assistant') {
+          return last
+        }
+      }
+      markTurnPersisted(input.chatId)
+    }
     const message = repo.addMessage(input)
     emitMessagesUpdated(input.chatId)
     return message
@@ -1226,6 +1361,7 @@ export function registerIpc(): void {
     const controller = new AbortController()
     llmControllers.set(input.requestId, controller)
     const untrack = trackSession(input.sessionId, controller)
+    beginActiveTurn(input.requestId, input.sessionId, controller)
     // Stop can be pressed in the gap between the renderer asking for the turn
     // and this handler running. `abortSession` would have found nothing to
     // abort, so honour a stop that already landed for this session.
@@ -1233,6 +1369,7 @@ export function registerIpc(): void {
       emitTurnState(input.sessionId, 'idle')
       llmControllers.delete(input.requestId)
       untrack()
+      endActiveTurn(input.requestId, true)
       return { ok: false, error: 'Stopped.' }
     }
     // If this session is shared to a phone, relay the turn there too so the phone
@@ -1247,19 +1384,23 @@ export function registerIpc(): void {
         if (!win.isDestroyed() && !isOverlayWindow(win)) {
           win.webContents.send(CHANNELS.llmDelta, {
             requestId: input.requestId,
+            sessionId: input.sessionId,
             event: llmEvent
           })
         }
       }
     }
     const tts = createSyncTtsStreamer((textDelta) => {
-      broadcastLlmDelta({ type: 'text', delta: textDelta })
-      if (relay) remote.relayLocalTurnEvent(relay, { type: 'text', delta: textDelta })
+      const event: LlmEvent = { type: 'text', delta: textDelta }
+      applyTurnEvent(input.requestId, event)
+      broadcastLlmDelta(event)
+      if (relay) remote.relayLocalTurnEvent(relay, event)
     }, settings)
     try {
       return await runSessionTurn(
         input,
         (llmEvent) => {
+          applyTurnEvent(input.requestId, llmEvent)
           if (llmEvent.type === 'text') {
             tts.onText(llmEvent.delta)
           } else {
@@ -1275,11 +1416,15 @@ export function registerIpc(): void {
       llmControllers.delete(input.requestId)
       untrack()
       if (relay) remote.relayLocalTurnEnd(relay)
+      endActiveTurn(input.requestId, controller.signal.aborted)
     }
   })
   ipcMain.handle(CHANNELS.llmAbort, (_e, requestId: string) => {
     void stopTts()
     llmControllers.get(requestId)?.abort()
+  })
+  ipcMain.handle(CHANNELS.llmSnapshot, (_e, sessionId: string) => {
+    return getActiveTurnParts(sessionId)
   })
   // Stop, as the UI means it: end everything this session has in flight,
   // whatever stage it's at. Also cancels the session's delegates â€” stopping a
@@ -1800,6 +1945,30 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.terminalCloseWindow, () => {
     closeTerminalWindow()
   })
+
+  // ---- persistent shell session ----
+  ipcMain.handle(CHANNELS.shellStart, (_e, sessionId: string, shellType?: ShellType) => {
+    return startShell(sessionId, shellType)
+  })
+  ipcMain.handle(CHANNELS.shellInput, (_e, sessionId: string, data: string) => {
+    return writeShell(sessionId, data)
+  })
+  ipcMain.handle(CHANNELS.shellKill, (_e, sessionId: string) => {
+    return killShell(sessionId)
+  })
+  ipcMain.handle(CHANNELS.shellRestart, (_e, sessionId: string, shellType?: ShellType) => {
+    return restartShell(sessionId, shellType)
+  })
+  ipcMain.handle(CHANNELS.shellState, (_e, sessionId: string) => {
+    return getShellState(sessionId)
+  })
+  ipcMain.handle(CHANNELS.shellClear, (_e, sessionId: string) => {
+    return clearShell(sessionId)
+  })
+  ipcMain.handle(CHANNELS.shellResize, (_e, sessionId: string, cols: number, rows: number) => {
+    return resizeShell(sessionId, cols, rows)
+  })
+
   ipcMain.handle(CHANNELS.showMainWindow, (_e, sessionId?: string) => {
     focusMainWindow(sessionId)
   })
@@ -1829,6 +1998,27 @@ export function registerIpc(): void {
         repo.setVtuberWindowBounds(newWidth, newHeight, bounds.x, bounds.y)
       }
     }
+  })
+
+  ipcMain.handle(CHANNELS.windowMinimize, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    win?.minimize()
+  })
+  ipcMain.handle(CHANNELS.windowMaximize, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (win) {
+      if (win.isMaximized()) win.unmaximize()
+      else win.maximize()
+    }
+  })
+  ipcMain.handle(CHANNELS.windowClose, (e) => {
+    flushAllActiveTurns('interrupted')
+    const win = BrowserWindow.fromWebContents(e.sender)
+    win?.close()
+  })
+  ipcMain.handle(CHANNELS.windowIsMaximized, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    return win?.isMaximized() ?? false
   })
 
   let cursorTrackingInterval: NodeJS.Timeout | null = null

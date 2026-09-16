@@ -1171,6 +1171,18 @@ function recordCall(
   }
 }
 
+/**
+ * Detect whether the model emitted an interactive question tag (<agent-question>)
+ * that requires user input before any tools should be executed.
+ */
+function shouldWaitForUserInput(text: string): boolean {
+  if (!text) return false
+
+  return /<(?:agent-question|agent-questions|questions|question)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question)>|$)/i.test(
+    text
+  )
+}
+
 /** The shared agent loop: stream → run tools (incl. `task`) → repeat. Returns the final prose. */
 async function runLoop(o: LoopOptions): Promise<string> {
   const {
@@ -1241,6 +1253,11 @@ async function runLoop(o: LoopOptions): Promise<string> {
     )
     if (text) lastText = text
     if (toolCalls.length === 0) return lastText // model finished with prose
+
+    // Halt turn and wait for user input if the agent asked interactive questions.
+    if (depth === 0 && shouldWaitForUserInput(text)) {
+      return lastText
+    }
 
     convo.push({
       role: 'assistant',

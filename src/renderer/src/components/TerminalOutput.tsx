@@ -67,6 +67,9 @@ export function TerminalOutput({
       )}
       {trimmed && <span className="whitespace-pre-wrap break-all">{renderAnsi(trimmed)}</span>}
       {!prompt && !trimmed && !footer && (state === 'running' ? 'Running…' : '(no output)')}
+      {state === 'running' && (
+        <span className="inline-block h-3.5 w-2 bg-accent/80 animate-pulse ml-0.5 align-middle select-none" />
+      )}
       {footer && (
         <div className="mt-0.5 whitespace-pre-wrap break-all" style={{ color: FOOTER_COLOR }}>
           {footer}

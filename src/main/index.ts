@@ -20,14 +20,9 @@ import { shutdownCliProxy } from './services/cliproxy'
 import { initAutoUpdater } from './services/updater'
 import { initTracking, shutdownTracking } from './services/track'
 import { killAllBackground, setPromptText, setAgentPromptText } from './harness'
+import { killAllShells } from './services/shell-session'
 import { PROMPT_TEXT, AGENT_PROMPT_TEXT } from '../shared/prompt-text'
-import {
-  OVERLAY_HEIGHT,
-  applyWindowChrome,
-  chromePlatform,
-  initialBackgroundColor,
-  initialOverlay
-} from './services/window-chrome'
+import { applyWindowChrome, chromePlatform, initialBackgroundColor } from './services/window-chrome'
 import { resolveThemeById } from './services/themes'
 import * as repo from './db/repo'
 import { setMainWindow, focusMainWindow } from './services/main-window'
@@ -40,6 +35,7 @@ import {
 import { updateVoiceShortcut, unregisterVoiceShortcut } from './services/voice-shortcut'
 import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 import { initDiscordRpc, shutdownDiscordRpc } from './services/discord-rpc'
+import { flushAllActiveTurns } from './services/turn-recovery'
 
 let isQuitting = false
 
@@ -54,11 +50,9 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: initialBackgroundColor(),
     title: 'Roxy',
-    // Native window controls, themed to match the app (no light OS title bar).
+    // Window controls are rendered in the top navbar (or traffic lights on mac).
     titleBarStyle: 'hidden',
-    ...(isMac
-      ? { trafficLightPosition: { x: 16, y: 17 } }
-      : { titleBarOverlay: initialOverlay(OVERLAY_HEIGHT.main) }),
+    ...(isMac ? { trafficLightPosition: { x: 16, y: 17 } } : {}),
     ...(isMac ? {} : { icon }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -87,7 +81,13 @@ function createWindow(): BrowserWindow {
     if (repo.getSettings().overlayMode && !isQuitting) {
       event.preventDefault()
       mainWindow.hide()
+    } else {
+      flushAllActiveTurns('interrupted')
     }
+  })
+
+  mainWindow.webContents.on('render-process-gone', () => {
+    flushAllActiveTurns('interrupted')
   })
 
   mainWindow.on('show', () => {
@@ -267,12 +267,15 @@ app.on('window-all-closed', () => {
 // window to reach the network. Losing it costs one app_close, nothing more.
 app.on('before-quit', () => {
   isQuitting = true
+  flushAllActiveTurns('interrupted')
   shutdownTracking()
 })
 
 app.on('will-quit', () => {
+  flushAllActiveTurns('interrupted')
   unregisterVoiceShortcut()
   killAllBackground()
+  killAllShells()
   cancelAllBackgroundJobs()
   closeAllBrowsers()
   shutdownAllLsp()

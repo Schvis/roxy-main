@@ -43,18 +43,17 @@ const aliases: Record<string, keyof typeof languages> = {
 }
 let engine: ReturnType<typeof createHighlighterCore> | undefined
 
-export async function highlightDiff(document: DiffDocument): Promise<DiffSyntax> {
+export async function highlightSource(
+  path: string,
+  source: string
+): Promise<SyntaxToken[][] | null> {
   const ext =
-    document.path
+    path
       .split(/[./\\]/)
       .pop()
       ?.toLowerCase() ?? ''
   const lang = aliases[ext] ?? (ext in languages ? (ext as keyof typeof languages) : undefined)
-  const plain = (): DiffSyntax => ({
-    before: document.beforeLines.map((line) => [{ text: line.text }]),
-    after: document.afterLines.map((line) => [{ text: line.text }])
-  })
-  if (!lang || document.before.length + document.after.length > 400_000) return plain()
+  if (!lang || source.length > 400_000) return null
   engine ??= createHighlighterCore({
     themes: [import('shiki/themes/github-dark.mjs'), import('shiki/themes/github-light.mjs')],
     langs: [],
@@ -62,19 +61,28 @@ export async function highlightDiff(document: DiffDocument): Promise<DiffSyntax>
   })
   const highlighter = await engine
   await highlighter.loadLanguage(languages[lang]())
-  const tokenize = (source: string): SyntaxToken[][] =>
-    highlighter
-      .codeToTokensWithThemes(source, {
-        lang,
-        themes: { dark: 'github-dark', light: 'github-light' },
-        tokenizeMaxLineLength: 2000
-      })
-      .map((line) =>
-        line.map((token) => ({
-          text: token.content,
-          dark: token.variants.dark.color,
-          light: token.variants.light.color
-        }))
-      )
-  return { before: tokenize(document.before), after: tokenize(document.after) }
+  return highlighter
+    .codeToTokensWithThemes(source, {
+      lang,
+      themes: { dark: 'github-dark', light: 'github-light' },
+      tokenizeMaxLineLength: 2000
+    })
+    .map((line) =>
+      line.map((token) => ({
+        text: token.content,
+        dark: token.variants.dark.color,
+        light: token.variants.light.color
+      }))
+    )
+}
+
+export async function highlightDiff(document: DiffDocument): Promise<DiffSyntax> {
+  const plain = (): DiffSyntax => ({
+    before: document.beforeLines.map((line) => [{ text: line.text }]),
+    after: document.afterLines.map((line) => [{ text: line.text }])
+  })
+  if (document.before.length + document.after.length > 400_000) return plain()
+  const before = await highlightSource(document.path, document.before)
+  const after = await highlightSource(document.path, document.after)
+  return before && after ? { before, after } : plain()
 }

@@ -446,6 +446,7 @@ export type LlmChildEvent = Exclude<LlmEvent, { type: 'tool-child' }>
 
 export interface LlmDelta {
   requestId: string
+  sessionId?: string
   event: LlmEvent
 }
 
@@ -722,7 +723,124 @@ export interface CustomPrompt {
   createdAt: number
 }
 
+export interface WorkspaceFileEntry {
+  name: string
+  /** Session-root-relative path, using '/' separators. */
+  path: string
+  directory: boolean
+}
+
+export interface WorkspaceFileRead {
+  content: string
+  truncated: boolean
+  binary: boolean
+  /** Opaque byte revision bound to canonical root and target; null for non-editable previews. */
+  revision: string | null
+}
+
+export interface WorkspaceFileDiagnostic {
+  line: number
+  column: number
+  start: number
+  length: number
+  code: number
+  message: string
+}
+
+export interface WorkspaceFileSearchMatch {
+  path: string
+  line: number
+  column: number
+  matchLength: number
+  lineText: string
+}
+
+export interface WorkspaceFileSearchOptions {
+  caseSensitive?: boolean
+  wholeWord?: boolean
+  maxResults?: number
+}
+
+export interface WorkspaceFileReplaceResult {
+  filesChanged: number
+  replacements: number
+}
+
+export interface WorkspaceFileCreateResult {
+  success: boolean
+  path: string
+}
+
+export interface WorkspaceFileRenameResult {
+  success: boolean
+  newPath: string
+}
+
+export type WorkspaceFileWrite = { status: 'saved'; revision: string } | { status: 'conflict' }
+
+export type ShellType = 'powershell' | 'cmd' | 'bash'
+
+export interface ShellState {
+  running: boolean
+  shellType: ShellType
+  cwd: string
+  output: string
+}
+
 export interface RoxyApi {
+  files: {
+    /** Root-relative or absolute contained path; '' and '.' select the session root.
+     * Direct children, folders first, root-relative '/' paths; symlinks skipped.
+     */
+    list(sessionId: string, path: string): Promise<WorkspaceFileEntry[]>
+    /** At most 512 KiB of a regular file as UTF-8. Binary content is empty.
+     * Invalid/unavailable paths reject. No filesystem writes.
+     */
+    read(sessionId: string, path: string): Promise<WorkspaceFileRead>
+    /** Replace an existing complete UTF-8 file, at most 512 KiB; stale revisions conflict.
+     * Invalid input, paths and filesystem errors reject. No file creation.
+     * Content is literal UTF-8: retain a leading U+FEFF to preserve an existing BOM.
+     * Serialized by canonical target within main; external processes are not locked.
+     */
+    write(
+      sessionId: string,
+      path: string,
+      content: string,
+      expectedRevision: string
+    ): Promise<WorkspaceFileWrite>
+    /** Delete a workspace file, e.g. when reverting a created file. */
+    delete(sessionId: string, path: string): Promise<boolean>
+    /** Create a new file or directory in the workspace. */
+    create(
+      sessionId: string,
+      path: string,
+      isDirectory?: boolean
+    ): Promise<WorkspaceFileCreateResult>
+    /** Rename or move a workspace file or directory. */
+    rename(sessionId: string, oldPath: string, newPath: string): Promise<WorkspaceFileRenameResult>
+    /** Listen for workspace file changes. Returns an unregister function. */
+    onChanged(handler: (payload: { sessionId?: string; root?: string }) => void): () => void
+    /** Diagnose syntax, type, and import errors in an in-memory buffer against workspace files. */
+    diagnostics(
+      sessionId: string,
+      path: string,
+      content: string
+    ): Promise<WorkspaceFileDiagnostic[]>
+    /** Search for text across workspace files. */
+    search(
+      sessionId: string,
+      query: string,
+      options?: WorkspaceFileSearchOptions
+    ): Promise<WorkspaceFileSearchMatch[]>
+    /** Replace text across matching workspace files. */
+    replace(
+      sessionId: string,
+      query: string,
+      replacement: string,
+      options?: WorkspaceFileSearchOptions,
+      paths?: string[]
+    ): Promise<WorkspaceFileReplaceResult>
+  }
   settings: {
     getAll(): Promise<AppSettings>
     setActiveProvider(providerId: string, model: string | null): Promise<AppSettings>
@@ -732,6 +850,8 @@ export interface RoxyApi {
     setContextLimit(limit: number | null): Promise<AppSettings>
     setAutoWorkstream(enabled: boolean): Promise<AppSettings>
     setOverlayMode(enabled: boolean): Promise<AppSettings>
+    setIdeMode(enabled: boolean): Promise<AppSettings>
+    setIdeChatDock(dock: AppSettings['ideChatDock']): Promise<AppSettings>
     setOverlayKeybind(keybind: string): Promise<AppSettings>
     setVoiceKeybind(keybind: string): Promise<AppSettings>
     setVoiceAutoSend(enabled: boolean): Promise<AppSettings>
@@ -850,6 +970,10 @@ export interface RoxyApi {
   showMainWindow(sessionId?: string): Promise<void>
   windowMove(dx: number, dy: number): Promise<void>
   windowResize(width: number, height: number): Promise<void>
+  windowMinimize(): Promise<void>
+  windowMaximize(): Promise<void>
+  windowClose(): Promise<void>
+  windowIsMaximized(): Promise<boolean>
   integrations: {
     list(): Promise<IntegrationConnection[]>
     setEnabled(id: string, enabled: boolean): Promise<void>
@@ -1129,6 +1253,26 @@ export interface RoxyApi {
     /** Close the independent terminal/commands window. */
     close(): Promise<void>
   }
+  shell: {
+    /** Start or attach to a persistent shell session for this workspace/chat. */
+    start(sessionId: string, shellType?: ShellType): Promise<ShellState>
+    /** Write input or command to the shell stdin. Use '\x03' for Ctrl+C interrupt. */
+    write(sessionId: string, data: string): Promise<boolean>
+    /** Kill the running shell process tree for this session. */
+    kill(sessionId: string): Promise<boolean>
+    /** Terminate and immediately restart a fresh shell in this session's cwd. */
+    restart(sessionId: string, shellType?: ShellType): Promise<ShellState>
+    /** Get current shell running state and scrollback buffer. */
+    getState(sessionId: string): Promise<ShellState>
+    /** Clear the persistent shell's scrollback buffer. */
+    clear(sessionId: string): Promise<boolean>
+    /** Resize the pseudoterminal dimensions. */
+    resize(sessionId: string, cols: number, rows: number): Promise<boolean>
+    /** Subscribe to realtime stdout/stderr chunks from the persistent shell. */
+    onOutput(callback: (data: { sessionId: string; chunk: string }) => void): () => void
+    /** Subscribe to shell process exit events. */
+    onExit(callback: (data: { sessionId: string; code: number | null }) => void): () => void
+  }
   queue: {
     list(chatId: string): Promise<QueueItem[]>
     add(chatId: string, content: string, images?: QueueImage[]): Promise<QueueItem>
@@ -1157,6 +1301,8 @@ export interface RoxyApi {
      */
     abortSession(sessionId: string): Promise<void>
     onDelta(callback: (payload: LlmDelta) => void): () => void
+    /** Live parts of an active session turn, for a window that opens mid-stream. */
+    snapshot(sessionId: string): Promise<MessagePart[] | null>
   }
   tasks: {
     /** The background subagent tasks still running for a session. */

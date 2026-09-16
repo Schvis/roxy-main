@@ -1,6 +1,6 @@
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, ChevronUp, ImagePlus, Pencil, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, ImagePlus, Pencil, X, Zap } from 'lucide-react'
 import type { QueueItem as QueueItemType } from '@shared/types'
 import { useRoxyStore } from '../lib/store'
 import { imageFilesFrom, readImageFile, type ComposerImage } from '../lib/images'
@@ -44,6 +44,7 @@ export function QueuedMessage({
   const editQueued = useRoxyStore((s) => s.editQueued)
   const removeQueued = useRoxyStore((s) => s.removeQueued)
   const moveQueued = useRoxyStore((s) => s.moveQueued)
+  const forceQueued = useRoxyStore((s) => s.forceQueued)
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -251,6 +252,9 @@ export function QueuedMessage({
         )}
       </div>
       <QueueItemActions>
+        <QueueItemAction onClick={() => void forceQueued(item.id)} title={t('queue.forceRun')}>
+          <Zap className="h-3.5 w-3.5" />
+        </QueueItemAction>
         <QueueItemAction onClick={startEditing} title={t('queue.editMessage')}>
           <Pencil className="h-3.5 w-3.5" />
         </QueueItemAction>

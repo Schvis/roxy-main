@@ -7,6 +7,18 @@ export const CHANNELS = {
   settingsSetContextLimit: 'settings:setContextLimit',
   settingsSetAutoWorkstream: 'settings:setAutoWorkstream',
   settingsSetOverlayMode: 'settings:setOverlayMode',
+  settingsSetIdeMode: 'settings:setIdeMode',
+  settingsSetIdeChatDock: 'settings:setIdeChatDock',
+  filesWrite: 'files:write',
+  filesDelete: 'files:delete',
+  filesCreate: 'files:create',
+  filesRename: 'files:rename',
+  filesChanged: 'files:changed',
+  filesList: 'files:list',
+  filesRead: 'files:read',
+  filesDiagnostics: 'files:diagnostics',
+  filesSearch: 'files:search',
+  filesReplace: 'files:replace',
   settingsSetOverlayKeybind: 'settings:setOverlayKeybind',
   settingsSetVoiceKeybind: 'settings:setVoiceKeybind',
   settingsSetVoiceAutoSend: 'settings:setVoiceAutoSend',
@@ -145,6 +157,10 @@ export const CHANNELS = {
   showMainWindow: 'showMainWindow',
   windowMove: 'window:move',
   windowResize: 'window:resize',
+  windowMinimize: 'window:minimize',
+  windowMaximize: 'window:maximize',
+  windowClose: 'window:close',
+  windowIsMaximized: 'window:isMaximized',
 
   integrationsList: 'integrations:list',
   integrationsSetEnabled: 'integrations:setEnabled',
@@ -244,6 +260,16 @@ export const CHANNELS = {
   terminalOpenWindow: 'terminal:openWindow',
   terminalCloseWindow: 'terminal:closeWindow',
 
+  shellStart: 'shell:start',
+  shellInput: 'shell:input',
+  shellKill: 'shell:kill',
+  shellRestart: 'shell:restart',
+  shellState: 'shell:state',
+  shellClear: 'shell:clear',
+  shellResize: 'shell:resize',
+  shellOutput: 'shell:output',
+  shellExit: 'shell:exit',
+
   queueList: 'queue:list',
   queueAdd: 'queue:add',
   queueRemove: 'queue:remove',
@@ -268,6 +294,8 @@ export const CHANNELS = {
   llmAbortSession: 'llm:abortSession',
   /** main -> renderer event carrying a streamed completion chunk */
   llmDelta: 'llm:delta',
+  /** renderer -> main: pull live parts of an active session turn */
+  llmSnapshot: 'llm:snapshot',
 
   /** main -> renderer event when a background subagent task changes state */
   taskUpdate: 'task:update',

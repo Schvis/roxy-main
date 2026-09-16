@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Terminal, AppWindow } from 'lucide-react'
-import { useRoxyStore } from '../lib/store'
+import { useRoxyStore, hydrateActiveTurn } from '../lib/store'
 import { api } from '../lib/api'
 import { CommandsPane } from './CommandsDialog'
 
@@ -28,6 +28,12 @@ export function StandaloneTerminal(): JSX.Element {
     chats.find((c) => c.id === activeChatId) ??
     chats[0] ??
     null
+
+  useEffect(() => {
+    if (chat?.id) {
+      void hydrateActiveTurn(chat.id)
+    }
+  }, [chat?.id])
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
 

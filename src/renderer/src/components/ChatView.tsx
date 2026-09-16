@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
-  AlertCircle,
   AppWindow,
   Check,
   ChevronRight,
   CornerUpLeft,
+  Edit3,
   ExternalLink,
   FolderOpen,
   Hammer,
@@ -30,6 +30,9 @@ import { CommandsDialog } from './CommandsDialog'
 import { Composer } from './Composer'
 import { LoopDetailsPane } from './LoopDetailsPane'
 import { SessionInfo } from './SessionInfo'
+import { AgentFileChangesPopup } from './AgentFileChangesPopup'
+import { AgentStepsPopup } from './AgentStepsPopup'
+import { AgentQuestionPopup } from './AgentQuestionPopup'
 import { WorkstreamStrip } from './WorkstreamStrip'
 import { QueuedMessage } from './QueuedMessage'
 import { UsageMeter } from './UsageMeter'
@@ -42,6 +45,8 @@ import {
   QueueSectionTrigger
 } from './Queue'
 import { Button } from './ui'
+import { IdeChatDock } from './IdeChatDock'
+import { extractTerminalInputOptions } from '../lib/agent-input-options'
 import roxy from '../assets/roxy.png'
 
 /**
@@ -70,9 +75,9 @@ import roxy from '../assets/roxy.png'
  * painter.
  */
 
-function findRunningTool(
+export function findRunningTool(
   parts: MessagePart[] | null
-): { tool: string; title: string; callId?: string } | null {
+): { tool: string; title: string; callId?: string; output?: string } | null {
   if (!parts) return null
   for (const p of parts) {
     if (p.type === 'tool' && p.state === 'running') {
@@ -82,7 +87,7 @@ function findRunningTool(
             ? p.input.command
             : (p.title ?? 'bash')
           : (p.title ?? p.tool)
-      return { tool: p.tool, title, callId: p.callId }
+      return { tool: p.tool, title, callId: p.callId, output: p.output }
     }
     if (p.type === 'tool' && p.children) {
       for (const c of p.children) {
@@ -93,7 +98,7 @@ function findRunningTool(
                 ? c.input.command
                 : (c.title ?? 'bash')
               : (c.title ?? c.tool)
-          return { tool: c.tool, title, callId: c.callId }
+          return { tool: c.tool, title, callId: c.callId, output: c.output }
         }
       }
     }
@@ -210,6 +215,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   const newSession = useRoxyStore((s) => s.newSession)
   const selectChat = useRoxyStore((s) => s.selectChat)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
+  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const chats = useRoxyStore((s) => s.chats)
   const loops = useRoxyStore((s) => s.loops)
   // Subscribe to the STORED array, not a defaulted copy. A selector returning
@@ -248,7 +254,8 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   const isEmpty = !hasContent && !loading
   const [loopPaneOpen, setLoopPaneOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
-  const [commandsOpen, setCommandsOpen] = useState(false)
+  const commandsOpen = useRoxyStore((s) => s.commandsOpen)
+  const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
   const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | undefined>()
   const [dismissedCommand, setDismissedCommand] = useState<string | null>(null)
   const [askingSessionDismiss, setAskingSessionDismiss] = useState(false)
@@ -265,6 +272,20 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
 
   const runningCommand = findRunningTool(streaming)
   const latestCommand = findLatestTool(streaming, messages)
+
+  const runningCommandOptions = runningCommand
+    ? extractTerminalInputOptions(runningCommand.output ?? '')
+    : []
+
+  const sendRunningCommandInput = async (val: string): Promise<void> => {
+    if (runningCommand?.callId && activeChatId) {
+      try {
+        await api.tools.input(runningCommand.callId, val, activeChatId)
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   // Reset dismissed banner when a new command runs
   useEffect(() => {
@@ -301,10 +322,11 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
       <div className="flex h-full min-w-0 flex-1 flex-col bg-bg">
         <header
           className={cn(
-            'titlebar flex h-12 shrink-0 items-center justify-end px-4',
-            !isOverlay && 'reserve-controls-right'
+            'flex h-12 shrink-0 items-center justify-between px-4',
+            isOverlay && 'titlebar'
           )}
         >
+          {ideMode ? <IdeChatDock compact /> : <div />}
           {isOverlay && (
             <button
               type="button"
@@ -338,8 +360,8 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
       <div className="relative flex h-full min-w-0 flex-1 flex-col">
         <header
           className={cn(
-            'titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4',
-            !isOverlay && 'reserve-controls-right'
+            'flex h-12 shrink-0 items-center justify-between gap-3 px-4',
+            isOverlay && 'titlebar'
           )}
         >
           {activeLoop ? (
@@ -363,20 +385,18 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
               </span>
               {/* A delegate's session is only legible in context — who sent it, and
                 a way back. The folder path is the parent's business. */}
-              {isSub ? (
-                parentChat && (
-                  <button
-                    onClick={() => void selectChat(parentChat.id)}
-                    title={t('chat.backTo', { title: parentChat.title })}
-                    className="flex min-w-0 items-center gap-1 truncate text-xs text-text-subtle transition-colors hover:text-text"
-                  >
-                    <CornerUpLeft className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{parentChat.title}</span>
-                  </button>
-                )
-              ) : (
-                <WorkspacePath chat={activeChat} />
-              )}
+              {isSub
+                ? parentChat && (
+                    <button
+                      onClick={() => void selectChat(parentChat.id)}
+                      title={t('chat.backTo', { title: parentChat.title })}
+                      className="flex min-w-0 items-center gap-1 truncate text-xs text-text-subtle transition-colors hover:text-text"
+                    >
+                      <CornerUpLeft className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{parentChat.title}</span>
+                    </button>
+                  )
+                : !ideMode && <WorkspacePath chat={activeChat} />}
               {subagentRunning && activeChatId && (
                 // Clickable, because this used to be the one running thing in the
                 // app with no way to stop it: a subagent's turn is driven by its
@@ -444,39 +464,6 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
                   <span className="tabular-nums">{backgroundTaskCount}</span>
                 </button>
               )}
-              {latestCommand && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCommandsInitialTab(runningCommand ? 'agent' : 'user')
-                    setCommandsOpen(true)
-                  }}
-                  title={runningCommand ? t('commands.viewRunning') : t('commands.openCommandLine')}
-                  className={cn(
-                    'press-scale group flex shrink-0 items-center gap-1.5 sq sq-md rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                    runningCommand
-                      ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                      : 'bg-surface-2 text-text-muted hover:bg-elevated hover:text-text'
-                  )}
-                >
-                  <Terminal
-                    className={cn(
-                      'h-3 w-3 shrink-0',
-                      runningCommand && 'animate-pulse text-accent'
-                    )}
-                  />
-                  <span className="min-w-0 max-w-[160px] truncate font-mono">
-                    {latestCommand.title}
-                  </span>
-                  {runningCommand ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
-                  ) : latestCommand.state === 'done' ? (
-                    <Check className="h-2.5 w-2.5 text-success shrink-0" />
-                  ) : (
-                    <AlertCircle className="h-2.5 w-2.5 text-text-muted shrink-0" />
-                  )}
-                </button>
-              )}
             </div>
           )}
           <div className="flex shrink-0 items-center gap-2">
@@ -494,26 +481,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
                 <Settings className="h-3.5 w-3.5" /> {t('chat.settings')}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setCommandsInitialTab('user')
-                setCommandsOpen((o) => !o)
-              }}
-              title={t('commands.title')}
-              aria-label={t('commands.title')}
-              className={cn(
-                'press-scale flex h-7 items-center gap-1.5 sq sq-lg rounded-lg px-2 text-xs transition-colors',
-                runningCommand
-                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                  : commandsOpen
-                    ? 'bg-elevated text-text'
-                    : 'text-text-muted hover:bg-white/5 hover:text-text'
-              )}
-            >
-              <Terminal className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t('commands.commandLine')}</span>
-            </button>
+            {ideMode && <IdeChatDock compact />}
             <UsageMeter />
             {isOverlay && (
               <button
@@ -528,6 +496,8 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
             )}
           </div>
         </header>
+
+        <AgentFileChangesPopup />
 
         {infoOpen && <SessionInfo chat={activeChat} />}
 
@@ -640,7 +610,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
             <div className="mx-auto max-w-3xl">
               <div
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                  'flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors',
                   runningCommand
                     ? 'border-accent/25 bg-accent/10 text-accent'
                     : 'border-border bg-surface-2/60 text-text-muted hover:bg-surface-2 hover:text-text'
@@ -690,55 +660,85 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
                   </div>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCommandsInitialTab(runningCommand ? 'agent' : 'user')
-                        setCommandsOpen(true)
-                      }}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    >
-                      <Terminal
-                        className={cn(
-                          'h-3.5 w-3.5 shrink-0',
-                          runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
-                        )}
-                      />
-                      <span className="shrink-0 font-medium">
-                        {runningCommand
-                          ? `${t('commands.runningNow')}:`
-                          : latestCommand.state === 'done'
-                            ? `${t('commands.completed')}:`
-                            : `${t('commands.error')}:`}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
-                        {latestCommand.title}
-                      </span>
-                      {runningCommand ? (
-                        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
-                      ) : (
-                        <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
-                          {t('commands.openCommandLine')}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openIndependentTerminal}
-                      title={t('commands.popOut')}
-                      className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                    </button>
-                    {!runningCommand && (
+                    <div className="flex w-full items-center justify-between gap-2">
                       <button
                         type="button"
-                        onClick={() => setAskingSessionDismiss(true)}
-                        title={t('common.close')}
-                        className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
+                        onClick={() => {
+                          setCommandsInitialTab(runningCommand ? 'agent' : 'user')
+                          setCommandsOpen(true)
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       >
-                        <X className="h-3 w-3" />
+                        <Terminal
+                          className={cn(
+                            'h-3.5 w-3.5 shrink-0',
+                            runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
+                          )}
+                        />
+                        <span className="shrink-0 font-medium">
+                          {runningCommand
+                            ? `${t('commands.runningNow')}:`
+                            : latestCommand.state === 'done'
+                              ? `${t('commands.completed')}:`
+                              : `${t('commands.error')}:`}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
+                          {latestCommand.title}
+                        </span>
+                        {runningCommand ? (
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
+                        ) : (
+                          <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
+                            {t('commands.openCommandLine')}
+                          </span>
+                        )}
                       </button>
+                      <button
+                        type="button"
+                        onClick={openIndependentTerminal}
+                        title={t('commands.popOut')}
+                        className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </button>
+                      {!runningCommand && (
+                        <button
+                          type="button"
+                          onClick={() => setAskingSessionDismiss(true)}
+                          title={t('common.close')}
+                          className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    {runningCommand && runningCommandOptions.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-accent/20 w-full">
+                        <span className="text-[11px] font-medium text-text-subtle mr-0.5 select-none">
+                          {t('commands.suggestedOptions')}:
+                        </span>
+                        {runningCommandOptions.map((opt) => (
+                          <button
+                            key={opt.id || opt.value}
+                            type="button"
+                            onClick={() => void sendRunningCommandInput(opt.value)}
+                            className="press-scale flex items-center gap-1 rounded bg-surface border border-accent/40 px-2 py-0.5 text-[11px] font-mono text-text hover:bg-accent/20 hover:text-accent transition-colors"
+                          >
+                            <span>{opt.label}</span>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCommandsInitialTab('agent')
+                            setCommandsOpen(true)
+                          }}
+                          className="press-scale flex items-center gap-1 rounded bg-surface/60 border border-border px-2 py-0.5 text-[11px] text-text-subtle hover:text-text transition-colors"
+                        >
+                          <Edit3 className="h-2.5 w-2.5" />
+                          <span>{t('commands.customInput')}</span>
+                        </button>
+                      </div>
                     )}
                   </>
                 )}
@@ -746,6 +746,9 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
             </div>
           </div>
         )}
+
+        <AgentStepsPopup />
+        <AgentQuestionPopup />
 
         <Composer
           onSend={submit}
@@ -770,7 +773,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
         )}
       </div>
 
-      {commandsOpen && activeChat && (
+      {commandsOpen && !ideMode && activeChat && (
         <CommandsDialog
           chat={activeChat}
           onClose={() => setCommandsOpen(false)}

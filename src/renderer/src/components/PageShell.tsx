@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft } from 'lucide-react'
+import { WindowControls } from './WindowControls'
 
 export function PageShell({
   title,
@@ -18,7 +19,7 @@ export function PageShell({
   const { t } = useTranslation()
   return (
     <div className="flex h-full w-full flex-col bg-bg">
-      <header className="titlebar reserve-controls-left reserve-controls-right flex h-12 shrink-0 items-center gap-3 px-4">
+      <header className="titlebar reserve-controls-left flex h-12 shrink-0 items-center gap-3 px-4">
         <button
           onClick={onBack}
           title={t('page.back')}
@@ -28,6 +29,9 @@ export function PageShell({
         </button>
         <span className="text-sm font-medium">{title}</span>
         {actions && <div className="ml-auto">{actions}</div>}
+        <div className="ml-auto flex items-center h-full">
+          <WindowControls />
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
         <div className="mx-auto max-w-3xl px-6 py-8">

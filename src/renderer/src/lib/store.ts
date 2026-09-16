@@ -56,6 +56,7 @@ import type {
   RepoStatusView,
   ServiceView,
   SyncOutcome,
+  WorkspaceFileEntry,
   WorktreeView
 } from '@shared/api'
 import { aggregateLifecycle, aggregateRepoStatus, describeCompositeLifecycle } from '@shared/repos'
@@ -97,6 +98,11 @@ interface RoxyStore {
   hiddenModels: Set<string>
   chats: Chat[]
   activeChatId: string | null
+  commandsOpen: boolean
+  ideTab: 'files' | 'search'
+  ideSelectedFile: WorkspaceFileEntry | null
+  ideSelectedLine: number | undefined
+  sidebarRailed: boolean
   messages: Message[]
   /**
    * Which chat `messages` actually holds, or `null` while a load is in flight.
@@ -231,6 +237,7 @@ interface RoxyStore {
   setContextLimit: (limit: number | null) => Promise<void>
   setAutoWorkstream: (enabled: boolean) => Promise<void>
   setOverlayMode: (enabled: boolean) => Promise<void>
+  setIdeMode: (enabled: boolean) => Promise<void>
   setOverlayKeybind: (keybind: string) => Promise<void>
   setVoiceKeybind: (keybind: string) => Promise<void>
   setVoiceAutoSend: (enabled: boolean) => Promise<void>
@@ -299,9 +306,11 @@ interface RoxyStore {
   reorderSessions: (workspacePath: string | null, ids: string[]) => Promise<void>
   /** Persist the project (workspace) order (optimistic). `paths` = full list, top → bottom. */
   reorderProjects: (paths: string[]) => Promise<void>
-  submit: (content: string, images?: ComposerImage[]) => Promise<void>
+  submit: (content: string, images?: ComposerImage[], force?: boolean) => Promise<void>
   sendMessage: (content: string, chatId?: string, images?: ComposerImage[]) => Promise<void>
   drainQueue: (chatId: string) => Promise<void>
+  /** Force-send a queued prompt immediately (interrupting any running turn). */
+  forceQueued: (id: string) => Promise<void>
   removeQueued: (id: string) => Promise<void>
   moveQueued: (id: string, direction: 'up' | 'down') => Promise<void>
   /** Edit a queued prompt in place (text + images), keeping its queue position. */
@@ -392,6 +401,10 @@ interface RoxyStore {
   }) => Promise<void>
   /** Handle a background subagent task state change (Phase 11). */
   handleTaskUpdate: (update: TaskUpdate) => Promise<void>
+  setCommandsOpen: (open: boolean) => void
+  setIdeTab: (tab: 'files' | 'search') => void
+  setIdeSelectedFile: (entry: WorkspaceFileEntry | null, line?: number) => void
+  setSidebarRailed: (railed: boolean) => void
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -430,6 +443,8 @@ let lastSubmittedPrompt = { chatId: '', text: '', at: 0 }
 const deltaHandlers = new Map<string, (event: LlmEvent) => void>()
 /** The active llm request id per chat, so stop() can abort the right stream. */
 const chatRequests = new Map<string, string>()
+/** Resolves when a chat's in-flight turn (and persistence) completes. */
+const inFlightTurns = new Map<string, Promise<void>>()
 /**
  * In-flight `ensureModels` calls, keyed by provider.
  *
@@ -490,6 +505,7 @@ function cancelStream(chatId: string): void {
  * A turn:idle frame clears the entry once the persisted reply takes over.
  */
 const remoteTurns = new Map<string, PartsFold>()
+const sessionStreamFolds = new Map<string, PartsFold>()
 /**
  * Live parts for each in-flight SUBAGENT run, keyed by its own chat id — the
  * third sibling of `parts` (local send) and `remoteTurns` (phone turn).
@@ -845,6 +861,19 @@ async function hydrateSubagent(subChatId: string): Promise<void> {
   }))
 }
 
+export async function hydrateActiveTurn(sessionId: string): Promise<void> {
+  const parts = await api.llm.snapshot(sessionId).catch(() => null)
+  if (!parts || parts.length === 0) return
+  if (useRoxyStore.getState().sendingChats[sessionId]) return
+  let fold = sessionStreamFolds.get(sessionId)
+  if (!fold) {
+    fold = new PartsFold()
+    sessionStreamFolds.set(sessionId, fold)
+  }
+  fold.seed(parts)
+  publishStream(sessionId, fold.parts)
+}
+
 /**
  * The shared body of `pullBranch` and `resetBranch`.
  *
@@ -945,6 +974,34 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   hiddenModels: new Set<string>(),
   chats: [],
   activeChatId: null,
+  commandsOpen: false,
+  setCommandsOpen: (open) => set({ commandsOpen: open }),
+  ideTab: 'files',
+  setIdeTab: (tab) => set({ ideTab: tab }),
+  ideSelectedFile: null,
+  ideSelectedLine: undefined,
+  sidebarRailed:
+    typeof window !== 'undefined' && localStorage.getItem('roxy.sidebar.collapsed') === '1',
+  setSidebarRailed: (railed) => {
+    try {
+      localStorage.setItem('roxy.sidebar.collapsed', railed ? '1' : '0')
+    } catch {}
+    set({ sidebarRailed: railed })
+  },
+  setIdeSelectedFile: (entry, line) => {
+    const state = get()
+    const autoIde = Boolean(entry && !state.settings?.ideMode)
+    if (autoIde) {
+      void api.settings.setIdeMode(true)
+    }
+    set({
+      ideSelectedFile: entry,
+      ideSelectedLine: line,
+      ...(autoIde && state.settings
+        ? { settings: { ...state.settings, ideMode: true, ttsEnabled: false } }
+        : {})
+    })
+  },
   messages: [],
   messagesChatId: null,
   messagesError: false,
@@ -1045,7 +1102,20 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
     if (!llmDeltaSubscribed) {
       llmDeltaSubscribed = true
-      api.llm.onDelta(({ requestId, event }) => deltaHandlers.get(requestId)?.(event))
+      api.llm.onDelta(({ requestId, sessionId, event }) => {
+        const handler = deltaHandlers.get(requestId)
+        if (handler) {
+          handler(event)
+        } else if (sessionId) {
+          let fold = sessionStreamFolds.get(sessionId)
+          if (!fold) {
+            fold = new PartsFold()
+            sessionStreamFolds.set(sessionId, fold)
+          }
+          const parts = fold.apply(event)
+          publishStream(sessionId, parts)
+        }
+      })
     }
 
     // Session rows the MAIN process changed on its own. The big one is lazy
@@ -1061,6 +1131,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (!messagesUpdatedSubscribed) {
       messagesUpdatedSubscribed = true
       api.messages.onUpdated(({ chatId }) => {
+        if (sessionStreamFolds.has(chatId)) {
+          sessionStreamFolds.delete(chatId)
+          publishStream(chatId, null)
+        }
         if (get().activeChatId !== chatId) return
         void api.messages
           .list(chatId)
@@ -1622,6 +1696,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
+  setIdeMode: async (enabled) => {
+    const settings = await api.settings.setIdeMode(enabled)
+    set({ settings })
+  },
+
   setOverlayKeybind: async (keybind) => {
     const settings = await api.settings.setOverlayKeybind(keybind)
     set({ settings })
@@ -1879,6 +1958,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     // Opening a subagent mid-run: pull what it has already done so the live
     // bubble starts from the whole transcript, not from the next delta.
     if (chat?.kind === 'sub') void hydrateSubagent(id)
+    if (chat?.kind !== 'sub') void hydrateActiveTurn(id)
     // A rejection here used to leave the pane blank forever: `messages` was
     // already cleared above, the set below never ran, and the promise floated
     // back into an onClick where nothing handled it. Now the failure is state,
@@ -2062,7 +2142,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     await get().refreshChats()
   },
 
-  submit: async (content, images) => {
+  submit: async (content, images, force = false) => {
     const chatId = get().activeChatId
     if (!chatId) return
     const text = content.trim()
@@ -2072,11 +2152,50 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (
       lastSubmittedPrompt.chatId === chatId &&
       lastSubmittedPrompt.text === text &&
-      now - lastSubmittedPrompt.at < 1000
+      now - lastSubmittedPrompt.at < (force ? 300 : 1000)
     ) {
       return
     }
     lastSubmittedPrompt = { chatId, text, at: now }
+
+    const isBusy =
+      !!get().sendingChats[chatId] || remoteTurns.has(chatId) || subagentTurns.has(chatId)
+
+    if (force && isBusy) {
+      if (subagentTurns.has(chatId)) {
+        await get().cancelSubagent(chatId)
+      }
+      if (get().sendingChats[chatId]) {
+        get().stop(chatId)
+        const turn = inFlightTurns.get(chatId)
+        if (turn) {
+          await Promise.race([turn, delay(3000)])
+        } else {
+          const start = Date.now()
+          while (get().sendingChats[chatId] && Date.now() - start < 3000) {
+            await delay(20)
+          }
+        }
+      }
+      if (remoteTurns.has(chatId)) {
+        void api.llm.abortSession(chatId)
+        const start = Date.now()
+        while (remoteTurns.has(chatId) && Date.now() - start < 2000) {
+          await delay(20)
+        }
+      }
+      if (get().sendingChats[chatId]) {
+        set((s) => {
+          const sendingChats = { ...s.sendingChats }
+          delete sendingChats[chatId]
+          const stopChats = { ...s.stopChats }
+          delete stopChats[chatId]
+          return { sendingChats, stopChats }
+        })
+      }
+      await get().sendMessage(text, undefined, images)
+      return
+    }
 
     // This chat is busy → queue it (text + any images); otherwise send now.
     // "Busy" means a local send is streaming *or* a phone-driven turn is running
@@ -2086,7 +2205,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     // is driven from the main process, so a prompt sent now would start a SECOND
     // concurrent turn writing into the same transcript. Queue it instead — it
     // drains as a normal follow-up once the delegate reports.
-    if (get().sendingChats[chatId] || remoteTurns.has(chatId) || subagentTurns.has(chatId)) {
+    if (isBusy) {
       await api.queue.add(
         chatId,
         text,
@@ -2105,321 +2224,335 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (content.startsWith('!') && !content.slice(1).trim()) return
     const { settings } = get()
 
-    // Make sure the workspace's instruction files are cached before we size the
-    // window cut (the main process reads them fresh when it builds the prompt).
-    const workspacePath = get().chats.find((c) => c.id === chatId)?.workspacePath
-    if (workspacePath) await get().ensureProjectInstructions(workspacePath)
-
-    // Send state is keyed by chat id, so switching chats (or running several
-    // sessions at once) never crosses the streams or drops a reply.
-    const setSending = (v: boolean): void =>
-      set((s) => ({ sendingChats: { ...s.sendingChats, [chatId]: v } }))
-
-    // Streamed parts are published at most once per animation frame — see
-    // `createStreamPublisher` for why that matters.
-    const setStreaming = (parts: MessagePart[] | null): void => publishStream(chatId, parts)
-    const clearStop = (): void =>
-      set((s) => {
-        const next = { ...s.stopChats }
-        delete next[chatId]
-        return { stopChats: next }
-      })
-    const isActive = (): boolean => get().activeChatId === chatId
-    const chatExists = (): boolean => get().chats.some((c) => c.id === chatId)
-    const stopped = (): boolean => !!get().stopChats[chatId]
-    // Append a freshly-persisted message to the visible list — only when this
-    // chat is on screen and it isn't already there (guards a load/append race).
-    const appendIfActive = (m: Message): void => {
-      if (!isActive()) return
-      if (get().messages.some((x) => x.id === m.id)) return
-      set({ messages: [...get().messages, m] })
-    }
-
-    // The assistant turn is an ordered list of parts so reasoning, tool calls,
-    // and prose interleave through one render path instead of being grouped.
-    let parts: MessagePart[] = []
-
-    // Append a new text/reasoning part and reveal it token by token. Returns
-    // false only if the chat was deleted mid-stream (caller bails immediately).
-    const streamText = async (kind: 'text' | 'reasoning', full: string): Promise<boolean> => {
-      const index = parts.length
-      parts = [...parts, { type: kind, text: '' }]
-      setStreaming(parts)
-      let acc = ''
-      for (const token of full.split(/(\s+)/)) {
-        if (!chatExists()) {
-          setStreaming(null)
-          setSending(false)
-          return false
-        }
-        if (stopped()) break
-        acc += token
-        parts = parts.map((p, i) => (i === index ? { type: kind, text: acc } : p))
-        setStreaming(parts)
-        await delay(12)
-      }
-      return true
-    }
-
-    // Persist the turn (always — even if the user navigated away) and clean up.
-    const finishTurn = async (): Promise<void> => {
-      // Capture the stop flag BEFORE clearStop() wipes it below — otherwise the
-      // queue would drain even after the user hit Stop (the guard read `false`).
-      const wasStopped = stopped()
-      if (wasStopped) {
-        parts = parts.map((p, i) =>
-          i === parts.length - 1 && (p.type === 'text' || p.type === 'reasoning')
-            ? { type: p.type, text: `${p.text.trimEnd()}\n\n_[stopped]_` }
-            : p
-        )
-      }
-      if (chatExists()) {
-        const assistantMessage = await api.messages.add({
-          chatId,
-          role: 'assistant',
-          content: partsToContent(parts),
-          parts
-        })
-        appendIfActive(assistantMessage)
-      }
-      setStreaming(null)
-      setSending(false)
-      clearStop()
-      void api.chats?.setTurnState(chatId, 'idle')
-      // If a remote (phone) turn landed while this local send was streaming, we
-      // deferred the mirror to avoid clobbering the stream — reconcile it now.
-      if (remoteMirror.deferred && get().remote.sessionId === chatId) {
-        remoteMirror.deferred = false
-        void mirrorSharedChat(chatId, get().remote.rev)
-      }
-      await get().refreshChats()
-      // A turn just recorded usage rows — refresh the cost dashboard so the
-      // titlebar pill reflects the new spend without waiting for a manual open.
-      void get().refreshUsage()
-      // Completed subagent sessions get pruned in main — if we were viewing one
-      // (now gone), fall back to this turn's chat so the pane isn't left empty.
-      const active = get().activeChatId
-      if (active && !get().chats.some((c) => c.id === active)) {
-        await get().selectChat(chatId)
-      }
-      // Don't auto-run the next queued prompt when the user stopped this turn.
-      if (!wasStopped) await get().drainQueue(chatId)
-    }
-
-    clearStop()
-    setSending(true)
-    void api.chats?.setTurnState(chatId, 'thinking')
-
-    // The user turn carries any pasted/dropped images as image parts ahead of
-    // the text, so they persist, render as thumbnails, and reach the model.
-    const userParts: MessagePart[] = [
-      ...(images ?? []).map((img) => ({
-        type: 'image' as const,
-        dataUrl: img.dataUrl,
-        mediaType: img.mediaType,
-        name: img.name
-      })),
-      ...(content ? [{ type: 'text' as const, text: content }] : [])
-    ]
-    const userMessage = await api.messages.add({
-      chatId,
-      role: 'user',
-      content,
-      parts: userParts.length ? userParts : undefined
+    let markTurnDone = (): void => {}
+    const turnPromise = new Promise<void>((resolve) => {
+      markTurnDone = resolve
     })
-    appendIfActive(userMessage)
-    // Reveal the assistant bubble right away (empty → a cute "thinking"
-    // indicator) so there's no empty gap while we wait for the first token.
-    setStreaming(parts)
+    inFlightTurns.set(chatId, turnPromise)
 
-    // Command escape: "!<verb> ..." runs a tool and shows a tool card. Browser
-    // verbs drive the Electron browser; anything else runs as a bash command.
-    if (content.startsWith('!')) {
-      const { tool, input, title } = parseToolCommand(content.slice(1).trim())
-      parts = [{ type: 'tool', tool, state: 'running', title }]
-      setStreaming(parts)
-      const result = await api.tools.run(chatId, tool, input)
-      parts = [
-        {
-          type: 'tool',
-          tool,
-          state: result.ok ? 'done' : 'error',
-          title,
-          output: result.output,
-          image: result.image
+    try {
+      // Make sure the workspace's instruction files are cached before we size the
+      // window cut (the main process reads them fresh when it builds the prompt).
+      const workspacePath = get().chats.find((c) => c.id === chatId)?.workspacePath
+      if (workspacePath) await get().ensureProjectInstructions(workspacePath)
+
+      // Send state is keyed by chat id, so switching chats (or running several
+      // sessions at once) never crosses the streams or drops a reply.
+      const setSending = (v: boolean): void =>
+        set((s) => ({ sendingChats: { ...s.sendingChats, [chatId]: v } }))
+
+      // Streamed parts are published at most once per animation frame — see
+      // `createStreamPublisher` for why that matters.
+      const setStreaming = (parts: MessagePart[] | null): void => publishStream(chatId, parts)
+      const clearStop = (): void =>
+        set((s) => {
+          const next = { ...s.stopChats }
+          delete next[chatId]
+          return { stopChats: next }
+        })
+      const isActive = (): boolean => get().activeChatId === chatId
+      const chatExists = (): boolean => get().chats.some((c) => c.id === chatId)
+      const stopped = (): boolean => !!get().stopChats[chatId]
+      // Append a freshly-persisted message to the visible list — only when this
+      // chat is on screen and it isn't already there (guards a load/append race).
+      const appendIfActive = (m: Message): void => {
+        if (!isActive()) return
+        if (get().messages.some((x) => x.id === m.id)) return
+        set({ messages: [...get().messages, m] })
+      }
+
+      // The assistant turn is an ordered list of parts so reasoning, tool calls,
+      // and prose interleave through one render path instead of being grouped.
+      let parts: MessagePart[] = []
+
+      // Append a new text/reasoning part and reveal it token by token. Returns
+      // false only if the chat was deleted mid-stream (caller bails immediately).
+      const streamText = async (kind: 'text' | 'reasoning', full: string): Promise<boolean> => {
+        const index = parts.length
+        parts = [...parts, { type: kind, text: '' }]
+        setStreaming(parts)
+        let acc = ''
+        for (const token of full.split(/(\s+)/)) {
+          if (!chatExists()) {
+            setStreaming(null)
+            setSending(false)
+            return false
+          }
+          if (stopped()) break
+          acc += token
+          parts = parts.map((p, i) => (i === index ? { type: kind, text: acc } : p))
+          setStreaming(parts)
+          await delay(12)
         }
-      ]
-      setStreaming(parts)
-      // A loop tool changed loop state — refresh the sidebar to reflect it.
-      if (tool.startsWith('loop_')) await get().refreshLoops()
-      await finishTurn()
-      return
-    }
+        return true
+      }
 
-    // Real model: a connected provider with a usable credential streams the reply.
-    // Everything below resolves from THIS SESSION's pinned config (falling back
-    // to the global last-used values), so a turn always runs on the model the
-    // session shows - even if another session changed its picker mid-reply.
-    const config = resolveSessionConfig(
-      get().chats.find((c) => c.id === chatId),
-      settings
-    )
-    const provider =
-      get().providers.find((p) => p.id === config.providerId) ?? get().providers[0] ?? null
-    if (provider && (provider.hasCredential || provider.auth === 'none')) {
-      // Resolve the model's capabilities (reasoning support + context window) so
-      // we only send reasoning params when valid and cut history to the budget.
-      await get().ensureModels(provider.id)
-      const catalog = get().modelCatalog[provider.id] ?? []
-      // No model chosen? Take the provider's latest (tool-capable) model instead
-      // of a hardcoded id that may not exist on this provider — the user never
-      // has to type a model name for a connected provider to just work.
-      // Only trust the session's model when it belongs to the provider we
-      // actually resolved, so a stale pin can never cross providers.
-      const model = resolveProviderModel(
-        provider,
-        catalog,
-        config.providerId === provider.id ? config.model : null
+      // Persist the turn (always — even if the user navigated away) and clean up.
+      const finishTurn = async (): Promise<void> => {
+        // Capture the stop flag BEFORE clearStop() wipes it below — otherwise the
+        // queue would drain even after the user hit Stop (the guard read `false`).
+        const wasStopped = stopped()
+        if (wasStopped) {
+          parts = parts.map((p, i) =>
+            i === parts.length - 1 && (p.type === 'text' || p.type === 'reasoning')
+              ? { type: p.type, text: `${p.text.trimEnd()}\n\n_[stopped]_` }
+              : p
+          )
+        }
+        // Clear streaming state immediately so the streaming turn and settled message
+        // never co-exist in state and render doubled on the canvas.
+        setStreaming(null)
+        setSending(false)
+        clearStop()
+
+        if (chatExists()) {
+          const assistantMessage = await api.messages.add({
+            chatId,
+            role: 'assistant',
+            content: partsToContent(parts),
+            parts
+          })
+          appendIfActive(assistantMessage)
+        }
+        void api.chats?.setTurnState(chatId, 'idle')
+        // If a remote (phone) turn landed while this local send was streaming, we
+        // deferred the mirror to avoid clobbering the stream — reconcile it now.
+        if (remoteMirror.deferred && get().remote.sessionId === chatId) {
+          remoteMirror.deferred = false
+          void mirrorSharedChat(chatId, get().remote.rev)
+        }
+        await get().refreshChats()
+        // A turn just recorded usage rows — refresh the cost dashboard so the
+        // titlebar pill reflects the new spend without waiting for a manual open.
+        void get().refreshUsage()
+        // Completed subagent sessions get pruned in main — if we were viewing one
+        // (now gone), fall back to this turn's chat so the pane isn't left empty.
+        const active = get().activeChatId
+        if (active && !get().chats.some((c) => c.id === active)) {
+          await get().selectChat(chatId)
+        }
+        // Don't auto-run the next queued prompt when the user stopped this turn.
+        if (!wasStopped) await get().drainQueue(chatId)
+      }
+
+      clearStop()
+      setSending(true)
+      void api.chats?.setTurnState(chatId, 'thinking')
+
+      // The user turn carries any pasted/dropped images as image parts ahead of
+      // the text, so they persist, render as thumbnails, and reach the model.
+      const userParts: MessagePart[] = [
+        ...(images ?? []).map((img) => ({
+          type: 'image' as const,
+          dataUrl: img.dataUrl,
+          mediaType: img.mediaType,
+          name: img.name
+        })),
+        ...(content ? [{ type: 'text' as const, text: content }] : [])
+      ]
+      const userMessage = await api.messages.add({
+        chatId,
+        role: 'user',
+        content,
+        parts: userParts.length ? userParts : undefined
+      })
+      appendIfActive(userMessage)
+      // Reveal the assistant bubble right away (empty → a cute "thinking"
+      // indicator) so there's no empty gap while we wait for the first token.
+      setStreaming(parts)
+
+      // Command escape: "!<verb> ..." runs a tool and shows a tool card. Browser
+      // verbs drive the Electron browser; anything else runs as a bash command.
+      if (content.startsWith('!')) {
+        const { tool, input, title } = parseToolCommand(content.slice(1).trim())
+        parts = [{ type: 'tool', tool, state: 'running', title }]
+        setStreaming(parts)
+        const result = await api.tools.run(chatId, tool, input)
+        parts = [
+          {
+            type: 'tool',
+            tool,
+            state: result.ok ? 'done' : 'error',
+            title,
+            output: result.output,
+            image: result.image
+          }
+        ]
+        setStreaming(parts)
+        // A loop tool changed loop state — refresh the sidebar to reflect it.
+        if (tool.startsWith('loop_')) await get().refreshLoops()
+        await finishTurn()
+        return
+      }
+
+      // Real model: a connected provider with a usable credential streams the reply.
+      // Everything below resolves from THIS SESSION's pinned config (falling back
+      // to the global last-used values), so a turn always runs on the model the
+      // session shows - even if another session changed its picker mid-reply.
+      const config = resolveSessionConfig(
+        get().chats.find((c) => c.id === chatId),
+        settings
       )
-      if (!model || stopped()) {
-        if (!stopped()) {
-          parts = [...parts, { type: 'text', text: i18n.t('models.copilotUnavailable') }]
+      const provider =
+        get().providers.find((p) => p.id === config.providerId) ?? get().providers[0] ?? null
+      if (provider && (provider.hasCredential || provider.auth === 'none')) {
+        // Resolve the model's capabilities (reasoning support + context window) so
+        // we only send reasoning params when valid and cut history to the budget.
+        await get().ensureModels(provider.id)
+        const catalog = get().modelCatalog[provider.id] ?? []
+        // No model chosen? Take the provider's latest (tool-capable) model instead
+        // of a hardcoded id that may not exist on this provider — the user never
+        // has to type a model name for a connected provider to just work.
+        // Only trust the session's model when it belongs to the provider we
+        // actually resolved, so a stale pin can never cross providers.
+        const model = resolveProviderModel(
+          provider,
+          catalog,
+          config.providerId === provider.id ? config.model : null
+        )
+        if (!model || stopped()) {
+          if (!stopped()) {
+            parts = [...parts, { type: 'text', text: i18n.t('models.copilotUnavailable') }]
+            setStreaming(parts)
+          }
+          await finishTurn()
+          return
+        }
+        const info = catalog.find((m) => m.id === model)
+        const modelContext = info?.contextLimit ?? 128_000
+        const contextBudget = contextBudgetFor(config.contextLimit, modelContext)
+        const agentId = config.agentId
+        // Auto-compact before the window overflows the model's *real* budget:
+        // trigger once used tokens pass contextBudget minus the larger of the
+        // reserved reply size or a safety buffer (mirrors opencode's
+        // `context - max(output, buffer)` rather than a flat 80%). Compaction
+        // summarizes older turns; buildChatMessages then sends summary + recent.
+        if (!get().compactingChats[chatId]) {
+          const used = await estimateUsedTokens(chatId, model, agentId)
+          if (isOverflow(used, contextBudget, info?.outputLimit ?? 4096)) {
+            await get().compactConversation(chatId)
+          }
+        }
+        const requestId = crypto.randomUUID()
+        const chatMessages = await buildChatMessages(
+          chatId,
+          contextBudget,
+          info?.outputLimit ?? 4096,
+          model,
+          agentId
+        )
+        // Build parts live from the agent's event stream through the shared fold:
+        // text grows the current text part, each tool call adds a card that flips
+        // running→done/error, and a subagent's steps nest inside its `task` card.
+        // Seeded with whatever the turn already rendered (a `!verb` card).
+        const fold = new PartsFold()
+        fold.seed(parts)
+        // Side effects that must fire when a specific tool starts/ends live here
+        // rather than inside the fold, which stays pure.
+        const findByCallId = (callId: string): MessagePart | undefined =>
+          fold.parts.find((p) => p.type === 'tool' && p.callId === callId)
+        deltaHandlers.set(requestId, (event) => {
+          if (!chatExists()) return
+          parts = fold.apply(event)
+          if (event.type === 'tool-start') {
+            // A `task` just spawned a subagent (its own `sub` session was created
+            // in main) — surface it under the parent in the sidebar immediately.
+            if (event.tool === 'task') void get().refreshChats()
+          } else if (event.type === 'tool-end') {
+            const ended = findByCallId(event.callId)
+            if (event.ok && ended?.type === 'tool' && ended.tool.startsWith('loop_')) {
+              // A loop_* tool just created/removed/toggled a loop — reflect it in
+              // the sidebar right away instead of waiting for a manual refresh.
+              void get().refreshLoops()
+              void get().refreshChats()
+            } else if (ended?.type === 'tool' && ended.tool === 'task') {
+              // A subagent finished — its `sub` session now has its reply; refresh
+              // the sidebar and reload it if the user is tapped into it.
+              void (async () => {
+                await get().refreshChats()
+                const active = get().activeChatId
+                if (active && get().chats.find((c) => c.id === active)?.kind === 'sub') {
+                  const loaded = await api.messages.list(active)
+                  // Re-check: two awaits have passed since `active` was read.
+                  if (get().activeChatId === active) {
+                    set({ messages: loaded, messagesChatId: active })
+                  }
+                }
+              })()
+            } else if (
+              event.ok &&
+              ended?.type === 'tool' &&
+              ended.tool === 'change_session_metadata'
+            ) {
+              // The agent renamed / described / re-tasked its own session —
+              // refresh so the sidebar title + the SessionInfo strip update live.
+              void get().refreshChats()
+            }
+          }
+          setStreaming(parts)
+        })
+        chatRequests.set(chatId, requestId)
+        // Stop can land during the pre-flight above (ensureModels, token estimate,
+        // compaction, buildChatMessages — all awaited, all before a requestId
+        // exists). Starting the turn anyway is exactly the "I pressed cancel and
+        // it ran regardless" case, so bail here instead.
+        if (stopped()) {
+          deltaHandlers.delete(requestId)
+          chatRequests.delete(chatId)
+          await finishTurn()
+          return
+        }
+        // Every exit from here on must clear the send state. Without the
+        // try/finally a rejected `llm.start` (a main-process throw, a window
+        // race) left `sendingChats[chatId]` true forever: the composer showed a
+        // Stop button for a turn that no longer existed, and clicking it aborted
+        // a requestId that had already been deleted. That is the OTHER half of
+        // the stuck-cancel bug, and it could only be cleared by restarting.
+        let result: LlmResult
+        try {
+          result = await api.llm.start({
+            requestId,
+            sessionId: chatId,
+            providerId: provider.id,
+            model,
+            messages: chatMessages,
+            agentId,
+            reasoning: info?.reasoning ?? false,
+            // Clamp to what THIS model accepts. A session's effort is sticky
+            // across model switches, so "Max" set on one model would otherwise
+            // ride along to a model that only knows `high` and 400 the turn.
+            reasoningEffort: clampReasoningEffort(config.reasoningEffort, info?.reasoningEfforts),
+            contextLimit: contextBudget,
+            promptId: config.promptId
+          })
+        } catch (e) {
+          result = { ok: false, error: e instanceof Error ? e.message : String(e) }
+        } finally {
+          deltaHandlers.delete(requestId)
+          chatRequests.delete(chatId)
+        }
+        if (!result.ok && !stopped()) {
+          parts = [
+            ...parts,
+            { type: 'text', text: `_\u26a0 ${result.error ?? 'Model request failed.'}_` }
+          ]
           setStreaming(parts)
         }
         await finishTurn()
         return
       }
-      const info = catalog.find((m) => m.id === model)
-      const modelContext = info?.contextLimit ?? 128_000
-      const contextBudget = contextBudgetFor(config.contextLimit, modelContext)
-      const agentId = config.agentId
-      // Auto-compact before the window overflows the model's *real* budget:
-      // trigger once used tokens pass contextBudget minus the larger of the
-      // reserved reply size or a safety buffer (mirrors opencode's
-      // `context - max(output, buffer)` rather than a flat 80%). Compaction
-      // summarizes older turns; buildChatMessages then sends summary + recent.
-      if (!get().compactingChats[chatId]) {
-        const used = await estimateUsedTokens(chatId, model, agentId)
-        if (isOverflow(used, contextBudget, info?.outputLimit ?? 4096)) {
-          await get().compactConversation(chatId)
-        }
-      }
-      const requestId = crypto.randomUUID()
-      const chatMessages = await buildChatMessages(
-        chatId,
-        contextBudget,
-        info?.outputLimit ?? 4096,
-        model,
-        agentId
-      )
-      // Build parts live from the agent's event stream through the shared fold:
-      // text grows the current text part, each tool call adds a card that flips
-      // running→done/error, and a subagent's steps nest inside its `task` card.
-      // Seeded with whatever the turn already rendered (a `!verb` card).
-      const fold = new PartsFold()
-      fold.parts = parts
-      // Side effects that must fire when a specific tool starts/ends live here
-      // rather than inside the fold, which stays pure.
-      const findByCallId = (callId: string): MessagePart | undefined =>
-        fold.parts.find((p) => p.type === 'tool' && p.callId === callId)
-      deltaHandlers.set(requestId, (event) => {
-        if (!chatExists()) return
-        parts = fold.apply(event)
-        if (event.type === 'tool-start') {
-          // A `task` just spawned a subagent (its own `sub` session was created
-          // in main) — surface it under the parent in the sidebar immediately.
-          if (event.tool === 'task') void get().refreshChats()
-        } else if (event.type === 'tool-end') {
-          const ended = findByCallId(event.callId)
-          if (event.ok && ended?.type === 'tool' && ended.tool.startsWith('loop_')) {
-            // A loop_* tool just created/removed/toggled a loop — reflect it in
-            // the sidebar right away instead of waiting for a manual refresh.
-            void get().refreshLoops()
-            void get().refreshChats()
-          } else if (ended?.type === 'tool' && ended.tool === 'task') {
-            // A subagent finished — its `sub` session now has its reply; refresh
-            // the sidebar and reload it if the user is tapped into it.
-            void (async () => {
-              await get().refreshChats()
-              const active = get().activeChatId
-              if (active && get().chats.find((c) => c.id === active)?.kind === 'sub') {
-                const loaded = await api.messages.list(active)
-                // Re-check: two awaits have passed since `active` was read.
-                if (get().activeChatId === active) {
-                  set({ messages: loaded, messagesChatId: active })
-                }
-              }
-            })()
-          } else if (
-            event.ok &&
-            ended?.type === 'tool' &&
-            ended.tool === 'change_session_metadata'
-          ) {
-            // The agent renamed / described / re-tasked its own session —
-            // refresh so the sidebar title + the SessionInfo strip update live.
-            void get().refreshChats()
-          }
-        }
-        setStreaming(parts)
-      })
-      chatRequests.set(chatId, requestId)
-      // Stop can land during the pre-flight above (ensureModels, token estimate,
-      // compaction, buildChatMessages — all awaited, all before a requestId
-      // exists). Starting the turn anyway is exactly the "I pressed cancel and
-      // it ran regardless" case, so bail here instead.
-      if (stopped()) {
-        deltaHandlers.delete(requestId)
-        chatRequests.delete(chatId)
-        await finishTurn()
-        return
-      }
-      // Every exit from here on must clear the send state. Without the
-      // try/finally a rejected `llm.start` (a main-process throw, a window
-      // race) left `sendingChats[chatId]` true forever: the composer showed a
-      // Stop button for a turn that no longer existed, and clicking it aborted
-      // a requestId that had already been deleted. That is the OTHER half of
-      // the stuck-cancel bug, and it could only be cleared by restarting.
-      let result: LlmResult
-      try {
-        result = await api.llm.start({
-          requestId,
-          sessionId: chatId,
-          providerId: provider.id,
-          model,
-          messages: chatMessages,
-          agentId,
-          reasoning: info?.reasoning ?? false,
-          // Clamp to what THIS model accepts. A session's effort is sticky
-          // across model switches, so "Max" set on one model would otherwise
-          // ride along to a model that only knows `high` and 400 the turn.
-          reasoningEffort: clampReasoningEffort(config.reasoningEffort, info?.reasoningEfforts),
-          contextLimit: contextBudget,
-          promptId: config.promptId
-        })
-      } catch (e) {
-        result = { ok: false, error: e instanceof Error ? e.message : String(e) }
-      } finally {
-        deltaHandlers.delete(requestId)
-        chatRequests.delete(chatId)
-      }
-      if (!result.ok && !stopped()) {
-        parts = [
-          ...parts,
-          { type: 'text', text: `_\u26a0 ${result.error ?? 'Model request failed.'}_` }
-        ]
-        setStreaming(parts)
+
+      // Placeholder turn: stream a reasoning part, then a prose part, in order.
+      if (!(await streamText('reasoning', buildReasoning(content)))) return
+      if (!stopped()) {
+        const reply = buildPlaceholderReply(content, get().providers, settings)
+        if (!(await streamText('text', reply))) return
       }
       await finishTurn()
-      return
+    } finally {
+      inFlightTurns.delete(chatId)
+      markTurnDone()
     }
-
-    // Placeholder turn: stream a reasoning part, then a prose part, in order.
-    if (!(await streamText('reasoning', buildReasoning(content)))) return
-    if (!stopped()) {
-      const reply = buildPlaceholderReply(content, get().providers, settings)
-      if (!(await streamText('text', reply))) return
-    }
-    await finishTurn()
   },
 
   drainQueue: async (chatId) => {
@@ -2436,6 +2569,23 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       chatId,
       next.images?.map((img) => ({ id: crypto.randomUUID(), ...img, name: img.name ?? 'image' }))
     )
+  },
+
+  forceQueued: async (id) => {
+    const chatId = get().activeChatId
+    if (!chatId) return
+    const items = await api.queue.list(chatId)
+    const item = items.find((q) => q.id === id)
+    if (!item) return
+    await api.queue.remove(id)
+    await get().refreshQueue()
+    const composerImages: ComposerImage[] | undefined = item.images?.map((img) => ({
+      id: crypto.randomUUID(),
+      dataUrl: img.dataUrl,
+      mediaType: img.mediaType,
+      name: img.name ?? 'image'
+    }))
+    await get().submit(item.content, composerImages, true)
   },
 
   removeQueued: async (id) => {

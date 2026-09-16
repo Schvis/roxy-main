@@ -33,9 +33,11 @@ export function setSpeakingStateListener(
 }
 
 const EMOTION_TAG_RE = /\[[a-zA-Z\s-]+\]\s*/g
+const QUESTION_TAG_RE =
+  /<(?:agent-question|agent-questions|questions)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions)>|$)/gi
 
 export function stripEmotionTags(text: string): string {
-  return text.replace(EMOTION_TAG_RE, '')
+  return text.replace(EMOTION_TAG_RE, '').replace(QUESTION_TAG_RE, '')
 }
 
 /** Count words in text (supports space-delimited words and CJK characters). */

@@ -116,7 +116,8 @@ import {
   buildEnvironment,
   assembleSystemPrompt,
   ROXY_COAUTHOR_TRAILER,
-  GIT_COMMIT_TRAILER_PROMPT
+  GIT_COMMIT_TRAILER_PROMPT,
+  AGENT_PLAN_PROMPT
 } from '../src/shared/prompt'
 import {
   reconstructAssistant,
@@ -2667,6 +2668,21 @@ check(
 check(
   'coauthor: minimal prompt still includes the trailer',
   assembleSystemPrompt({ base: 'ONLY BASE' }).includes(ROXY_COAUTHOR_TRAILER)
+)
+
+// Agent planning prompt checks
+check(
+  'plan prompt: assembled prompt includes planning instructions',
+  asmFull.includes('# Planning & Task Tracking')
+)
+check('plan prompt: instructs checklist for multi-step tasks', asmFull.includes('- [ ] <step>'))
+check(
+  'plan prompt: advises skipping checklist for simple tasks',
+  /simple, trivial/i.test(AGENT_PLAN_PROMPT)
+)
+check(
+  'plan prompt: confirms before lots of changes',
+  /lot of changes|allow or cancel/i.test(AGENT_PLAN_PROMPT)
 )
 
 // selectPromptName sanity — the trailer rides on top of whichever family is picked.

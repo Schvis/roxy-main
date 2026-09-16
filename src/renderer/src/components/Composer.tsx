@@ -7,7 +7,19 @@ import {
   type KeyboardEvent
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Loader2, Mic, MicOff, Monitor, Plus, Square, Terminal, X } from 'lucide-react'
+import {
+  ArrowUp,
+  ChevronDown,
+  Loader2,
+  Mic,
+  MicOff,
+  Monitor,
+  Plus,
+  Square,
+  Terminal,
+  X,
+  Zap
+} from 'lucide-react'
 import { ModelPicker } from './ModelPicker'
 import {
   ContextMeter,
@@ -23,6 +35,8 @@ import { AudioRecorder } from '../lib/audio-recorder'
 import { WakeWordListener, matchWakeWord } from '../lib/wake-word'
 import { useRoxyStore } from '../lib/store'
 import { matchesKeybindDown, matchesKeybindRelease } from '../lib/keybind'
+import { cn } from '../lib/cn'
+import { useMenuAnchor } from '../lib/useMenuAnchor'
 
 export function Composer({
   onSend,
@@ -30,7 +44,7 @@ export function Composer({
   onStop,
   onOpenCommands
 }: {
-  onSend: (text: string, images?: ComposerImage[]) => void
+  onSend: (text: string, images?: ComposerImage[], force?: boolean) => void
   sending?: boolean
   onStop?: () => void
   onOpenCommands?: () => void
@@ -52,9 +66,52 @@ export function Composer({
   const isHoldingKeyRef = useRef(false)
   const isRecordingRef = useRef(false)
   const isTranscribingRef = useRef(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const overflowMenuRef = useRef<HTMLDivElement>(null)
+  const [containerWidth, setContainerWidth] = useState(800)
+  const [overflowOpen, setOverflowOpen] = useState(false)
+  const overflowAnchor = useMenuAnchor(overflowMenuRef, overflowOpen, 240, { gap: 8 })
 
   isRecordingRef.current = isRecording
   isTranscribingRef.current = isTranscribing
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width)
+        }
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const isCompact = containerWidth < 660
+
+  useEffect(() => {
+    if (!isCompact) setOverflowOpen(false)
+  }, [isCompact])
+
+  useEffect(() => {
+    if (!overflowOpen) return
+    const onDown = (e: MouseEvent): void => {
+      if (!overflowMenuRef.current?.contains(e.target as Node)) {
+        setOverflowOpen(false)
+      }
+    }
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (e.key === 'Escape') setOverflowOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [overflowOpen])
 
   useEffect(() => {
     return () => {
@@ -71,10 +128,10 @@ export function Composer({
 
   const removeImage = (id: string): void => setImages((prev) => prev.filter((i) => i.id !== id))
 
-  const submit = (): void => {
+  const submit = (force = false): void => {
     const text = value.trim()
     if (!text && images.length === 0) return
-    onSend(text, images.length ? images : undefined)
+    onSend(text, images.length ? images : undefined, force)
     setValue('')
     setImages([])
     if (ref.current) ref.current.style.height = 'auto'
@@ -103,7 +160,8 @@ export function Composer({
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      submit()
+      const isForce = event.ctrlKey || event.metaKey || event.altKey
+      submit(isForce)
     }
   }
 
@@ -347,8 +405,9 @@ export function Composer({
   const canSend = !!value.trim() || images.length > 0
 
   return (
-    <div className="bg-bg px-4 pb-1.5 pt-2">
+    <div className="w-full min-w-0 bg-bg px-4 pb-1.5 pt-2">
       <div
+        ref={containerRef}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes('Files')) {
             e.preventDefault()
@@ -377,7 +436,7 @@ export function Composer({
         //
         // On focus the hairline brightens rather than changing hue: the box is
         // already the focus of the screen, so a colored ring on it is noise.
-        className={`mx-auto max-w-3xl sq-frame sq-2xl sq-ring sq-fill-surface-2 edge edge-panel shadow-raised rounded-2xl border bg-surface-2 transition ${
+        className={`mx-auto w-full max-w-3xl min-w-0 sq-frame sq-2xl sq-ring sq-fill-surface-2 edge edge-panel shadow-raised rounded-2xl border bg-surface-2 transition ${
           dragging
             ? 'border-accent [--sq-ring:var(--color-accent)] inset-ring-1 inset-ring-accent/40'
             : 'border-border focus-within:border-border-strong focus-within:[--sq-ring:var(--edge-strong)]'
@@ -433,15 +492,16 @@ export function Composer({
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          className="block max-h-44 w-full resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-text-subtle"
+          className="block max-h-44 w-full min-w-0 resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-text-subtle"
         />
-        <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1.5">
+
+        <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1.5 min-w-0">
           {/* Chrome-less controls, matching the workstream strip below. Two
               things do the work the borders used to: gap-1 (further apart and
               five bare labels just scatter across the row) and px-1.5 on every
               control, which against the row's px-2.5 puts each label's first
               glyph exactly on the textarea's px-4 text column. */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 min-w-0">
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
@@ -450,22 +510,24 @@ export function Composer({
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
-            <button
-              type="button"
-              onClick={async () => {
-                const screen = await api.captureScreen()
-                if (screen) {
-                  const res = await fetch(screen.dataUrl)
-                  const blob = await res.blob()
-                  const file = new File([blob], screen.name, { type: blob.type })
-                  void addFiles([file])
-                }
-              }}
-              title={t('composer.readScreen')}
-              className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text"
-            >
-              <Monitor className="h-3.5 w-3.5" />
-            </button>
+            {!isCompact && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const screen = await api.captureScreen()
+                  if (screen) {
+                    const res = await fetch(screen.dataUrl)
+                    const blob = await res.blob()
+                    const file = new File([blob], screen.name, { type: blob.type })
+                    void addFiles([file])
+                  }
+                }}
+                title={t('composer.readScreen')}
+                className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text"
+              >
+                <Monitor className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void toggleRecording()}
@@ -494,20 +556,94 @@ export function Composer({
               )}
             </button>
             <ModelPicker />
-            <AgentPicker />
-            <PromptPicker />
-            <ThinkingPicker />
-            <ContextPicker />
-            <ContextMeter />
-            {onOpenCommands && (
-              <button
-                type="button"
-                onClick={onOpenCommands}
-                title={t('commands.commandLine')}
-                className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text transition-colors"
-              >
-                <Terminal className="h-3.5 w-3.5" />
-              </button>
+            {isCompact ? (
+              <div ref={overflowMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOverflowOpen((o) => !o)}
+                  title={overflowOpen ? t('composer.showLess') : t('composer.showMore')}
+                  aria-label={overflowOpen ? t('composer.showLess') : t('composer.showMore')}
+                  aria-expanded={overflowOpen}
+                  className={cn(
+                    'press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text',
+                    overflowOpen && 'bg-white/10 text-text'
+                  )}
+                >
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform duration-200',
+                      overflowOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+
+                {overflowOpen && (
+                  <div
+                    className="animate-pop-in absolute bottom-full z-50 mb-2 flex flex-col sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated shadow-float origin-bottom-left p-1.5"
+                    style={overflowAnchor}
+                  >
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setOverflowOpen(false)
+                        const screen = await api.captureScreen()
+                        if (screen) {
+                          const res = await fetch(screen.dataUrl)
+                          const blob = await res.blob()
+                          const file = new File([blob], screen.name, { type: blob.type })
+                          void addFiles([file])
+                        }
+                      }}
+                      className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-text-muted hover:bg-white/5 hover:text-text transition-colors text-left"
+                    >
+                      <Monitor className="h-3.5 w-3.5 shrink-0" />
+                      <span>{t('composer.readScreen')}</span>
+                    </button>
+
+                    {onOpenCommands && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOverflowOpen(false)
+                          onOpenCommands()
+                        }}
+                        className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-text-muted hover:bg-white/5 hover:text-text transition-colors text-left"
+                      >
+                        <Terminal className="h-3.5 w-3.5 shrink-0" />
+                        <span>{t('commands.commandLine')}</span>
+                      </button>
+                    )}
+
+                    <div className="my-1 border-t border-border/40" />
+
+                    <div className="flex flex-wrap items-center gap-1 p-0.5">
+                      <AgentPicker />
+                      <PromptPicker />
+                      <ThinkingPicker />
+                      <ContextPicker />
+                      <ContextMeter />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <AgentPicker />
+                <PromptPicker />
+                <ThinkingPicker />
+                <ContextPicker />
+                <ContextMeter />
+                {onOpenCommands && (
+                  <button
+                    type="button"
+                    onClick={onOpenCommands}
+                    title={t('commands.commandLine')}
+                    className="press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted hover:bg-white/5 hover:text-text transition-colors"
+                  >
+                    <Terminal className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </>
             )}
           </div>
           {showStop ? (
@@ -518,11 +654,51 @@ export function Composer({
             >
               <Square className="h-3 w-3 fill-current" />
             </button>
+          ) : sending ? (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {onStop && (
+                <button
+                  type="button"
+                  onClick={onStop}
+                  title={t('composer.stop')}
+                  className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => submit(false)}
+                disabled={!canSend}
+                title={t('composer.addToQueue')}
+                className={cn(
+                  'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30',
+                  isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
+                )}
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+                {!isCompact && <span>{t('composer.queue')}</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => submit(true)}
+                disabled={!canSend}
+                title={t('composer.forceSend')}
+                className={cn(
+                  'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30',
+                  isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
+                )}
+              >
+                <Zap className="h-3.5 w-3.5 fill-current" />
+                {!isCompact && <span>{t('composer.force')}</span>}
+              </button>
+            </div>
           ) : (
             <button
-              onClick={submit}
+              type="button"
+              onClick={() => submit(false)}
               disabled={!canSend}
-              title={sending ? 'Add to queue' : 'Send'}
+              title={t('composer.send')}
               className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30"
             >
               <ArrowUp className="h-4 w-4" />

@@ -24,6 +24,31 @@ import type { AppSettings } from '../shared/types'
  * to an ipcMain.handle channel registered in src/main/ipc/index.ts.
  */
 const roxy: RoxyApi = {
+  files: {
+    list: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesList, sessionId, path),
+    read: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesRead, sessionId, path),
+    write: (sessionId, path, content, expectedRevision) =>
+      ipcRenderer.invoke(CHANNELS.filesWrite, sessionId, path, content, expectedRevision),
+    delete: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesDelete, sessionId, path),
+    create: (sessionId, path, isDirectory) =>
+      ipcRenderer.invoke(CHANNELS.filesCreate, sessionId, path, isDirectory),
+    rename: (sessionId, oldPath, newPath) =>
+      ipcRenderer.invoke(CHANNELS.filesRename, sessionId, oldPath, newPath),
+    onChanged: (handler) => {
+      const listener = (_e: unknown, payload: { sessionId?: string; root?: string }): void =>
+        handler(payload)
+      ipcRenderer.on(CHANNELS.filesChanged, listener)
+      return () => {
+        ipcRenderer.removeListener(CHANNELS.filesChanged, listener)
+      }
+    },
+    diagnostics: (sessionId, path, content) =>
+      ipcRenderer.invoke(CHANNELS.filesDiagnostics, sessionId, path, content),
+    search: (sessionId, query, options) =>
+      ipcRenderer.invoke(CHANNELS.filesSearch, sessionId, query, options),
+    replace: (sessionId, query, replacement, options, paths) =>
+      ipcRenderer.invoke(CHANNELS.filesReplace, sessionId, query, replacement, options, paths)
+  },
   settings: {
     getAll: () => ipcRenderer.invoke(CHANNELS.settingsGetAll),
     setActiveProvider: (providerId, model) =>
@@ -33,6 +58,8 @@ const roxy: RoxyApi = {
     setContextLimit: (limit) => ipcRenderer.invoke(CHANNELS.settingsSetContextLimit, limit),
     setAutoWorkstream: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetAutoWorkstream, enabled),
     setOverlayMode: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayMode, enabled),
+    setIdeMode: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetIdeMode, enabled),
+    setIdeChatDock: (dock) => ipcRenderer.invoke(CHANNELS.settingsSetIdeChatDock, dock),
     setOverlayKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayKeybind, keybind),
     setVoiceKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceKeybind, keybind),
     setVoiceAutoSend: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceAutoSend, enabled),
@@ -169,6 +196,10 @@ const roxy: RoxyApi = {
   showMainWindow: (sessionId) => ipcRenderer.invoke(CHANNELS.showMainWindow, sessionId),
   windowMove: (dx, dy) => ipcRenderer.invoke(CHANNELS.windowMove, dx, dy),
   windowResize: (width, height) => ipcRenderer.invoke(CHANNELS.windowResize, width, height),
+  windowMinimize: () => ipcRenderer.invoke(CHANNELS.windowMinimize),
+  windowMaximize: () => ipcRenderer.invoke(CHANNELS.windowMaximize),
+  windowClose: () => ipcRenderer.invoke(CHANNELS.windowClose),
+  windowIsMaximized: () => ipcRenderer.invoke(CHANNELS.windowIsMaximized),
   integrations: {
     list: () => ipcRenderer.invoke(CHANNELS.integrationsList),
     setEnabled: (id, enabled) => ipcRenderer.invoke(CHANNELS.integrationsSetEnabled, id, enabled)
@@ -383,6 +414,28 @@ const roxy: RoxyApi = {
     open: (sessionId) => ipcRenderer.invoke(CHANNELS.terminalOpenWindow, sessionId),
     close: () => ipcRenderer.invoke(CHANNELS.terminalCloseWindow)
   },
+  shell: {
+    start: (sessionId, shellType) => ipcRenderer.invoke(CHANNELS.shellStart, sessionId, shellType),
+    write: (sessionId, data) => ipcRenderer.invoke(CHANNELS.shellInput, sessionId, data),
+    kill: (sessionId) => ipcRenderer.invoke(CHANNELS.shellKill, sessionId),
+    restart: (sessionId, shellType) =>
+      ipcRenderer.invoke(CHANNELS.shellRestart, sessionId, shellType),
+    getState: (sessionId) => ipcRenderer.invoke(CHANNELS.shellState, sessionId),
+    clear: (sessionId) => ipcRenderer.invoke(CHANNELS.shellClear, sessionId),
+    resize: (sessionId, cols, rows) =>
+      ipcRenderer.invoke(CHANNELS.shellResize, sessionId, cols, rows),
+    onOutput: (handler) => {
+      const fn = (_e: unknown, data: { sessionId: string; chunk: string }): void => handler(data)
+      ipcRenderer.on(CHANNELS.shellOutput, fn)
+      return () => ipcRenderer.removeListener(CHANNELS.shellOutput, fn)
+    },
+    onExit: (handler) => {
+      const fn = (_e: unknown, data: { sessionId: string; code: number | null }): void =>
+        handler(data)
+      ipcRenderer.on(CHANNELS.shellExit, fn)
+      return () => ipcRenderer.removeListener(CHANNELS.shellExit, fn)
+    }
+  },
   queue: {
     list: (chatId) => ipcRenderer.invoke(CHANNELS.queueList, chatId),
     add: (chatId, content, images) =>
@@ -401,6 +454,7 @@ const roxy: RoxyApi = {
     start: (input) => ipcRenderer.invoke(CHANNELS.llmStart, input),
     abort: (requestId) => ipcRenderer.invoke(CHANNELS.llmAbort, requestId),
     abortSession: (sessionId) => ipcRenderer.invoke(CHANNELS.llmAbortSession, sessionId),
+    snapshot: (sessionId) => ipcRenderer.invoke(CHANNELS.llmSnapshot, sessionId),
     onDelta: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: LlmDelta): void =>
         callback(payload)

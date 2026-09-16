@@ -1,0 +1,1208 @@
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  CheckCheck,
+  ChevronRight,
+  FilePlus,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Loader2,
+  Pencil,
+  Replace,
+  Search,
+  Trash2,
+  X
+} from 'lucide-react'
+import type { WorkspaceFileEntry, WorkspaceFileSearchMatch } from '@shared/api'
+import { api } from '../lib/api'
+import { cn } from '../lib/cn'
+import { writeClipboardText } from '../lib/clipboard'
+import { useRoxyStore } from '../lib/store'
+import { subscribeFileReviews } from '../lib/agent-file-changes'
+import { ContextMenuRow, ContextMenuSurface, CONTEXT_MENU_PAD, CONTEXT_ROW_H } from './ContextMenu'
+import { CommandsPane } from './CommandsDialog'
+import { FileEditor } from './FileEditor'
+import { findRunningTool } from './ChatView'
+
+const control =
+  'rounded p-1.5 text-text-muted hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+
+interface ExplorerActions {
+  sessionId: string
+  refreshNonce: number
+  selectedPath: string | undefined
+  onSelect: (entry: WorkspaceFileEntry) => void
+  creating: { parentPath: string; isDirectory: boolean } | null
+  startCreate: (parentPath: string, isDirectory: boolean) => void
+  cancelCreate: () => void
+  renaming: string | null
+  startRename: (entry: WorkspaceFileEntry) => void
+  cancelRename: () => void
+  deleteEntry: (entry: WorkspaceFileEntry) => Promise<void>
+  openContextMenu: (e: React.MouseEvent, entry?: WorkspaceFileEntry, targetDir?: string) => void
+}
+
+const ExplorerContext = createContext<ExplorerActions | null>(null)
+function useExplorer(): ExplorerActions {
+  const ctx = useContext(ExplorerContext)
+  if (!ctx) throw new Error('useExplorer must be used within ExplorerContext')
+  return ctx
+}
+
+function Directory({ path }: { path: string }): JSX.Element {
+  const { t } = useTranslation()
+  const { sessionId, refreshNonce, creating, cancelCreate, onSelect, openContextMenu } =
+    useExplorer()
+  const [entries, setEntries] = useState<WorkspaceFileEntry[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const [createName, setCreateName] = useState('')
+  const createInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let current = true
+    if (!entries) setError(false)
+    void api.files.list(sessionId, path).then(
+      (result) => {
+        if (current) {
+          setEntries(result)
+          setError(false)
+        }
+      },
+      () => {
+        if (current) setError(true)
+      }
+    )
+    return () => {
+      current = false
+    }
+  }, [sessionId, path, attempt, refreshNonce])
+
+  const isCreatingHere = creating && creating.parentPath === path
+
+  useEffect(() => {
+    if (isCreatingHere) {
+      setCreateName('')
+      setTimeout(() => createInputRef.current?.focus(), 30)
+    }
+  }, [isCreatingHere])
+
+  const handleCommitCreate = async (): Promise<void> => {
+    const name = createName.trim()
+    if (!name) {
+      cancelCreate()
+      return
+    }
+    const targetPath = path ? `${path}/${name}` : name
+    try {
+      const res = await api.files.create(sessionId, targetPath, creating?.isDirectory)
+      if (!creating?.isDirectory) {
+        onSelect({ path: res.path, name, directory: false })
+      }
+    } catch {
+      alert(creating?.isDirectory ? t('ide.folderCreateError') : t('ide.fileCreateError'))
+    } finally {
+      cancelCreate()
+    }
+  }
+
+  if (error)
+    return (
+      <div className="p-3 text-xs text-text-muted" role="alert">
+        <p>{t('ide.folderError')}</p>
+        <button type="button" className={control} onClick={() => setAttempt((v) => v + 1)}>
+          {t('ide.retry')}
+        </button>
+      </div>
+    )
+  if (!entries)
+    return (
+      <p role="status" className="p-3 text-xs text-text-muted">
+        {t('ide.loading')}
+      </p>
+    )
+
+  return (
+    <ul
+      className="space-y-0.5"
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        openContextMenu(e, undefined, path)
+      }}
+    >
+      {isCreatingHere && (
+        <li className="flex items-center gap-1.5 rounded px-2 py-1 bg-surface-2 border border-accent/40">
+          <ChevronRight className="invisible h-3 w-3 shrink-0" />
+          {creating?.isDirectory ? (
+            <Folder className="h-4 w-4 shrink-0 text-accent/80" />
+          ) : (
+            <FileText className="h-4 w-4 shrink-0 text-accent" />
+          )}
+          <input
+            ref={createInputRef}
+            type="text"
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void handleCommitCreate()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelCreate()
+              }
+            }}
+            onBlur={() => {
+              if (!createName.trim()) {
+                cancelCreate()
+              } else {
+                void handleCommitCreate()
+              }
+            }}
+            placeholder={t('ide.namePlaceholder')}
+            className="w-full min-w-0 bg-transparent text-xs text-text placeholder:text-text-subtle focus:outline-none"
+            spellCheck={false}
+          />
+        </li>
+      )}
+      {entries.map((entry) => (
+        <Entry key={entry.path} entry={entry} />
+      ))}
+      {!entries.length && !isCreatingHere && (
+        <p className="p-2 text-xs text-text-subtle">{t('ide.emptyFolder')}</p>
+      )}
+    </ul>
+  )
+}
+
+function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
+  const { t } = useTranslation()
+  const {
+    sessionId,
+    selectedPath,
+    onSelect,
+    creating,
+    startCreate,
+    renaming,
+    startRename,
+    cancelRename,
+    deleteEntry,
+    openContextMenu
+  } = useExplorer()
+  const [expanded, setExpanded] = useState(false)
+  const [renameName, setRenameName] = useState(entry.name)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  const Icon = entry.directory ? (expanded ? FolderOpen : Folder) : FileText
+
+  const isRenaming = renaming === entry.path
+
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameName(entry.name)
+      setTimeout(() => {
+        const input = renameInputRef.current
+        if (!input) return
+        input.focus()
+        if (!entry.directory && entry.name.includes('.')) {
+          const dot = entry.name.lastIndexOf('.')
+          input.setSelectionRange(0, dot)
+        } else {
+          input.select()
+        }
+      }, 30)
+    }
+  }, [isRenaming, entry.name, entry.directory])
+
+  useEffect(() => {
+    if (creating && creating.parentPath === entry.path) {
+      setExpanded(true)
+    }
+  }, [creating, entry.path])
+
+  const handleCommitRename = async (): Promise<void> => {
+    const val = renameName.trim()
+    if (!val || val === entry.name) {
+      cancelRename()
+      return
+    }
+    const parentPath = entry.path.includes('/')
+      ? entry.path.slice(0, entry.path.lastIndexOf('/'))
+      : ''
+    const newPath = parentPath ? `${parentPath}/${val}` : val
+    try {
+      const res = await api.files.rename(sessionId, entry.path, newPath)
+      if (selectedPath === entry.path) {
+        onSelect({ path: res.newPath, name: val, directory: entry.directory })
+      }
+    } catch {
+      alert(t('ide.renameError'))
+    } finally {
+      cancelRename()
+    }
+  }
+
+  if (isRenaming) {
+    return (
+      <li>
+        <div className="flex items-center gap-1.5 rounded px-2 py-1 bg-surface-2 border border-accent/40">
+          <ChevronRight
+            aria-hidden
+            className={`h-3 w-3 shrink-0 ${!entry.directory ? 'invisible' : expanded ? 'rotate-90' : ''}`}
+          />
+          <Icon
+            aria-hidden
+            className={`h-4 w-4 shrink-0 ${entry.directory ? 'text-accent/80' : ''}`}
+          />
+          <input
+            ref={renameInputRef}
+            type="text"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void handleCommitRename()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelRename()
+              }
+            }}
+            onBlur={() => void handleCommitRename()}
+            className="w-full min-w-0 bg-transparent text-xs text-text focus:outline-none"
+            spellCheck={false}
+          />
+        </div>
+        {entry.directory && expanded && (
+          <div className="ml-3 border-l border-border pl-1">
+            <Directory path={entry.path} />
+          </div>
+        )}
+      </li>
+    )
+  }
+
+  const isSelected = !entry.directory && selectedPath === entry.path
+
+  return (
+    <li
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        openContextMenu(e, entry)
+      }}
+    >
+      <div className="group relative flex w-full items-center">
+        <button
+          type="button"
+          aria-expanded={entry.directory ? expanded : undefined}
+          aria-current={isSelected ? 'true' : undefined}
+          title={entry.path}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${isSelected ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-2 hover:text-text'}`}
+          onClick={() => (entry.directory ? setExpanded((v) => !v) : onSelect(entry))}
+        >
+          <ChevronRight
+            aria-hidden
+            className={`h-3 w-3 shrink-0 transition-transform ${!entry.directory ? 'invisible' : expanded ? 'rotate-90' : ''}`}
+          />
+          <Icon
+            aria-hidden
+            className={`h-4 w-4 shrink-0 ${entry.directory ? 'text-accent/80' : ''}`}
+          />
+          <span className="truncate pr-16">{entry.name}</span>
+        </button>
+
+        {/* Hover action buttons */}
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5 rounded bg-surface/95 px-1 py-0.5 shadow-xs border border-border/50">
+          {entry.directory && (
+            <>
+              <button
+                type="button"
+                className="p-1 text-text-subtle hover:text-text rounded hover:bg-white/10 transition-colors"
+                title={t('ide.newFile')}
+                aria-label={t('ide.newFile')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setExpanded(true)
+                  startCreate(entry.path, false)
+                }}
+              >
+                <FilePlus className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                className="p-1 text-text-subtle hover:text-text rounded hover:bg-white/10 transition-colors"
+                title={t('ide.newFolder')}
+                aria-label={t('ide.newFolder')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setExpanded(true)
+                  startCreate(entry.path, true)
+                }}
+              >
+                <FolderPlus className="h-3 w-3" />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className="p-1 text-text-subtle hover:text-text rounded hover:bg-white/10 transition-colors"
+            title={t('ide.rename')}
+            aria-label={t('ide.rename')}
+            onClick={(e) => {
+              e.stopPropagation()
+              startRename(entry)
+            }}
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            className="p-1 text-text-subtle hover:text-danger rounded hover:bg-white/10 transition-colors"
+            title={t('ide.delete')}
+            aria-label={t('ide.delete')}
+            onClick={(e) => {
+              e.stopPropagation()
+              void deleteEntry(entry)
+            }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+
+      {entry.directory && expanded && (
+        <div className="ml-3 border-l border-border pl-1">
+          <Directory path={entry.path} />
+        </div>
+      )}
+    </li>
+  )
+}
+
+interface FileContextMenuState {
+  x: number
+  y: number
+  entry?: WorkspaceFileEntry
+  targetDir?: string
+}
+
+function FileContextMenu({
+  menu,
+  onClose,
+  onStartCreate,
+  onStartRename,
+  onDelete
+}: {
+  menu: FileContextMenuState
+  onClose: () => void
+  onStartCreate: (parentPath: string, isDirectory: boolean) => void
+  onStartRename: (entry: WorkspaceFileEntry) => void
+  onDelete: (entry: WorkspaceFileEntry) => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  const { entry, targetDir } = menu
+
+  const items: Array<{
+    label: string
+    icon: typeof FilePlus
+    danger?: boolean
+    onSelect: () => void
+  }> = []
+
+  if (entry) {
+    if (entry.directory) {
+      items.push({
+        label: t('ide.newFile'),
+        icon: FilePlus,
+        onSelect: () => onStartCreate(entry.path, false)
+      })
+      items.push({
+        label: t('ide.newFolder'),
+        icon: FolderPlus,
+        onSelect: () => onStartCreate(entry.path, true)
+      })
+    }
+    items.push({
+      label: t('ide.rename'),
+      icon: Pencil,
+      onSelect: () => onStartRename(entry)
+    })
+    items.push({
+      label: t('ide.delete'),
+      icon: Trash2,
+      danger: true,
+      onSelect: () => onDelete(entry)
+    })
+  } else {
+    const parent = targetDir ?? ''
+    items.push({
+      label: t('ide.newFile'),
+      icon: FilePlus,
+      onSelect: () => onStartCreate(parent, false)
+    })
+    items.push({
+      label: t('ide.newFolder'),
+      icon: FolderPlus,
+      onSelect: () => onStartCreate(parent, true)
+    })
+  }
+
+  const height = items.length * CONTEXT_ROW_H + CONTEXT_MENU_PAD
+
+  return (
+    <ContextMenuSurface x={menu.x} y={menu.y} height={height} onClose={onClose}>
+      {items.map((item) => (
+        <ContextMenuRow
+          key={item.label}
+          label={item.label}
+          icon={item.icon}
+          danger={item.danger}
+          onSelect={() => {
+            onClose()
+            item.onSelect()
+          }}
+        />
+      ))}
+    </ContextMenuSurface>
+  )
+}
+
+function Preview({
+  sessionId,
+  root,
+  entry,
+  initialLine,
+  onClose
+}: {
+  sessionId: string
+  root: string
+  entry: WorkspaceFileEntry
+  initialLine?: number
+  onClose: () => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <section
+      aria-label={t('ide.preview')}
+      className="flex min-h-0 min-w-[280px] flex-1 flex-col bg-bg"
+    >
+      <FileEditor
+        sessionId={sessionId}
+        root={root}
+        entry={entry}
+        initialLine={initialLine}
+        onClose={onClose}
+      />
+    </section>
+  )
+}
+
+function WorkspaceContents({
+  sessionId,
+  root
+}: {
+  sessionId: string | null
+  root: string | null
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [selected, setSelected] = useState<WorkspaceFileEntry | null>(null)
+  const [selectedLine, setSelectedLine] = useState<number | undefined>(undefined)
+  const [copied, setCopied] = useState(0)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  const [creating, setCreating] = useState<{ parentPath: string; isDirectory: boolean } | null>(
+    null
+  )
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null)
+
+  const ideTab = useRoxyStore((s) => s.ideTab)
+  const setIdeTab = useRoxyStore((s) => s.setIdeTab)
+
+  // Search & replace state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [replaceQuery, setReplaceQuery] = useState('')
+  const [showReplace, setShowReplace] = useState(false)
+  const [replacing, setReplacing] = useState(false)
+  const [replaceStatus, setReplaceStatus] = useState<string | null>(null)
+  const [searchNonce, setSearchNonce] = useState(0)
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const [searchResults, setSearchResults] = useState<WorkspaceFileSearchMatch[]>([])
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(() => new Set())
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const replaceInputRef = useRef<HTMLInputElement>(null)
+
+  const commandsOpen = useRoxyStore((s) => s.commandsOpen)
+  const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
+  const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
+  const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
+  const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
+  const activeChatId = useRoxyStore((s) => s.activeChatId)
+  const chats = useRoxyStore((s) => s.chats)
+  const activeChat = chats.find((c) => c.id === activeChatId) ?? null
+  const [terminalHeight, setTerminalHeight] = useState(260)
+  const isDragging = useRef(false)
+
+  const streaming = useRoxyStore((s) =>
+    activeChatId ? (s.streamingChats[activeChatId] ?? null) : null
+  )
+  const runningTool = useMemo(() => findRunningTool(streaming), [streaming])
+
+  // Automatically open the terminal pane when an agent command begins execution
+  useEffect(() => {
+    if (runningTool && (runningTool.tool === 'bash' || runningTool.tool.startsWith('bash_'))) {
+      setCommandsOpen(true)
+    }
+  }, [runningTool?.callId, setCommandsOpen])
+
+  // Auto-refresh when files change in workspace
+  useEffect(() => {
+    return api.files.onChanged((payload) => {
+      if (!payload.sessionId || payload.sessionId === sessionId) {
+        setRefreshNonce((n) => n + 1)
+      }
+    })
+  }, [sessionId])
+
+  // Auto-refresh when window regains focus
+  useEffect(() => {
+    const onFocus = (): void => setRefreshNonce((n) => n + 1)
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
+  // Auto-refresh when agent file reviews update
+  useEffect(() => {
+    return subscribeFileReviews(() => setRefreshNonce((n) => n + 1))
+  }, [])
+
+  // Periodic safety fallback poll
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRefreshNonce((n) => n + 1)
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (ideSelectedFile) {
+      setSelected(ideSelectedFile)
+      setSelectedLine(ideSelectedLine)
+    }
+  }, [ideSelectedFile, ideSelectedLine])
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(0), 1200)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  useEffect(() => {
+    if (!replaceStatus) return
+    const timer = setTimeout(() => setReplaceStatus(null), 3500)
+    return () => clearTimeout(timer)
+  }, [replaceStatus])
+
+  const copyPath = async (text: string): Promise<void> => {
+    const ok = await writeClipboardText(text)
+    if (ok) setCopied((n) => n + 1)
+  }
+
+  // Live search debounced
+  useEffect(() => {
+    if (ideTab !== 'search' || !sessionId || !root || !searchQuery.trim()) {
+      setSearchResults([])
+      setSearching(false)
+      return
+    }
+
+    let cancelled = false
+    setSearching(true)
+    const timer = setTimeout(() => {
+      void api.files
+        .search(sessionId, searchQuery, { caseSensitive, wholeWord })
+        .then((matches) => {
+          if (cancelled) return
+          setSearchResults(matches)
+          setSearching(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setSearchResults([])
+          setSearching(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [ideTab, sessionId, root, searchQuery, caseSensitive, wholeWord, searchNonce, refreshNonce])
+
+  const executeReplace = async (paths?: string[]): Promise<void> => {
+    if (!sessionId || !root || !searchQuery.trim() || replacing) return
+    setReplacing(true)
+    setReplaceStatus(null)
+    try {
+      const res = await api.files.replace(
+        sessionId,
+        searchQuery,
+        replaceQuery,
+        { caseSensitive, wholeWord },
+        paths
+      )
+      setReplaceStatus(
+        t('ide.replaceSuccess', {
+          count: res.replacements,
+          files: res.filesChanged
+        })
+      )
+      setSearchNonce((n) => n + 1)
+      setRefreshNonce((n) => n + 1)
+      if (selected && (!paths || paths.includes(selected.path))) {
+        setSelected({ ...selected })
+      }
+    } catch {
+      // ignore
+    } finally {
+      setReplacing(false)
+    }
+  }
+
+  const groupedResults = useMemo(() => {
+    const map = new Map<string, WorkspaceFileSearchMatch[]>()
+    for (const match of searchResults) {
+      const list = map.get(match.path) ?? []
+      list.push(match)
+      map.set(match.path, list)
+    }
+    return map
+  }, [searchResults])
+
+  const openSearchResult = (match: WorkspaceFileSearchMatch): void => {
+    const fileName = match.path.split('/').pop() || match.path
+    setSelected({
+      path: match.path,
+      name: fileName,
+      directory: false
+    })
+    setSelectedLine(match.line)
+  }
+
+  const handleSelectFile = (entry: WorkspaceFileEntry): void => {
+    setSelected(entry)
+    setSelectedLine(undefined)
+  }
+
+  const handleDeleteEntry = async (entry: WorkspaceFileEntry): Promise<void> => {
+    if (!sessionId) return
+    if (!window.confirm(t('ide.deleteConfirm', { name: entry.name }))) return
+    try {
+      await api.files.delete(sessionId, entry.path)
+      if (
+        selected?.path === entry.path ||
+        (entry.directory && selected?.path.startsWith(entry.path + '/'))
+      ) {
+        setSelected(null)
+        setSelectedLine(undefined)
+        setIdeSelectedFile(null, undefined)
+      }
+      setRefreshNonce((n) => n + 1)
+    } catch {
+      alert(t('ide.deleteError', { name: entry.name }))
+    }
+  }
+
+  const explorerContextValue: ExplorerActions = {
+    sessionId: sessionId ?? '',
+    refreshNonce,
+    selectedPath: selected?.path,
+    onSelect: handleSelectFile,
+    creating,
+    startCreate: (parentPath, isDirectory) => setCreating({ parentPath, isDirectory }),
+    cancelCreate: () => setCreating(null),
+    renaming,
+    startRename: (entry) => setRenaming(entry.path),
+    cancelRename: () => setRenaming(null),
+    deleteEntry: handleDeleteEntry,
+    openContextMenu: (e, entry, targetDir) => {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        entry,
+        targetDir
+      })
+    }
+  }
+
+  return (
+    <>
+      <aside
+        aria-label={ideTab === 'files' ? t('ide.explorer') : t('ide.searchTab')}
+        className="flex h-full shrink-0 border-r border-border bg-surface"
+      >
+        {/* Activity bar / tab switcher on the side */}
+        <div
+          role="tablist"
+          aria-orientation="vertical"
+          className="flex w-11 shrink-0 flex-col items-center border-r border-border bg-surface-2/40 py-2.5 gap-1.5"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={ideTab === 'files'}
+            onClick={() => setIdeTab('files')}
+            title={t('ide.filesTab')}
+            aria-label={t('ide.filesTab')}
+            className={cn(
+              'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+              ideTab === 'files'
+                ? 'bg-elevated text-accent shadow-xs'
+                : 'text-text-muted hover:bg-white/5 hover:text-text'
+            )}
+          >
+            {ideTab === 'files' && (
+              <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
+            )}
+            <Folder className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={ideTab === 'search'}
+            onClick={() => {
+              setIdeTab('search')
+              setTimeout(() => searchInputRef.current?.focus(), 50)
+            }}
+            title={t('ide.searchTab')}
+            aria-label={t('ide.searchTab')}
+            className={cn(
+              'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+              ideTab === 'search'
+                ? 'bg-elevated text-accent shadow-xs'
+                : 'text-text-muted hover:bg-white/5 hover:text-text'
+            )}
+          >
+            {ideTab === 'search' && (
+              <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
+            )}
+            <Search className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Panel content (Files or Search) */}
+        <div className="flex h-full w-[240px] flex-col overflow-hidden">
+          {sessionId && root ? (
+            ideTab === 'files' ? (
+              <ExplorerContext.Provider value={explorerContextValue}>
+                <div className="border-b border-border px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <div
+                      className="truncate text-xs font-semibold uppercase tracking-wider text-text"
+                      title={root}
+                    >
+                      {root.split(/[\\/]/).filter(Boolean).pop() || root}
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        className={control}
+                        title={t('ide.newFile')}
+                        aria-label={t('ide.newFile')}
+                        onClick={() => setCreating({ parentPath: '', isDirectory: false })}
+                      >
+                        <FilePlus aria-hidden className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className={control}
+                        title={t('ide.newFolder')}
+                        aria-label={t('ide.newFolder')}
+                        onClick={() => setCreating({ parentPath: '', isDirectory: true })}
+                      >
+                        <FolderPlus aria-hidden className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void copyPath(root)}
+                    title={root}
+                    className="press-scale relative mt-0.5 flex w-full min-w-0 items-center text-left text-[11px] text-text-subtle hover:text-text-muted focus-visible:outline-none"
+                  >
+                    <span
+                      className={cn(
+                        'truncate font-mono transition-opacity duration-150',
+                        copied && 'opacity-0'
+                      )}
+                    >
+                      {root}
+                    </span>
+                    <span
+                      className={cn(
+                        'pointer-events-none absolute inset-0 flex items-center text-[10px] font-medium text-accent transition-opacity duration-150',
+                        copied ? 'opacity-100' : 'opacity-0'
+                      )}
+                    >
+                      {t('chat.copied')}
+                    </span>
+                  </button>
+                </div>
+                <div
+                  className="min-h-0 flex-1 overflow-auto p-1.5"
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      targetDir: ''
+                    })
+                  }}
+                >
+                  <Directory path="" />
+                </div>
+              </ExplorerContext.Provider>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="border-b border-border p-2 space-y-1.5">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowReplace((v) => !v)
+                        if (!showReplace) {
+                          setTimeout(() => replaceInputRef.current?.focus(), 50)
+                        }
+                      }}
+                      title={t('ide.toggleReplace')}
+                      aria-label={t('ide.toggleReplace')}
+                      className="flex h-6 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                    >
+                      <ChevronRight
+                        className={cn(
+                          'h-3.5 w-3.5 transition-transform duration-150',
+                          showReplace && 'rotate-90'
+                        )}
+                      />
+                    </button>
+
+                    <div className="flex flex-1 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-1 min-w-0">
+                      <Search className="h-3.5 w-3.5 text-text-subtle shrink-0" />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder={t('ide.searchPlaceholder')}
+                        className="w-full bg-transparent text-xs text-text placeholder:text-text-subtle focus:outline-none"
+                        spellCheck={false}
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          title={t('ide.clearSearch')}
+                          className="text-text-subtle hover:text-text"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {showReplace && (
+                    <div className="flex items-center gap-1 pl-6">
+                      <div className="flex flex-1 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-1 min-w-0">
+                        <Replace className="h-3.5 w-3.5 text-text-subtle shrink-0" />
+                        <input
+                          ref={replaceInputRef}
+                          type="text"
+                          value={replaceQuery}
+                          onChange={(e) => setReplaceQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              void executeReplace()
+                            }
+                          }}
+                          placeholder={t('ide.replacePlaceholder')}
+                          className="w-full bg-transparent text-xs text-text placeholder:text-text-subtle focus:outline-none"
+                          spellCheck={false}
+                        />
+                        {replaceQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setReplaceQuery('')}
+                            title={t('ide.clearReplace')}
+                            className="text-text-subtle hover:text-text"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => void executeReplace()}
+                        disabled={!searchQuery.trim() || searchResults.length === 0 || replacing}
+                        title={t('ide.replaceAll')}
+                        aria-label={t('ide.replaceAll')}
+                        className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border bg-surface-2 text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30 transition-colors"
+                      >
+                        {replacing ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                        ) : (
+                          <CheckCheck className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setCaseSensitive((v) => !v)}
+                        title={t('ide.caseSensitive')}
+                        className={cn(
+                          'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
+                          caseSensitive
+                            ? 'bg-accent/20 text-accent font-bold'
+                            : 'text-text-subtle hover:bg-surface-2 hover:text-text'
+                        )}
+                      >
+                        Aa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWholeWord((v) => !v)}
+                        title={t('ide.wholeWord')}
+                        className={cn(
+                          'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
+                          wholeWord
+                            ? 'bg-accent/20 text-accent font-bold'
+                            : 'text-text-subtle hover:bg-surface-2 hover:text-text'
+                        )}
+                      >
+                        \b
+                      </button>
+                    </div>
+
+                    <span
+                      className="text-[11px] text-text-subtle truncate max-w-[145px]"
+                      title={replaceStatus ?? undefined}
+                    >
+                      {replacing
+                        ? t('ide.replacing')
+                        : replaceStatus
+                          ? replaceStatus
+                          : searching
+                            ? t('ide.searching')
+                            : searchQuery.trim()
+                              ? searchResults.length > 0
+                                ? t('ide.searchMatches', {
+                                    count: searchResults.length,
+                                    files: groupedResults.size
+                                  })
+                                : t('ide.noMatches')
+                              : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-auto p-1.5 space-y-1">
+                  {Array.from(groupedResults.entries()).map(([filePath, matches]) => {
+                    const isCollapsed = collapsedFiles.has(filePath)
+                    const fileName = filePath.split('/').pop() || filePath
+                    const dirPath = filePath.includes('/')
+                      ? filePath.slice(0, filePath.lastIndexOf('/'))
+                      : ''
+
+                    return (
+                      <div key={filePath} className="rounded overflow-hidden">
+                        <div className="group flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-surface-2 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCollapsedFiles((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(filePath)) next.delete(filePath)
+                                else next.add(filePath)
+                                return next
+                              })
+                            }
+                            className="flex items-center gap-1.5 min-w-0 flex-1 text-left text-xs text-text"
+                          >
+                            <ChevronRight
+                              className={cn(
+                                'h-3 w-3 shrink-0 transition-transform text-text-subtle',
+                                !isCollapsed && 'rotate-90'
+                              )}
+                            />
+                            <FileText className="h-3.5 w-3.5 shrink-0 text-accent" />
+                            <span className="truncate font-medium" title={filePath}>
+                              {fileName}
+                              {dirPath && (
+                                <span className="ml-1 text-[10px] text-text-subtle font-normal">
+                                  {dirPath}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+
+                          {showReplace && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void executeReplace([filePath])
+                              }}
+                              disabled={replacing}
+                              title={t('ide.replaceInFile')}
+                              aria-label={t('ide.replaceInFile')}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-subtle hover:text-text hover:bg-white/10 transition-all"
+                            >
+                              <CheckCheck className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+
+                          <span className="rounded-full bg-white/10 px-1.5 py-0.2 text-[10px] tabular-nums text-text-subtle shrink-0">
+                            {matches.length}
+                          </span>
+                        </div>
+
+                        {!isCollapsed && (
+                          <div className="ml-4 border-l border-border pl-1 space-y-0.5 mt-0.5">
+                            {matches.map((m, idx) => (
+                              <button
+                                key={`${m.line}-${m.column}-${idx}`}
+                                type="button"
+                                onClick={() => openSearchResult(m)}
+                                className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-[11px] font-mono hover:bg-surface-2 transition-colors group"
+                              >
+                                <span className="shrink-0 text-accent/80 font-medium">
+                                  {m.line}
+                                </span>
+                                <span className="truncate text-text-muted group-hover:text-text">
+                                  {m.lineText}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          ) : (
+            <p className="p-4 text-xs text-text-muted">{t('ide.noWorkspace')}</p>
+          )}
+        </div>
+      </aside>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          {sessionId &&
+            root &&
+            (selected ? (
+              <Preview
+                key={`${selected.path}:${selectedLine ?? 0}`}
+                sessionId={sessionId}
+                root={root}
+                entry={selected}
+                initialLine={selectedLine}
+                onClose={() => {
+                  setSelected(null)
+                  setSelectedLine(undefined)
+                  setIdeSelectedFile(null, undefined)
+                }}
+              />
+            ) : (
+              <section
+                aria-label={t('ide.preview')}
+                className="flex min-w-[280px] flex-1 flex-col items-center justify-center gap-3 bg-bg p-6 text-center text-text-subtle"
+              >
+                <FileText aria-hidden className="h-8 w-8 opacity-40" />
+                <p className="max-w-52 text-sm">{t('ide.selectFile')}</p>
+              </section>
+            ))}
+        </div>
+
+        {commandsOpen && activeChat && (
+          <div
+            style={{ height: terminalHeight }}
+            className="relative flex min-h-[140px] max-h-[70vh] shrink-0 flex-col border-t border-border bg-bg"
+          >
+            <div
+              role="separator"
+              tabIndex={0}
+              aria-label={t('commands.title')}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return
+                isDragging.current = true
+                e.currentTarget.setPointerCapture(e.pointerId)
+              }}
+              onPointerMove={(e) => {
+                if (!isDragging.current) return
+                const container = e.currentTarget.parentElement?.parentElement
+                if (!container) return
+                const rect = container.getBoundingClientRect()
+                const newHeight = rect.bottom - e.clientY
+                setTerminalHeight(Math.max(120, Math.min(rect.height - 100, newHeight)))
+              }}
+              onPointerUp={(e) => {
+                isDragging.current = false
+                e.currentTarget.releasePointerCapture(e.pointerId)
+              }}
+              className="absolute -top-1 inset-x-0 h-2 cursor-row-resize touch-none z-20 hover:bg-accent/40 focus-visible:bg-accent transition-colors"
+            />
+            <CommandsPane
+              chat={activeChat}
+              onClose={() => setCommandsOpen(false)}
+              onPopOut={() => void api.terminal.open(activeChat.id)}
+              className="h-full border-0 rounded-none shadow-none"
+            />
+          </div>
+        )}
+      </div>
+
+      {contextMenu && (
+        <FileContextMenu
+          menu={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onStartCreate={(parentPath, isDirectory) => {
+            setContextMenu(null)
+            setCreating({ parentPath, isDirectory })
+          }}
+          onStartRename={(entry) => {
+            setContextMenu(null)
+            setRenaming(entry.path)
+          }}
+          onDelete={(entry) => {
+            setContextMenu(null)
+            void handleDeleteEntry(entry)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+export function IdeWorkspace({
+  sessionId,
+  root
+}: {
+  sessionId: string | null
+  root: string | null
+}): JSX.Element {
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+      <WorkspaceContents sessionId={sessionId} root={root} />
+    </div>
+  )
+}

@@ -1,3 +1,4 @@
+import { IdeChatDock } from '../components/IdeChatDock'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
@@ -69,6 +70,10 @@ export default function Settings(): JSX.Element {
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
   const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
+  const setIdeMode = useRoxyStore((s) => s.setIdeMode)
+  const [ideSaving, setIdeSaving] = useState(false)
+  const idePending = useRef(false)
+  const [ideError, setIdeError] = useState(false)
   const setOverlayKeybind = useRoxyStore((s) => s.setOverlayKeybind)
   const setVoiceKeybind = useRoxyStore((s) => s.setVoiceKeybind)
   const setVoiceAutoSend = useRoxyStore((s) => s.setVoiceAutoSend)
@@ -752,6 +757,46 @@ export default function Settings(): JSX.Element {
 
       <MotionSettings onChange={setMotion} />
       <ActivitySection />
+
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('ide.settingsTitle')}</h2>
+        <IdeChatDock />
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('ide.settingsTitle')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">{t('ide.settingsDescription')}</p>
+            {ideSaving && (
+              <p role="status" className="mt-2 text-xs text-text-muted">
+                {t('ide.saving')}
+              </p>
+            )}
+            {ideError && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                {t('ide.saveError')}
+              </p>
+            )}
+          </div>
+          <Switch
+            aria-label={t('ide.settingsTitle')}
+            checked={settings?.ideMode ?? false}
+            disabled={!settings || ideSaving}
+            onChange={async (enabled) => {
+              if (idePending.current) return
+              idePending.current = true
+              setIdeSaving(true)
+              setIdeError(false)
+              try {
+                await setIdeMode(enabled)
+              } catch {
+                setIdeError(true)
+              } finally {
+                idePending.current = false
+                setIdeSaving(false)
+              }
+            }}
+          />
+        </div>
+      </section>
 
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('settings.privacy.heading')}</h2>

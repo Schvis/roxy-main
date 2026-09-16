@@ -24,6 +24,8 @@ import { layoutMarkdown, layoutPlainText } from './prose'
 import { layoutToolCard, type ToolCardInput } from './tool-card'
 import { PROMPT_GUTTER } from './prompt-history'
 import { TranscriptWindow } from './transcript-window'
+import { stripQuestionTags } from '../lib/agent-input-options'
+import { stripPlanSteps } from '../lib/agent-steps'
 
 export interface LayoutInput {
   messages: Message[]
@@ -358,8 +360,9 @@ export function layoutParts(
       return
     }
 
-    if (part.text.trim() === '') return
-    cursor += layoutMarkdown(builder, part.text, x, cursor, width, {
+    const cleanText = stripPlanSteps(stripQuestionTags(part.text))
+    if (cleanText.trim() === '') return
+    cursor += layoutMarkdown(builder, cleanText, x, cursor, width, {
       color: palette.text,
       size: FONT_SIZE.body,
       workspacePath: input.workspacePath
@@ -372,7 +375,11 @@ export function layoutParts(
   // spinner, and text actively arriving is its own evidence.
   const last = parts[parts.length - 1]
   const runningTool = last?.type === 'tool' && last.state === 'running'
-  const liveText = (last?.type === 'text' || last?.type === 'reasoning') && last.text.trim() !== ''
+  const cleanLastText =
+    last && (last.type === 'text' || last.type === 'reasoning')
+      ? stripPlanSteps(stripQuestionTags(last.text)).trim()
+      : ''
+  const liveText = cleanLastText !== ''
   if (indicator && streaming && !runningTool && (!liveText || input.quiet)) {
     cursor += layoutThinking(
       builder,
@@ -621,7 +628,9 @@ export function transcriptCache(session: string): BlockCache {
 export function partsText(parts: MessagePart[]): string {
   return parts
     .map((part) => {
-      if (part.type === 'text' || part.type === 'reasoning') return part.text
+      if (part.type === 'text' || part.type === 'reasoning') {
+        return stripPlanSteps(stripQuestionTags(part.text))
+      }
       if (part.type === 'image') return part.name ?? ''
       return [
         part.tool,

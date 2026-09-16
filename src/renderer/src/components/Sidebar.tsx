@@ -6,7 +6,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent
 } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useMotion } from '../lib/motion'
@@ -15,14 +14,9 @@ import {
   GitBranch,
   GitFork,
   Hammer,
-  Lightbulb,
-  MonitorSmartphone,
   PanelLeftClose,
   PanelLeftOpen,
-  Palette,
-  Plug,
   Plus,
-  Settings as SettingsIcon,
   Square,
   SquarePen,
   Trash2
@@ -35,15 +29,12 @@ import { statusKeyForSession } from '@shared/workstream'
 import { repoCountBadge } from '@shared/repos'
 import { formatInterval } from '@shared/format'
 import { useRoxyStore } from '../lib/store'
-import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { ContextMenuRow, ContextMenuSurface, CONTEXT_MENU_PAD, CONTEXT_ROW_H } from './ContextMenu'
 import { TONE_BG, TONE_TEXT_STATIC } from '../lib/lifecycle'
 import { HeartbeatDot } from './LoopsSection'
-import { RemoteWorkspaceDialog } from './RemoteWorkspaceDialog'
 import { BrailleSpinner } from './ThinkingIndicator'
 import { UpdateCard } from './UpdateCard'
-import roxy from '../assets/roxy.png'
 
 const MIN_WIDTH = 220
 const MAX_WIDTH = 480
@@ -59,7 +50,6 @@ const DEFAULT_WIDTH = 288
  */
 const SWEEP_MS = 30_000
 const WIDTH_KEY = 'roxy.sidebar.width'
-const RAIL_COLLAPSED_KEY = 'roxy.sidebar.collapsed'
 const COLLAPSED_PROJECTS_KEY = 'roxy.sidebar.projects.v1'
 const clampWidth = (n: number): number => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n))
 
@@ -160,7 +150,6 @@ function FolderMorph({ open, className }: { open: boolean; className?: string })
 
 export function Sidebar(): JSX.Element {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const chats = useRoxyStore((s) => s.chats)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const selectChat = useRoxyStore((s) => s.selectChat)
@@ -181,33 +170,20 @@ export function Sidebar(): JSX.Element {
   const reorderSessions = useRoxyStore((s) => s.reorderSessions)
   const reorderProjects = useRoxyStore((s) => s.reorderProjects)
   const projectOrder = useRoxyStore((s) => s.projectOrder)
+  const railed = useRoxyStore((s) => s.sidebarRailed)
+  const setRailed = useRoxyStore((s) => s.setSidebarRailed)
   const [collapsed, setCollapsed] = useState<Set<string>>(storedCollapsedProjects)
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
   const [width, setWidth] = useState<number>(() => {
     const v = Number(localStorage.getItem(WIDTH_KEY))
     return Number.isFinite(v) && v >= MIN_WIDTH && v <= MAX_WIDTH ? v : DEFAULT_WIDTH
   })
-  const [railed, setRailed] = useState<boolean>(
-    () => localStorage.getItem(RAIL_COLLAPSED_KEY) === '1'
-  )
   // The open right-click menu: which session, and where the cursor was.
   const [contextMenu, setContextMenu] = useState<{ chat: Chat; x: number; y: number } | null>(null)
-  const [remoteOpen, setRemoteOpen] = useState(false)
-  const remotePhase = useRoxyStore((s) => s.remote.phase)
-  // Green only when truly live; amber while spinning up or reconnecting.
-  const remoteDot: 'green' | 'amber' | null =
-    remotePhase === 'live'
-      ? 'green'
-      : remotePhase === 'starting' || remotePhase === 'offline'
-        ? 'amber'
-        : null
 
   useEffect(() => {
     localStorage.setItem(WIDTH_KEY, String(width))
   }, [width])
-  useEffect(() => {
-    localStorage.setItem(RAIL_COLLAPSED_KEY, railed ? '1' : '0')
-  }, [railed])
 
   // Double-click a session name to rename it inline. Enter / click-away saves,
   // Escape cancels. `cancelRef` lets the shared blur handler tell the two apart.
@@ -527,70 +503,21 @@ export function Sidebar(): JSX.Element {
 
   if (railed) {
     return (
-      <aside className="sidebar-rail flex h-full shrink-0 flex-col items-center border-r border-border bg-surface">
-        <div className="titlebar reserve-controls-left h-[54px] w-full shrink-0" />
-        <div className="flex flex-col items-center gap-1 pt-1">
-          <button
-            onClick={() => setRailed(false)}
-            title={t('sidebar.expand')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
-          <button
-            onClick={newSession}
-            title={t('sidebar.newProject')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <FolderOpen className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mb-3 mt-auto flex flex-col items-center gap-1">
-          <button
-            onClick={() => setRemoteOpen(true)}
-            title={t('sidebar.remoteWorkspace')}
-            className="relative press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <MonitorSmartphone className="h-4 w-4" />
-            {remoteDot && (
-              <span
-                className={cn(
-                  'absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-2 ring-surface',
-                  remoteDot === 'green' ? 'bg-success' : 'bg-warning'
-                )}
-              />
-            )}
-          </button>
-          <button
-            onClick={() => navigate('/skills')}
-            title={t('sidebar.skills')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <Lightbulb className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => navigate('/mcp')}
-            title={t('sidebar.mcpServers')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <Plug className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => navigate('/themes')}
-            title={t('sidebar.themes')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <Palette className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => navigate('/settings')}
-            title={t('sidebar.settings')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <SettingsIcon className="h-4 w-4" />
-          </button>
-        </div>
-        {remoteOpen && <RemoteWorkspaceDialog onClose={() => setRemoteOpen(false)} />}
+      <aside className="sidebar-rail flex h-full shrink-0 flex-col items-center border-r border-border bg-surface py-2">
+        <button
+          onClick={() => setRailed(false)}
+          title={t('sidebar.expand')}
+          className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+        </button>
+        <button
+          onClick={newSession}
+          title={t('sidebar.newProject')}
+          className="press-scale mt-2 flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+        >
+          <FolderOpen className="h-4 w-4" />
+        </button>
       </aside>
     )
   }
@@ -600,34 +527,20 @@ export function Sidebar(): JSX.Element {
       style={{ width }}
       className="relative flex h-full shrink-0 flex-col border-r border-border bg-surface"
     >
-      <div className="titlebar reserve-controls-left flex items-center gap-2 px-4 py-3.5">
-        <div className="sidebar-brand flex items-center gap-2.5">
-          <img
-            src={roxy}
-            alt="Roxy"
-            className="h-7 w-7 sq sq-lg rounded-lg object-cover inset-ring-1 inset-ring-border"
-          />
-          <span className="text-sm font-semibold tracking-tight">Roxy</span>
-        </div>
-        <div className="sidebar-controls ml-auto flex items-center gap-1">
-          <button
-            onClick={() => navigate('/settings')}
-            title={t('sidebar.settings')}
-            className="press-scale flex h-7 w-7 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <SettingsIcon className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setRailed(true)}
-            title={t('sidebar.collapse')}
-            className="press-scale flex h-7 w-7 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        </div>
+      <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+          {t('sidebar.projects')}
+        </span>
+        <button
+          onClick={() => setRailed(true)}
+          title={t('sidebar.collapse')}
+          className="press-scale flex h-6 w-6 items-center justify-center sq sq-md rounded-md text-text-muted hover:bg-white/5 hover:text-text"
+        >
+          <PanelLeftClose className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="px-3">
+      <div className="px-3 pt-1">
         <button
           onClick={newSession}
           title={t('sidebar.newProjectTitle')}
@@ -637,7 +550,7 @@ export function Sidebar(): JSX.Element {
         </button>
       </div>
 
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3">
+      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3">
         <section className="flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center px-1">
             <span className="text-xs font-medium text-text-muted">{t('sidebar.projects')}</span>
@@ -1079,10 +992,6 @@ export function Sidebar(): JSX.Element {
         />
       )}
 
-      {remoteOpen && <RemoteWorkspaceDialog onClose={() => setRemoteOpen(false)} />}
-
-      <CustomizeNav onOpenRemote={() => setRemoteOpen(true)} remoteDot={remoteDot} />
-
       <UpdateCard />
 
       {/* Drag the right edge to resize; double-click to reset to the default width. */}
@@ -1148,116 +1057,5 @@ function SessionContextMenu({
         />
       ))}
     </ContextMenuSurface>
-  )
-}
-
-/** Counts of discovered skills + configured MCP servers, refreshed when focused. */
-function useCustomizeCounts(): { skills: number; mcp: number } {
-  const [counts, setCounts] = useState<{ skills: number; mcp: number }>({ skills: 0, mcp: 0 })
-  useEffect(() => {
-    let alive = true
-    const load = (): void => {
-      Promise.all([api.skills.list(), api.mcp.list()])
-        .then(([skills, mcp]) => {
-          if (alive) setCounts({ skills: skills.length, mcp: mcp.length })
-        })
-        .catch(() => {})
-    }
-    load()
-    // Re-count when the window regains focus (the user may have edited skills/MCP on a page).
-    window.addEventListener('focus', load)
-    return () => {
-      alive = false
-      window.removeEventListener('focus', load)
-    }
-  }, [])
-  return counts
-}
-
-/**
- * The utility section pinned to the bottom of the sidebar — quick access to
- * Remote Workspace (share to phone), plus the Skills and MCP Servers pages
- * (à la VS Code's Customizations panel), with a live count/indicator on each.
- */
-function CustomizeNav({
-  onOpenRemote,
-  remoteDot
-}: {
-  onOpenRemote: () => void
-  remoteDot: 'green' | 'amber' | null
-}): JSX.Element {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const counts = useCustomizeCounts()
-  const items: {
-    label: string
-    icon: typeof Lightbulb
-    onClick: () => void
-    count?: number
-    dot?: 'green' | 'amber' | null
-  }[] = [
-    {
-      label: t('sidebar.remoteWorkspace'),
-      icon: MonitorSmartphone,
-      onClick: onOpenRemote,
-      dot: remoteDot
-    },
-    {
-      label: t('sidebar.skills'),
-      icon: Lightbulb,
-      onClick: () => navigate('/skills'),
-      count: counts.skills
-    },
-    {
-      label: t('sidebar.mcpServers'),
-      icon: Plug,
-      onClick: () => navigate('/mcp'),
-      count: counts.mcp
-    },
-    { label: t('sidebar.themes'), icon: Palette, onClick: () => navigate('/themes') }
-  ]
-  return (
-    <div className="border-t border-border px-3 py-2">
-      <div className="flex flex-col gap-0.5">
-        {items.map((it) => (
-          <button
-            key={it.label}
-            onClick={it.onClick}
-            className="press-scale flex items-center gap-2.5 sq sq-lg rounded-lg px-2 py-1.5 text-sm text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <it.icon className="h-4 w-4 shrink-0 opacity-80" />
-            <span className="flex-1 text-left">{it.label}</span>
-            {it.dot ? (
-              <span
-                className="relative flex h-2 w-2 shrink-0"
-                title={
-                  it.dot === 'green' ? t('sidebar.sharingLive') : t('sidebar.sharingConnecting')
-                }
-              >
-                <span
-                  className={cn(
-                    'absolute inline-flex h-full w-full animate-ping rounded-full opacity-70',
-                    it.dot === 'green' ? 'bg-success' : 'bg-warning'
-                  )}
-                />
-                <span
-                  className={cn(
-                    'relative inline-flex h-2 w-2 rounded-full',
-                    it.dot === 'green' ? 'bg-success' : 'bg-warning'
-                  )}
-                />
-              </span>
-            ) : (
-              it.count !== undefined &&
-              it.count > 0 && (
-                <span className="shrink-0 text-[10px] tabular-nums text-text-subtle">
-                  {it.count}
-                </span>
-              )
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
   )
 }
