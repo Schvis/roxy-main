@@ -5611,12 +5611,24 @@ async function main(): Promise<void> {
     catalog: pickerCatalogs['github-copilot'],
     index: pickerIndex,
     query: '',
-    hidden: new Set(['github-copilot:claude-opus-5'])
+    hidden: new Set(['github-copilot:claude-opus-5']),
+    pinned: pickerPinned
   })
   check(
     'provider rows: filters out hidden models and keeps remaining',
     copilotRows.length === 2 &&
       copilotRows.every((r) => r.providerId === 'github-copilot' && r.modelId !== 'claude-opus-5')
+  )
+  check(
+    'provider rows: marks pinned models',
+    buildProviderModelRows({
+      provider: { id: 'github-copilot', name: 'GitHub Copilot' },
+      catalog: pickerCatalogs['github-copilot'],
+      index: pickerIndex,
+      query: '',
+      hidden: new Set(),
+      pinned: pickerPinned
+    }).filter((r) => r.pinned).length === 1
   )
 
   const copilotSearched = buildProviderModelRows({
@@ -5624,7 +5636,8 @@ async function main(): Promise<void> {
     catalog: pickerCatalogs['github-copilot'],
     index: pickerIndex,
     query: 'sol',
-    hidden: new Set()
+    hidden: new Set(),
+    pinned: pickerPinned
   })
   check(
     'provider rows: query filters correctly within provider',

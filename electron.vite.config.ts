@@ -11,7 +11,6 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    ...(process.env.PORT ? { server: { port: Number(process.env.PORT) } } : {}),
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),

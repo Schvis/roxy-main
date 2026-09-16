@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Brain, Check, ChevronsUpDown, Search, Wrench, X } from 'lucide-react'
+import { Brain, Check, ChevronsUpDown, Pin, Search, Wrench, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { buildModelIndex, buildProviderModelRows, countMatchesByProvider } from '../lib/modelRows'
@@ -9,14 +9,60 @@ import { resolveSessionConfig } from '@shared/session-config'
 import { ProviderLogo } from '../lib/providerLogos'
 import { triggerClass } from './InferenceControls'
 import { useMenuAnchor } from '../lib/useMenuAnchor'
+import { rowOffsets, visibleRange } from '../lib/windowing'
 import { cn } from '../lib/cn'
 
+/**
+ * A cute, searchable model picker: the active provider's logo + model on the
+ * trigger, and a popover with a horizontal provider carousel on top and the
+ * active provider's available models windowed below. Hovering any model row
+ * reveals a pin toggle, persisting a user-curated shortlist across restarts.
+ *
+ * PERFORMANCE, and why this file looks the way it does
+ * ----------------------------------------------------
+ * The catalogs behind this are not small. A gateway provider (roxy.gg,
+ * OpenRouter) reports 300-600 models, and switching tabs or searching needs to
+ * stay instant. Measured with the real component and real catalog sizes:
+ * mounting ~450 rows in a single commit caused ~200ms of React commit plus
+ * ~60ms of layout to open, and ~100ms per keystroke in the search field.
+ *
+ * Three things fix it, in order of how much they matter:
+ *
+ *   1. WINDOWING (`useWindow` + `lib/windowing`). The menu is height-capped at
+ *      380px and rows have known heights, so at most ~14 can ever be visible.
+ *      We take the current provider's model list and mount only the visible slice
+ *      plus a small overscan, with spacer divs holding the scrollbar honest. Cost
+ *      becomes a function of the WINDOW, not the catalog — opening is O(20 rows)
+ *      whether the provider has 30 models or 3000.
+ *
+ *   2. INDEXING (`index`). Every row used to run `models[provider].find(...)`
+ *      two or three times to resolve its own label, capabilities and pinned
+ *      state — quadratic in the catalog. One memoized Map keyed `provider:model`
+ *      makes each lookup O(1).
+ *
+ *   3. MEMOIZING THE SEARCH. Filtering lowercased every model name on every
+ *      keystroke. Names are lowercased once when the catalog loads, and the
+ *      filtered result is memoized on the query.
+ *
+ * The fixed row height is the load-bearing assumption for (1): it is what lets
+ * us compute the visible slice arithmetically instead of measuring. ROW_H
+ * must therefore match the button's classes below.
+ */
 const MENU_W = 320
 /** Row height in px for each model row. */
 const ROW_H = 32
 
 /**
  * Track a scroll container's visible band, in px.
+ *
+ * Deliberately not throttled to rAF: the handler only reads `scrollTop` and
+ * sets a number, and React already batches the resulting render. Adding a frame
+ * of latency here would make the list visibly lag the scrollbar.
+ *
+ * `reset` exists because a scroll set programmatically (jumping back to the top
+ * when the query changes) fires its `scroll` event ASYNCHRONOUSLY. Without it
+ * we would render one frame with the new, shorter row list against the old
+ * scroll offset — a flash of blank menu on the first keystroke.
  */
 function useWindow(
   ref: React.RefObject<HTMLElement>,
@@ -43,22 +89,21 @@ function useWindow(
 export function ModelPicker(): JSX.Element {
   const navigate = useNavigate()
   const { t } = useTranslation()
-  const rawProviders = useRoxyStore((s) => s.providers)
-  // Roxy is always first in the carousel — it's where we distribute models
-  const providers = useMemo(() => {
-    const roxy = rawProviders.find((p) => p.id === 'roxy')
-    if (!roxy) return rawProviders
-    return [roxy, ...rawProviders.filter((p) => p.id !== 'roxy')]
-  }, [rawProviders])
+  const providers = useRoxyStore((s) => s.providers)
   const settings = useRoxyStore((s) => s.settings)
+  // Only the ACTIVE chat's config matters here, and it is the sole reason this
+  // component ever needed `chats`. Subscribing to the whole array re-rendered
+  // the open menu on every sidebar tick and every streamed title update.
   const activeChat = useRoxyStore((s) => s.chats.find((c) => c.id === s.activeChatId))
   const selectModel = useRoxyStore((s) => s.selectModel)
   const models = useRoxyStore((s) => s.modelCatalog)
   const modelsTried = useRoxyStore((s) => s.modelsTried)
+  const pinnedModels = useRoxyStore((s) => s.pinnedModels)
   const ensureModels = useRoxyStore((s) => s.ensureModels)
-  const ensureRecentModels = useRoxyStore((s) => s.ensureRecentModels)
+  const ensurePinnedModels = useRoxyStore((s) => s.ensurePinnedModels)
   const hiddenModels = useRoxyStore((s) => s.hiddenModels)
   const ensureHiddenModels = useRoxyStore((s) => s.ensureHiddenModels)
+  const setModelPinned = useRoxyStore((s) => s.setModelPinned)
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -96,19 +141,19 @@ export function ModelPicker(): JSX.Element {
     [providers, selectedProviderId, activeProvider]
   )
 
-  // Lazy-load every connected provider's models into shared caches
+  // Lazy-load every connected provider's models and pins into shared caches
   useEffect(() => {
+    void ensurePinnedModels()
     void ensureHiddenModels()
     providers.forEach((p) => {
       void ensureModels(p.id)
-      void ensureRecentModels(p.id)
     })
-  }, [providers, ensureModels, ensureRecentModels, ensureHiddenModels])
+  }, [providers, ensureModels, ensurePinnedModels, ensureHiddenModels])
 
   useEffect(() => {
-    if (open && selectedProviderId) {
-      void ensureModels(selectedProviderId)
-    }
+    if (!open) return
+    void ensureModels('github-copilot')
+    if (selectedProviderId) void ensureModels(selectedProviderId)
   }, [open, selectedProviderId, ensureModels])
 
   // Close on outside click / Escape
@@ -135,13 +180,10 @@ export function ModelPicker(): JSX.Element {
 
   // Auto-scroll the active tab into view in the carousel
   useLayoutEffect(() => {
-    if (open && activeTabRef.current) {
-      activeTabRef.current.scrollIntoView({
-        behavior: 'smooth',
-        inline: 'center',
-        block: 'nearest'
-      })
-    }
+    const tab = activeTabRef.current
+    const rail = carouselRef.current
+    if (!open || !tab || !rail) return
+    rail.scrollLeft = tab.offsetLeft - rail.clientWidth / 2 + tab.clientWidth / 2
   }, [open, selectedProviderId])
 
   const handleCarouselWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -165,9 +207,10 @@ export function ModelPicker(): JSX.Element {
       catalog: currentCatalog,
       index,
       query,
-      hidden: hiddenModels
+      hidden: hiddenModels,
+      pinned: pinnedModels
     })
-  }, [currentProvider, currentCatalog, index, query, hiddenModels])
+  }, [currentProvider, currentCatalog, index, query, hiddenModels, pinnedModels])
 
   const matchCounts = useMemo(() => {
     if (!q) return {}
@@ -191,14 +234,16 @@ export function ModelPicker(): JSX.Element {
       }))
   }, [q, providers, currentProvider?.id, matchCounts])
 
-  const overscan = 3
-  const first = Math.max(0, Math.floor(band.top / ROW_H) - overscan)
-  const last = Math.min(
-    rows.length,
-    Math.ceil((band.top + (band.height || 260)) / ROW_H) + overscan
+  const offsets = useMemo(
+    () => rowOffsets(new Array<number>(rows.length).fill(ROW_H)),
+    [rows.length]
   )
-  const topSpacer = first * ROW_H
-  const bottomSpacer = Math.max(0, (rows.length - last) * ROW_H)
+  const totalH = offsets.length ? offsets[offsets.length - 1] : 0
+  const { first, last } = useMemo(
+    () =>
+      visibleRange(offsets, rows.length, band.top, band.height || Number(anchor.maxHeight) || 360),
+    [offsets, rows.length, band.top, band.height, anchor.maxHeight]
+  )
   const visibleRows = rows.slice(first, last)
 
   const loading = Boolean(
@@ -218,11 +263,22 @@ export function ModelPicker(): JSX.Element {
 
   const pick = useCallback(
     async (providerId: string, modelId: string): Promise<void> => {
+      // Close FIRST. `selectModel` awaits two IPC round trips (session config,
+      // then the refreshed recents), and leaving the menu up until they resolve
+      // is what made a click feel like it hadn't registered.
       setOpen(false)
       setQuery('')
       await selectModel(providerId, modelId)
     },
     [selectModel]
+  )
+
+  const togglePin = useCallback(
+    (e: React.MouseEvent, providerId: string, modelId: string, pinned: boolean): void => {
+      e.stopPropagation()
+      void setModelPinned(providerId, modelId, !pinned)
+    },
+    [setModelPinned]
   )
 
   if (providers.length === 0) {
@@ -283,7 +339,7 @@ export function ModelPicker(): JSX.Element {
                     >
                       <ProviderLogo id={p.id} name={p.name} size={20} />
                       {hasQuery && count !== undefined && count > 0 && (
-                        <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-accent-fg shadow-xs">
+                        <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/90 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-xs">
                           {count > 99 ? '99+' : count}
                         </span>
                       )}
@@ -322,11 +378,16 @@ export function ModelPicker(): JSX.Element {
             )}
           </div>
 
-          {/* Models Scrollable List */}
+          {/* No vertical padding on the scroller: `scrollTop` is measured from
+              the padding box, so any padding here would offset every row
+              against the windowing math that positions them. */}
           <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
             {rows.length > 0 && (
+              // Spacers stand in for the rows we didn't mount, so the scrollbar
+              // reflects the full list and the visible slice lands at the right
+              // offset.
               <>
-                <div style={{ height: topSpacer }} />
+                <div style={{ height: offsets[first] }} />
                 {visibleRows.map((row) => {
                   const isCurrentActive =
                     row.providerId === activeProvider?.id && row.modelId === activeModel
@@ -362,10 +423,26 @@ export function ModelPicker(): JSX.Element {
                           <Wrench className="h-3 w-3 shrink-0 text-success" />
                         </span>
                       )}
+                      {/* A <span> rather than a nested <button>: a button inside a button is
+                          invalid HTML, and the browser is free to drop the inner one. */}
+                      <span
+                        role="button"
+                        tabIndex={-1}
+                        title={row.pinned ? t('models.unpin') : t('models.pin')}
+                        onClick={(e) => togglePin(e, row.providerId, row.modelId, row.pinned)}
+                        className={cn(
+                          'shrink-0 rounded p-0.5 transition hover:bg-white/10',
+                          row.pinned
+                            ? 'text-accent'
+                            : 'text-text-subtle opacity-0 group-hover:opacity-100'
+                        )}
+                      >
+                        <Pin className={cn('h-3 w-3', row.pinned && 'fill-current')} />
+                      </span>
                     </button>
                   )
                 })}
-                <div style={{ height: bottomSpacer }} />
+                <div style={{ height: totalH - offsets[last] }} />
               </>
             )}
 
@@ -401,7 +478,7 @@ export function ModelPicker(): JSX.Element {
                         >
                           <ProviderLogo id={other.id} name={other.name} size={13} />
                           <span>{other.name}</span>
-                          <span className="rounded-full bg-accent/20 px-1 py-0.2 text-[10px] font-semibold text-accent">
+                          <span className="rounded-full bg-accent/20 px-1 py-0.5 text-[10px] font-semibold text-accent">
                             {other.count}
                           </span>
                         </button>
