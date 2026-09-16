@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Brain, Check, ChevronsUpDown, Pin, Search, Wrench, X } from 'lucide-react'
+import { Brain, Check, ChevronsUpDown, Search, Wrench, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { buildModelIndex, buildProviderModelRows, countMatchesByProvider } from '../lib/modelRows'
@@ -15,8 +15,7 @@ import { cn } from '../lib/cn'
 /**
  * A cute, searchable model picker: the active provider's logo + model on the
  * trigger, and a popover with a horizontal provider carousel on top and the
- * active provider's available models windowed below. Hovering any model row
- * reveals a pin toggle, persisting a user-curated shortlist across restarts.
+ * active provider's available models windowed below.
  *
  * PERFORMANCE, and why this file looks the way it does
  * ----------------------------------------------------
@@ -36,9 +35,9 @@ import { cn } from '../lib/cn'
  *      whether the provider has 30 models or 3000.
  *
  *   2. INDEXING (`index`). Every row used to run `models[provider].find(...)`
- *      two or three times to resolve its own label, capabilities and pinned
- *      state — quadratic in the catalog. One memoized Map keyed `provider:model`
- *      makes each lookup O(1).
+ *      two or three times to resolve its own label and capabilities — quadratic
+ *      in the catalog. One memoized Map keyed `provider:model` makes each
+ *      lookup O(1).
  *
  *   3. MEMOIZING THE SEARCH. Filtering lowercased every model name on every
  *      keystroke. Names are lowercased once when the catalog loads, and the
@@ -98,12 +97,9 @@ export function ModelPicker(): JSX.Element {
   const selectModel = useRoxyStore((s) => s.selectModel)
   const models = useRoxyStore((s) => s.modelCatalog)
   const modelsTried = useRoxyStore((s) => s.modelsTried)
-  const pinnedModels = useRoxyStore((s) => s.pinnedModels)
   const ensureModels = useRoxyStore((s) => s.ensureModels)
-  const ensurePinnedModels = useRoxyStore((s) => s.ensurePinnedModels)
   const hiddenModels = useRoxyStore((s) => s.hiddenModels)
   const ensureHiddenModels = useRoxyStore((s) => s.ensureHiddenModels)
-  const setModelPinned = useRoxyStore((s) => s.setModelPinned)
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -141,14 +137,13 @@ export function ModelPicker(): JSX.Element {
     [providers, selectedProviderId, activeProvider]
   )
 
-  // Lazy-load every connected provider's models and pins into shared caches
+  // Lazy-load every connected provider's models into shared caches
   useEffect(() => {
-    void ensurePinnedModels()
     void ensureHiddenModels()
     providers.forEach((p) => {
       void ensureModels(p.id)
     })
-  }, [providers, ensureModels, ensurePinnedModels, ensureHiddenModels])
+  }, [providers, ensureModels, ensureHiddenModels])
 
   useEffect(() => {
     if (!open) return
@@ -207,10 +202,9 @@ export function ModelPicker(): JSX.Element {
       catalog: currentCatalog,
       index,
       query,
-      hidden: hiddenModels,
-      pinned: pinnedModels
+      hidden: hiddenModels
     })
-  }, [currentProvider, currentCatalog, index, query, hiddenModels, pinnedModels])
+  }, [currentProvider, currentCatalog, index, query, hiddenModels])
 
   const matchCounts = useMemo(() => {
     if (!q) return {}
@@ -271,14 +265,6 @@ export function ModelPicker(): JSX.Element {
       await selectModel(providerId, modelId)
     },
     [selectModel]
-  )
-
-  const togglePin = useCallback(
-    (e: React.MouseEvent, providerId: string, modelId: string, pinned: boolean): void => {
-      e.stopPropagation()
-      void setModelPinned(providerId, modelId, !pinned)
-    },
-    [setModelPinned]
   )
 
   if (providers.length === 0) {
@@ -423,22 +409,6 @@ export function ModelPicker(): JSX.Element {
                           <Wrench className="h-3 w-3 shrink-0 text-success" />
                         </span>
                       )}
-                      {/* A <span> rather than a nested <button>: a button inside a button is
-                          invalid HTML, and the browser is free to drop the inner one. */}
-                      <span
-                        role="button"
-                        tabIndex={-1}
-                        title={row.pinned ? t('models.unpin') : t('models.pin')}
-                        onClick={(e) => togglePin(e, row.providerId, row.modelId, row.pinned)}
-                        className={cn(
-                          'shrink-0 rounded p-0.5 transition hover:bg-white/10',
-                          row.pinned
-                            ? 'text-accent'
-                            : 'text-text-subtle opacity-0 group-hover:opacity-100'
-                        )}
-                      >
-                        <Pin className={cn('h-3 w-3', row.pinned && 'fill-current')} />
-                      </span>
                     </button>
                   )
                 })}

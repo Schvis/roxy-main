@@ -248,14 +248,10 @@
     "noMatch": "Ningún modelo coincide con «{{query}}».",
     "noMatchInProvider": "No models match “{{query}}” in {{provider}}.",
     "noProvider": "No hay ningún proveedor conectado",
-    "pin": "Fijar el modelo",
     "reasoning": "Reasoning",
     "search": "Buscar modelos…",
-    "sectionLatest": "Más reciente · {{provider}}",
-    "sectionPinned": "Fijados",
     "selectModel": "Elige un modelo",
-    "tools": "Tools",
-    "unpin": "Dejar de fijar el modelo"
+    "tools": "Tools"
   },
   "onboarding": {
     "apiKey": "Clave de API",

@@ -248,14 +248,10 @@
     "noMatch": "没有模型与“{{query}}”匹配。",
     "noMatchInProvider": "No models match “{{query}}” in {{provider}}.",
     "noProvider": "未连接提供商",
-    "pin": "固定模型",
     "reasoning": "Reasoning",
     "search": "搜索模型…",
-    "sectionLatest": "最新 · {{provider}}",
-    "sectionPinned": "已固定",
     "selectModel": "选择模型",
-    "tools": "Tools",
-    "unpin": "取消固定模型"
+    "tools": "Tools"
   },
   "onboarding": {
     "apiKey": "API 密钥",

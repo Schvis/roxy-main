@@ -248,14 +248,10 @@
     "noMatch": "Нет моделей, соответствующих «{{query}}».",
     "noMatchInProvider": "No models match “{{query}}” in {{provider}}.",
     "noProvider": "Провайдер не подключен",
-    "pin": "Закрепить модель",
     "reasoning": "Reasoning",
     "search": "Поиск моделей…",
-    "sectionLatest": "Последние · {{provider}}",
-    "sectionPinned": "Закрепленные",
     "selectModel": "Выберите модель",
-    "tools": "Tools",
-    "unpin": "Открепить модель"
+    "tools": "Tools"
   },
   "onboarding": {
     "apiKey": "Ключ API",

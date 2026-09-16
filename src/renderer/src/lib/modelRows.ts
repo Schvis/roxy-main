@@ -45,7 +45,6 @@ export interface ProviderModelRow {
   modelId: string
   label: string
   info: ModelInfo | undefined
-  pinned: boolean
 }
 
 /**
@@ -57,11 +56,9 @@ export function buildProviderModelRows(input: {
   index: Map<string, IndexEntry>
   query: string
   hidden: ReadonlySet<string>
-  pinned: { providerId: string; model: string }[]
 }): ProviderModelRow[] {
-  const { provider, catalog, index, query, hidden, pinned } = input
+  const { provider, catalog, index, query, hidden } = input
   const q = query.trim().toLowerCase()
-  const pinnedKeys = new Set(pinned.map((p) => `${p.providerId}:${p.model}`))
   const out: ProviderModelRow[] = []
   const seen = new Set<string>()
 
@@ -81,8 +78,7 @@ export function buildProviderModelRows(input: {
       providerName: provider.name,
       modelId: m.id,
       label: modelLabel(provider.id, hit?.info.name ?? m.name ?? m.id, m.id),
-      info: hit?.info,
-      pinned: pinnedKeys.has(key)
+      info: hit?.info
     })
   }
 
@@ -107,8 +103,7 @@ export function countMatchesByProvider(input: {
       catalog: catalogs[p.id] ?? [],
       index,
       query,
-      hidden,
-      pinned: []
+      hidden
     }).length
   }
   return counts

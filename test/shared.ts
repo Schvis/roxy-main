@@ -5370,14 +5370,7 @@ async function main(): Promise<void> {
 
   // ---- model picker rows (renderer/lib/modelRows) ----------------------------
   //
-  // The regression this exists for: rows were keyed by `provider:model`, which
-  // LOOKS unique and is not. The same model shows up in up to three sections at
-  // once - Pinned, its provider's Latest, and that provider's full catalog - so
-  // sibling rows collided on their React key. Combined with windowing (which
-  // remounts a different slice on every scroll) React reused the wrong DOM node
-  // and rows visibly duplicated and stuck to the viewport while scrolling.
-  //
-  // Keys are cheap to get wrong and invisible in review, so assert them.
+  // Asserts provider model rows generation, hidden filtering and search matching.
   const mkModel = (id: string, name: string) => ({ id, name, reasoning: true, toolCall: true })
   const pickerProviders = [
     { id: 'github-copilot', name: 'GitHub Copilot' },
@@ -5391,7 +5384,6 @@ async function main(): Promise<void> {
     ],
     roxy: [mkModel('anthropic/claude-opus-5', 'Claude Opus 5'), mkModel('x/other', 'Other Model')]
   }
-  const pickerPinned = [{ providerId: 'github-copilot', model: 'claude-opus-5' }]
   const pickerIndex = buildModelIndex(pickerCatalogs)
 
   // ---- provider model rows for carousel picker (renderer/lib/modelRows) -----
@@ -5400,24 +5392,12 @@ async function main(): Promise<void> {
     catalog: pickerCatalogs['github-copilot'],
     index: pickerIndex,
     query: '',
-    hidden: new Set(['github-copilot:claude-opus-5']),
-    pinned: pickerPinned
+    hidden: new Set(['github-copilot:claude-opus-5'])
   })
   check(
     'provider rows: filters out hidden models and keeps remaining',
     copilotRows.length === 2 &&
       copilotRows.every((r) => r.providerId === 'github-copilot' && r.modelId !== 'claude-opus-5')
-  )
-  check(
-    'provider rows: marks pinned models',
-    buildProviderModelRows({
-      provider: { id: 'github-copilot', name: 'GitHub Copilot' },
-      catalog: pickerCatalogs['github-copilot'],
-      index: pickerIndex,
-      query: '',
-      hidden: new Set(),
-      pinned: pickerPinned
-    }).filter((r) => r.pinned).length === 1
   )
 
   const copilotSearched = buildProviderModelRows({
@@ -5425,8 +5405,7 @@ async function main(): Promise<void> {
     catalog: pickerCatalogs['github-copilot'],
     index: pickerIndex,
     query: 'sol',
-    hidden: new Set(),
-    pinned: pickerPinned
+    hidden: new Set()
   })
   check(
     'provider rows: query filters correctly within provider',
