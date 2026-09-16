@@ -73,6 +73,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python for native module compilation (node-gyp needs distutils)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -97,6 +102,8 @@ jobs:
         # — so `install-app-deps` rebuilds it against Electron's, same as
         # `npm run worktree:setup` and the same step electron-builder runs when
         # packaging (npmRebuild: true).
+        env:
+          PYTHON: python
         run: |
           npm ci
           npx electron-builder install-app-deps

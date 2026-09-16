@@ -62,6 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python for native module compilation (node-gyp needs distutils)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -118,6 +123,7 @@ jobs:
       - name: Package & upload to the draft release
         run: npx --no-install electron-builder --publish always
         env:
+          PYTHON: python
           # Provided automatically by Actions; lets electron-builder upload assets.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
