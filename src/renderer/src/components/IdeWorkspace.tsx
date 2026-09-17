@@ -430,12 +430,14 @@ function FileContextMenu({
   onClose,
   onStartCreate,
   onStartRename,
+  onOpenFolder,
   onDelete
 }: {
   menu: FileContextMenuState
   onClose: () => void
   onStartCreate: (parentPath: string, isDirectory: boolean) => void
   onStartRename: (entry: WorkspaceFileEntry) => void
+  onOpenFolder: (path: string) => void
   onDelete: (entry: WorkspaceFileEntry) => void
 }): JSX.Element {
   const { t } = useTranslation()
@@ -450,6 +452,11 @@ function FileContextMenu({
 
   if (entry) {
     if (entry.directory) {
+      items.push({
+        label: t('ide.openFolder'),
+        icon: FolderOpen,
+        onSelect: () => onOpenFolder(entry.path)
+      })
       items.push({
         label: t('ide.newFile'),
         icon: FilePlus,
@@ -474,6 +481,11 @@ function FileContextMenu({
     })
   } else {
     const parent = targetDir ?? ''
+    items.push({
+      label: t('ide.openFolder'),
+      icon: FolderOpen,
+      onSelect: () => onOpenFolder(parent)
+    })
     items.push({
       label: t('ide.newFile'),
       icon: FilePlus,
@@ -1629,6 +1641,9 @@ function WorkspaceContents({
           onStartRename={(entry) => {
             setContextMenu(null)
             setRenaming(entry.path)
+          }}
+          onOpenFolder={(path) => {
+            if (sessionId) void api.files.openFolder(sessionId, path)
           }}
           onDelete={(entry) => {
             setContextMenu(null)

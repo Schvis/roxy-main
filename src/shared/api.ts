@@ -824,6 +824,8 @@ export interface RoxyApi {
      * Direct children, folders first, root-relative '/' paths; symlinks skipped.
      */
     list(sessionId: string, path: string): Promise<WorkspaceFileEntry[]>
+    /** Open a contained workspace directory in the operating system file manager. */
+    openFolder(sessionId: string, path: string): Promise<void>
     /** At most 512 KiB of a regular file as UTF-8. Binary content is empty.
      * Invalid/unavailable paths reject. No filesystem writes.
      */

@@ -222,6 +222,12 @@ export async function listWorkspaceFiles(
     .sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name))
 }
 
+export async function resolveWorkspaceDirectory(root: string, requested: string): Promise<string> {
+  const resolved = await resolveTarget(root, requested)
+  if (!(await stat(resolved.target)).isDirectory()) throw new Error('Not a directory')
+  return resolved.target
+}
+
 /** Bounded preview. In-root symlink targets are allowed for direct reads. */
 export async function readWorkspaceFile(
   root: string,

@@ -26,6 +26,7 @@ import type { AppSettings } from '../shared/types'
 const roxy: RoxyApi = {
   files: {
     list: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesList, sessionId, path),
+    openFolder: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesOpenFolder, sessionId, path),
     read: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesRead, sessionId, path),
     write: (sessionId, path, content, expectedRevision) =>
       ipcRenderer.invoke(CHANNELS.filesWrite, sessionId, path, content, expectedRevision),

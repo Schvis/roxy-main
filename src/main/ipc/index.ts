@@ -139,6 +139,7 @@ import {
   readWorkspaceFile,
   renameWorkspaceFile,
   replaceWorkspaceFiles,
+  resolveWorkspaceDirectory,
   searchWorkspaceFiles,
   watchWorkspace,
   writeWorkspaceFile
@@ -342,6 +343,12 @@ export function registerIpc(): void {
     const cwd = sessionCwd(sessionId)
     if (cwd) void watchWorkspace(cwd)
     return listWorkspaceFiles(cwd, path)
+  })
+  ipcMain.handle(CHANNELS.filesOpenFolder, async (_e, sessionId: string, path: string) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid session')
+    const directory = await resolveWorkspaceDirectory(sessionCwd(sessionId), path)
+    const error = await shell.openPath(directory)
+    if (error) throw new Error(error)
   })
   ipcMain.handle(CHANNELS.filesRead, (_e, sessionId: string, path: string) => {
     if (typeof sessionId !== 'string') throw new Error('Invalid session')

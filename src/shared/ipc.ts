@@ -15,6 +15,7 @@ export const CHANNELS = {
   filesRename: 'files:rename',
   filesChanged: 'files:changed',
   filesList: 'files:list',
+  filesOpenFolder: 'files:openFolder',
   filesRead: 'files:read',
   filesDiagnostics: 'files:diagnostics',
   filesSearch: 'files:search',

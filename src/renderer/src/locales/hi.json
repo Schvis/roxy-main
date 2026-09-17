@@ -476,6 +476,7 @@
     "noSymbolsFound": "No structural symbols found",
     "noWorkspace": "Select a session with a workspace to browse files.",
     "oldCode": "Old code",
+    "openFolder": "Open folder in file explorer",
     "outline": "Structure",
     "preview": "File preview",
     "previousChange": "Previous change",
