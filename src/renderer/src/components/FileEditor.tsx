@@ -248,7 +248,10 @@ function useFileSyntaxTokens(path: string, text: string): SyntaxToken[][] | null
   return result?.path === path ? result.tokens : null
 }
 
-function fitSyntaxTokensToLine(tokens: SyntaxToken[] | undefined, text: string): SyntaxToken[] | null {
+function fitSyntaxTokensToLine(
+  tokens: SyntaxToken[] | undefined,
+  text: string
+): SyntaxToken[] | null {
   if (!tokens?.length) return null
   const fitted: SyntaxToken[] = []
   let offset = 0

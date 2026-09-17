@@ -103,11 +103,15 @@ export function AgentFileChangesPopup(): JSX.Element | null {
   const deletedCount = displayedFiles.filter((f) => f.isDeleted).length
 
   const handleOpenFile = (change: AgentFileChange): void => {
-    setIdeSelectedFile({
-      path: change.path,
-      name: change.fileName,
-      directory: false
-    }, undefined, workspaceRoot)
+    setIdeSelectedFile(
+      {
+        path: change.path,
+        name: change.fileName,
+        directory: false
+      },
+      undefined,
+      workspaceRoot
+    )
   }
 
   const handleKeepFile = (file: AgentFileChange): void => {
