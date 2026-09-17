@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Lightbulb, MonitorSmartphone, Palette, PanelLeft, Plug, Terminal } from 'lucide-react'
+import {
+  GitBranch,
+  Lightbulb,
+  MonitorSmartphone,
+  Palette,
+  PanelLeft,
+  Plug,
+  Terminal
+} from 'lucide-react'
 import roxy from '../assets/roxy.png'
 import { cn } from '../lib/cn'
 import { api } from '../lib/api'
@@ -21,6 +29,7 @@ export function TopNavbar(): JSX.Element {
   const setSidebarRailed = useRoxyStore((s) => s.setSidebarRailed)
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
+  const setIdeTab = useRoxyStore((s) => s.setIdeTab)
   const activeChat = useRoxyStore((s) => s.chats.find((c) => c.id === s.activeChatId))
 
   const handleOpenTerminal = (): void => {
@@ -126,6 +135,21 @@ export function TopNavbar(): JSX.Element {
           className="press-scale flex h-7 w-7 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
         >
           <Palette className="h-3.5 w-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (activeChat && (location.pathname === '/' || location.pathname === '/overlay')) {
+              setIdeTab('git')
+            } else {
+              navigate('/git')
+            }
+          }}
+          title={t('git.title')}
+          className="press-scale flex h-7 w-7 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+        >
+          <GitBranch className="h-3.5 w-3.5" />
         </button>
 
         <button

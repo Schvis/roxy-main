@@ -209,6 +209,7 @@ export function CodePreviewRail({
     text: string
     kind: 'context' | 'added' | 'deleted'
     hasError: boolean
+    hasDeletion?: boolean
   } | null>(null)
 
   // Synchronize scroll metrics from master editor element
@@ -320,17 +321,33 @@ export function CodePreviewRail({
     const maxCharsPerLine = 80
     const charWidth = (width - 8) / maxCharsPerLine
 
-    // 1. Paint background highlight strips for agent changes
+    // 1. Paint background highlight strips & git line indicators
     for (let i = 0; i < totalLines; i++) {
       const info = lineInfos[i]
       const y = i * lineH
 
       if (info?.kind === 'added') {
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.25)'
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.18)'
         ctx.fillRect(0, y, width, lineH)
+        // Solid green vertical indicator line on the left edge
+        ctx.fillStyle = '#10b981'
+        ctx.fillRect(0, y, 3, lineH)
       } else if (info?.kind === 'deleted') {
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.28)'
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.18)'
         ctx.fillRect(0, y, width, lineH)
+        // Solid rose vertical indicator line on the left edge
+        ctx.fillStyle = '#f43f5e'
+        ctx.fillRect(0, y, 3, lineH)
+      }
+
+      // Red horizontal line indicator where lines were removed
+      if (info?.gitDeletedCount) {
+        ctx.fillStyle = '#f43f5e'
+        ctx.fillRect(0, Math.max(0, y - 1), width, 2)
+      }
+      if (info?.gitDeletedTrailing) {
+        ctx.fillStyle = '#f43f5e'
+        ctx.fillRect(0, Math.max(0, (i + 1) * lineH - 2), width, 2)
       }
     }
 
@@ -491,7 +508,8 @@ export function CodePreviewRail({
       y: e.clientY - rect.top,
       text: lineText.trim() || `(empty line ${lineIdx + 1})`,
       kind: info?.kind ?? 'context',
-      hasError: Boolean(errorLines?.has(lineIdx + 1))
+      hasError: Boolean(errorLines?.has(lineIdx + 1)),
+      hasDeletion: Boolean(info?.gitDeletedCount || info?.gitDeletedTrailing)
     })
   }
 
@@ -668,8 +686,8 @@ export function CodePreviewRail({
                   <span>Line {hoveredLine.lineIdx + 1}</span>
                   {hoveredLine.kind === 'added' ? (
                     <span className="font-semibold text-emerald-400">+ Added</span>
-                  ) : hoveredLine.kind === 'deleted' ? (
-                    <span className="font-semibold text-rose-400">- Deleted</span>
+                  ) : hoveredLine.hasDeletion || hoveredLine.kind === 'deleted' ? (
+                    <span className="font-semibold text-rose-400">- Removed</span>
                   ) : hoveredLine.hasError ? (
                     <span className="font-semibold text-danger">! Error</span>
                   ) : null}

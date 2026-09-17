@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -155,6 +156,8 @@ export interface EditorLineInfo {
   kind: 'context' | 'added' | 'deleted'
   deletedText?: string
   hunkId?: string
+  gitDeletedCount?: number
+  gitDeletedTrailing?: boolean
 }
 
 export function computeEditorLineInfos(
@@ -477,6 +480,87 @@ export function FileEditor({
     }
   }, [agentChange, reviewStatus, draft, path])
 
+  // Fetch committed HEAD content from git for working-tree diff visual decorations
+  const [gitHeadText, setGitHeadText] = useState<string | null>(null)
+
+  const refreshGitHead = useCallback(() => {
+    if (!root || !path) {
+      setGitHeadText(null)
+      return
+    }
+    api.git
+      .fileDiff(root, path)
+      .then((res) => {
+        if (res.ok && !res.isBinary) {
+          setGitHeadText(res.before ? res.before.replace(/\r\n?/g, '\n') : '')
+        } else {
+          setGitHeadText(null)
+        }
+      })
+      .catch(() => {
+        setGitHeadText(null)
+      })
+  }, [root, path])
+
+  useEffect(() => {
+    refreshGitHead()
+  }, [refreshGitHead])
+
+  // Real-time git diff computation for line counter and minimap
+  const gitDiffInfo = useMemo(() => {
+    if (activeAligned || gitHeadText === null) {
+      return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
+    }
+    if (gitHeadText === text) {
+      return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
+    }
+
+    const bLines = gitHeadText ? gitHeadText.split('\n') : []
+    const cLines = lines
+    let changes
+    try {
+      changes = diffArrays(bLines, cLines, { timeout: 150, maxEditLength: 10000 })
+    } catch {
+      return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
+    }
+
+    if (!changes) {
+      return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
+    }
+
+    const addedLines = new Set<number>()
+    const deletedMarkers = new Map<number, number>()
+    let curIdx = 0
+
+    for (let i = 0; i < changes.length; i++) {
+      const part = changes[i]
+      if (!part.added && !part.removed) {
+        curIdx += part.value.length
+      } else if (part.removed) {
+        const removedCount = part.value.length
+        const nextPart = i + 1 < changes.length && changes[i + 1].added ? changes[i + 1] : null
+        if (nextPart) {
+          i++
+          const addedCount = nextPart.value.length
+          for (let j = 0; j < addedCount; j++) {
+            addedLines.add(curIdx + j)
+          }
+          deletedMarkers.set(curIdx, removedCount)
+          curIdx += addedCount
+        } else {
+          deletedMarkers.set(curIdx, removedCount)
+        }
+      } else if (part.added) {
+        for (let j = 0; j < part.value.length; j++) {
+          addedLines.add(curIdx + j)
+        }
+        curIdx += part.value.length
+      }
+    }
+
+    return { addedLines, deletedMarkers }
+  }, [activeAligned, gitHeadText, text, lines])
+
   const hunks = useMemo<GroupedHunk[]>(() => {
     if (!activeAligned) return []
     const result: GroupedHunk[] = []
@@ -508,27 +592,38 @@ export function FileEditor({
     return result
   }, [activeAligned])
 
-  const lineInfos = useMemo(() => {
-    if (!activeAligned) {
-      return lines.map(() => ({ kind: 'context' as const }))
-    }
-    if (activeAligned.length === lines.length) {
-      return activeAligned.map((item, idx) => {
-        if (item.kind === 'deleted' && lines[idx] === '') {
-          return {
-            kind: 'deleted' as const,
-            deletedText: item.deletedText,
-            hunkId: item.hunkId
+  const lineInfos: EditorLineInfo[] = useMemo(() => {
+    if (activeAligned) {
+      if (activeAligned.length === lines.length) {
+        return activeAligned.map((item, idx) => {
+          if (item.kind === 'deleted' && lines[idx] === '') {
+            return {
+              kind: 'deleted' as const,
+              deletedText: item.deletedText,
+              hunkId: item.hunkId
+            }
           }
-        }
-        if (item.kind === 'added') {
-          return { kind: 'added' as const, hunkId: item.hunkId }
-        }
-        return { kind: 'context' as const }
-      })
+          if (item.kind === 'added') {
+            return { kind: 'added' as const, hunkId: item.hunkId }
+          }
+          return { kind: 'context' as const }
+        })
+      }
+      return computeEditorLineInfos(agentChange?.initialBefore ?? '', text, true)
     }
-    return computeEditorLineInfos(agentChange?.initialBefore ?? '', text, true)
-  }, [activeAligned, lines, agentChange, text])
+
+    const total = lines.length
+    return lines.map((_, idx) => {
+      const isAdded = gitDiffInfo.addedLines.has(idx)
+      const deletedCount = gitDiffInfo.deletedMarkers.get(idx)
+      const isTrailing = idx === total - 1 && gitDiffInfo.deletedMarkers.has(total)
+      return {
+        kind: isAdded ? ('added' as const) : ('context' as const),
+        gitDeletedCount: deletedCount,
+        gitDeletedTrailing: isTrailing
+      }
+    })
+  }, [activeAligned, lines, agentChange, text, gitDiffInfo])
 
   const handleKeepHunk = (hunkId: string): void => {
     if (!activeAligned || !draft) return
@@ -811,6 +906,7 @@ export function FileEditor({
       if (result.status === 'saved') {
         draft.saved = draft.text
         draft.revision = result.revision
+        refreshGitHead()
       } else draft.error = 'conflict'
     } catch {
       draft.error = 'writeError'
@@ -1363,12 +1459,20 @@ export function FileEditor({
           >
             {(() => {
               let actualLine = 0
+              const total = lines.length
               return lines.map((_, index) => {
                 const info = lineInfos[index]
-                const isDeleted = info?.kind === 'deleted'
-                if (!isDeleted) actualLine++
+                const isAgentDeleted = info?.kind === 'deleted'
+                if (!isAgentDeleted) actualLine++
                 const isError = errorLines.has(actualLine)
                 const isAdded = info?.kind === 'added'
+                const hasGitDeletion = Boolean(
+                  info?.gitDeletedCount ||
+                  gitDiffInfo.deletedMarkers.has(index) ||
+                  (index === total - 1 && gitDiffInfo.deletedMarkers.has(total))
+                )
+                const isDeletionAtBottom =
+                  index === total - 1 && gitDiffInfo.deletedMarkers.has(total)
 
                 return (
                   <span
@@ -1377,14 +1481,23 @@ export function FileEditor({
                       'block px-2 text-right relative font-mono text-[11px] tabular-nums h-5 leading-5',
                       isError
                         ? 'border-l-2 border-danger bg-danger/10 text-danger font-semibold'
-                        : isDeleted
+                        : isAgentDeleted
                           ? 'border-l-2 border-rose-500 bg-rose-500/20 text-rose-400 font-semibold'
                           : isAdded
-                            ? 'border-l-2 border-emerald-500 bg-emerald-500/15 text-emerald-400 font-semibold'
+                            ? 'border-l-[3px] border-emerald-500 bg-emerald-500/15 text-emerald-400 font-semibold'
                             : 'border-l-2 border-transparent text-text-subtle'
                     )}
                   >
-                    {isDeleted ? '-' : actualLine}
+                    {hasGitDeletion && (
+                      <span
+                        className={cn(
+                          'absolute left-0 right-0 h-[2.5px] bg-rose-500 z-10 pointer-events-none shadow-[0_0_4px_rgba(244,63,94,0.6)]',
+                          isDeletionAtBottom ? 'bottom-0' : 'top-0'
+                        )}
+                        title="Lines removed"
+                      />
+                    )}
+                    {isAgentDeleted ? '-' : actualLine}
                   </span>
                 )
               })
@@ -1400,17 +1513,17 @@ export function FileEditor({
             >
               {lines.map((_, index) => {
                 const info = lineInfos[index]
-                const isDeleted = info?.kind === 'deleted'
-                const isAdded = info?.kind === 'added'
+                const isAgentDeleted = info?.kind === 'deleted'
+                const isAgentAdded = Boolean(activeAligned && info?.kind === 'added')
                 return (
                   <div
                     key={index}
                     style={{ height: '20px' }}
                     className={cn(
                       'w-full relative transition-colors min-w-full w-max',
-                      isDeleted
+                      isAgentDeleted
                         ? 'bg-rose-500/15 border-l-2 border-rose-500'
-                        : isAdded
+                        : isAgentAdded
                           ? 'bg-emerald-500/15 border-l-2 border-emerald-500'
                           : 'bg-transparent'
                     )}
@@ -1583,22 +1696,38 @@ export function FileEditor({
                   {lines.map((_, index) => {
                     const lineNum = index + 1
                     const info = lineInfos[index]
-                    const isDeleted = info?.kind === 'deleted'
+                    const isAgentDeleted = info?.kind === 'deleted'
                     const isAdded = info?.kind === 'added'
+                    const hasGitDeletion = Boolean(
+                      info?.gitDeletedCount ||
+                      gitDiffInfo.deletedMarkers.has(index) ||
+                      (index === lines.length - 1 && gitDiffInfo.deletedMarkers.has(lines.length))
+                    )
+                    const isDeletionAtBottom =
+                      index === lines.length - 1 && gitDiffInfo.deletedMarkers.has(lines.length)
 
                     return (
                       <span
                         key={index}
                         className={cn(
                           'block px-2 text-right relative font-mono text-[11px] tabular-nums h-5 leading-5',
-                          isDeleted
+                          isAgentDeleted
                             ? 'border-l-2 border-rose-500 bg-rose-500/20 text-rose-400 font-semibold'
                             : isAdded
-                              ? 'border-l-2 border-emerald-500 bg-emerald-500/15 text-emerald-400 font-semibold'
+                              ? 'border-l-[3px] border-emerald-500 bg-emerald-500/15 text-emerald-400 font-semibold'
                               : 'border-l-2 border-transparent text-text-subtle'
                         )}
                       >
-                        {isDeleted ? '-' : lineNum}
+                        {hasGitDeletion && (
+                          <span
+                            className={cn(
+                              'absolute left-0 right-0 h-[2.5px] bg-rose-500 z-10 pointer-events-none shadow-[0_0_4px_rgba(244,63,94,0.6)]',
+                              isDeletionAtBottom ? 'bottom-0' : 'top-0'
+                            )}
+                            title="Lines removed"
+                          />
+                        )}
+                        {isAgentDeleted ? '-' : lineNum}
                       </span>
                     )
                   })}
@@ -1613,17 +1742,17 @@ export function FileEditor({
                   >
                     {lines.map((_, index) => {
                       const info = lineInfos[index]
-                      const isDeleted = info?.kind === 'deleted'
-                      const isAdded = info?.kind === 'added'
+                      const isAgentDeleted = info?.kind === 'deleted'
+                      const isAgentAdded = Boolean(activeAligned && info?.kind === 'added')
                       return (
                         <div
                           key={index}
                           style={{ height: '20px' }}
                           className={cn(
                             'w-full relative transition-colors min-w-full w-max',
-                            isDeleted
+                            isAgentDeleted
                               ? 'bg-rose-500/15 border-l-2 border-rose-500'
-                              : isAdded
+                              : isAgentAdded
                                 ? 'bg-emerald-500/15 border-l-2 border-emerald-500'
                                 : 'bg-transparent'
                           )}

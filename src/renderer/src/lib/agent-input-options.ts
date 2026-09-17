@@ -25,7 +25,7 @@ export interface AgentQuestionSummary {
 }
 
 const QUESTION_TAG_RE =
-  /<(?:agent-question|agent-questions|questions)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions)>|$)/gi
+  /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/gi
 
 /** Strip `<agent-question>` and `<questions>` tags and their contents from text for chat display. */
 export function stripQuestionTags(text: string): string {
@@ -215,9 +215,13 @@ export function extractAgentQuestionOptions(
   if (!text || text.includes('_[stopped]_') || text.includes('[stopped]')) return null
 
   // 1. Check for structured <agent-question> or <questions> tag
-  const tagMatch = text.match(
-    /<(?:agent-question|agent-questions|questions)>([\s\S]*?)<\/(?:agent-question|agent-questions|questions)>/i
-  )
+  const tagMatch =
+    text.match(
+      /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>([\s\S]*?)(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/i
+    ) ||
+    text.match(
+      /```(?:agent-question|agent-questions|questions|question|json:questions?)\s*([\s\S]*?)\s*```/i
+    )
   if (tagMatch) {
     const rawJson = tagMatch[1]
       .trim()
@@ -242,7 +246,8 @@ export function extractAgentQuestionOptions(
           ? ((parsed as Record<string, unknown>).questions as unknown[])
           : parsed &&
               typeof parsed === 'object' &&
-              'question' in (parsed as Record<string, unknown>)
+              ('question' in (parsed as Record<string, unknown>) ||
+                'options' in (parsed as Record<string, unknown>))
             ? [parsed]
             : []
 
@@ -323,6 +328,50 @@ export function extractAgentQuestionOptions(
 
   const lastLines = lines.slice(-20)
 
+  // Universal question punctuation (English, CJK, Arabic, Spanish, Greek)
+  const QUESTION_MARK_RE = /[?？؟;¿]/
+
+  // Multilingual change summary headers
+  const CHANGE_SUMMARY_HEADER_RE =
+    /\b(?:changes?\s+(?:made|applied|done|summary|list)|summary of changes|list of changes|here(?:'s| is) (?:a summary of )?changes|here(?:'s| is) what (?:i did|was done|changed)|what (?:was )?changed|completed (?:the following|tasks?|steps?|work|changes?)|following (?:changes?|tasks?|steps?|modifications?|files?|updates?)|files? (?:modified|changed|created|updated)|steps? (?:taken|completed)|tasks? completed|work completed|modifications? made|cambios\s+(?:realizados|hechos)|resumen de cambios|siguientes cambios|modifications\s+(?:apportées|effectuées)|résumé des modifications|änderungen\s+(?:vorgenommen|durchgeführt)|zusammenfassung der änderungen|folgende änderungen|список изменений|внесенные изменения|сделанные изменения|alterações\s+(?:feitas|realizadas)|resumo das alterações)\b|^(?:changes?|summary|modifications?|updates?|修改|变更|更新|変更点?|修正点?|cambios|modifications|änderungen|изменения|alterações)[:：\s]*$|(?:修改|变更|更改|更新|完成)(?:内容|如下|记录|汇总|清单|列表|总结)|以下是(?:修改|变更|更改|更新)|完成的工作|已完成(?:任务|步骤)|(?:変更|修正|対応|更新)(?:内容|点|一覧|について)|以下の(?:変更|修正|通り)|行った(?:変更|修正)|完了した(?:タスク|作業)/i
+
+  // Multilingual past action verbs
+  const PAST_ACTION_VERB_RE =
+    /^(?:added|updated|fixed|removed|deleted|created|modified|refactored|configured|implemented|installed|changed|replaced|renamed|cleaned up|resolved|migrated|adjusted|set up|tested|built|ran|executed|agregad[oa]s?|actualizad[oa]s?|corregid[oa]s?|eliminad[oa]s?|cread[oa]s?|modificad[oa]s?|ajouté[es]?|mis à jour|corrigé[es]?|supprimé[es]?|créé[es]?|modifié[es]?|hinzugefügt|aktualisiert|behoben|gelöscht|erstellt|geändert|добавлен[оы]?|обновлен[оы]?|исправлен[оы]?|удален[оы]?|создан[оы]?|изменен[оы]?|adicionad[oa]s?|atualizad[oa]s?|corrigid[oa]s?|removid[oa]s?|criad[oa]s?|modificad[oa]s?)\b|^(?:已)?(?:添加|更新|修复|删除|修改|重构|创建|实现|配置|安装|调整|迁移|测试)(?:了)?|^(?:追加|更新|修正|削除|作成|変更|実装|設定)/i
+
+  // Language-agnostic file path / symbol pattern
+  const FILE_PATH_OR_SYMBOL_RE =
+    /(?:`?[a-zA-Z0-9_./\\-]+\.(?:ts|tsx|js|jsx|json|html|css|scss|md|py|go|rs|java|c|cpp|h|hpp|sh|yaml|yml|toml|sql|vue|svelte)`?|`[a-zA-Z0-9_./\\-]+`)(?:\s*[:：—\-]\s*|\s+)/i
+
+  const isChangeSummaryItem = (itemText: string): boolean => {
+    const clean = itemText.trim().replace(/^[*_~`#\s]+/, '')
+    if (PAST_ACTION_VERB_RE.test(clean)) return true
+    if (FILE_PATH_OR_SYMBOL_RE.test(clean)) return true
+    if (/\b(?:[a-zA-Z0-9_./\\-]+\.[a-zA-Z0-9]{1,6})\b/.test(clean) && /[:：—\-]/.test(clean)) {
+      return true
+    }
+    if (/\(\s*[+-]\d+[\s,]*(?:[+-]\d+)?\s*\)/.test(clean)) return true
+    return false
+  }
+
+  // Multilingual completion / sign-off phrases
+  const COMPLETION_SIGN_OFF_RE =
+    /(?:\b(?:anything else|something else|any other|other changes?|further changes?|more changes?|additional changes?|any questions?|what do you think|how does (?:this|that) look|let me know if|does this look (?:good|right)|algo más|otra cosa|algún otro|qué te parece|alguna pregunta|autre chose|d'autres modifications|qu'en pensez-vous|des questions|noch etwas|weitere änderungen|wie sieht das aus|fragen haben|weitere fragen|что-то еще|что-нибудь еще|другие изменения|как вам|есть вопросы|чем-то еще|чем-нибудь еще|mais alguma coisa|outra coisa|outras alterações)\b|还有其他|其他需要|还需要|有什么问题|您看如何|怎么样|如果有任何|其他修改|其他帮助|任何疑问|他にお手伝い|他にご要望|いかがでしょうか|何かあれば|ご不明な点|質問はありますか|他に何か)/i
+
+  // Multilingual choice question patterns
+  const CHOICE_QUESTION_RE =
+    /(?:\b(?:which|cuál|qué|quel|quelle|welche|welcher|welches|какой|какую|какое|какие)\b.*?[?？؟;¿]|(?:哪[个种项一]|何种|どちら|どの).*?[?？]|\b(?:please\s+)?(?:choose|select|pick)\s+(?:one|an\s+option|from|between)\b|\b(?:select|choose|pick)\s+(?:an?\s+)?option[:?]?\s*$|\b(?:available\s+options|available\s+choices)[:?]\s*$|(?:elija|seleccione|escoja)\s+(?:una\s+opción|entre)?[:：?？]|(?:choisir|sélectionner)\s+(?:une\s+option)?[:：?？]|(?:wählen\s+sie)\s+(?:eine\s+option)?[:：?？]|(?:выберите)\s+(?:вариант|один\s+из)?[:：?？]|(?:请)?(?:从(?:以下|这些)?选项中)?(?:选择|挑选)[:：?？]|(?:以下|次)の(?:選択肢|オプション)(?:から|を)(?:選んで|選択して)?[:：?？]|(?:利用可能な|以下の)(?:オプション|選択肢|方案)[:：])/i
+
+  // Multilingual confirmation question patterns
+  const CONFIRM_PROCEED_RE =
+    /(?:\b(?:would you like|do you want|should (?:i|we)|shall (?:i|we)|can i proceed|ready to proceed|want me to)\s+(?:me\s+to\s+)?(?:proceed|apply|continue|run|execute|commit|push|start|deploy|delete|remove|install)\b|\b(?:confirm|are you sure you want to)\b|¿?(?:desea|quieres|deberíamos|listo para)\s+(?:proceder|aplicar|continuar|ejecutar|confirmar).*?[?？]|(?:souhaitez-vous|voulez-vous|prêt à)\s+(?:continuer|appliquer|exécuter|confirmer).*?[?？]|(?:möchten sie|soll(?:en)?\s+(?:ich|wir)|bereit\s+zu)\s+(?:fortfahren|anwenden|ausführen|bestätigen).*?[?？]|(?:хотите|готовы)\s+(?:продолжить|применить|выполнить|подтвердить).*?[?？]|(?:是否|要|准备好|确认)(?:继续|应用|执行|运行|提交|部署|删除|安装).*?[?？]|准备好继续了吗|是否立即应用|(?:適用|続行|実行|コミット|デプロイ|削除|インストール)(?:しますか|してよろしいですか|を進めますか).*?[?？]|よろしいですか[?？]|確認してください)/i
+
+  const hasChangeSummaryHeader = lastLines.some(
+    (l) =>
+      CHANGE_SUMMARY_HEADER_RE.test(l) ||
+      /^(?:changes|summary|modifications|updates)[:\s]*$/i.test(l)
+  )
+
   // 2a. Numbered options
   const numbered: AgentInputOption[] = []
   let questionLine = ''
@@ -341,25 +390,31 @@ export function extractAgentQuestionOptions(
         })
       }
     } else if (
-      line.endsWith('?') ||
-      /(?:which|select|choose|prefer|option|options|following)[:?]?$/i.test(line)
+      CHOICE_QUESTION_RE.test(line) &&
+      !COMPLETION_SIGN_OFF_RE.test(line) &&
+      !CHANGE_SUMMARY_HEADER_RE.test(line)
     ) {
       questionLine = line.replace(/^[*_#\s]+|[*_#\s]+$/g, '')
     }
   }
 
-  if (numbered.length >= 2 && numbered.length <= 8) {
-    const question = questionLine || 'Select an option to continue:'
+  if (
+    numbered.length >= 2 &&
+    numbered.length <= 8 &&
+    questionLine &&
+    !hasChangeSummaryHeader &&
+    !numbered.some((o) => isChangeSummaryItem(o.label))
+  ) {
     const id = last.id ?? `msg-${messages.length}`
     const qItem: AgentQuestionItem = {
       id: 'q-1',
-      question,
+      question: questionLine,
       options: numbered
     }
     return {
       hasQuestion: true,
       questions: [qItem],
-      question,
+      question: questionLine,
       options: numbered,
       messageId: id,
       changeKey: `${id}:${numbered.map((o) => o.id).join(',')}`
@@ -375,10 +430,9 @@ export function extractAgentQuestionOptions(
     const line = lastLines[i]
     if (
       !foundHeader &&
-      (line.endsWith('?') ||
-        /(?:options?|choices?|select|choose|prefer|which|do you want|should (?:we|i)|would you like)[:?]\s*$/i.test(
-          line
-        ))
+      CHOICE_QUESTION_RE.test(line) &&
+      !COMPLETION_SIGN_OFF_RE.test(line) &&
+      !CHANGE_SUMMARY_HEADER_RE.test(line)
     ) {
       bulletQuestion = line.replace(/^[*_#\s]+|[*_#\s]+$/g, '')
       foundHeader = true
@@ -400,18 +454,22 @@ export function extractAgentQuestionOptions(
     }
   }
 
-  if (bullets.length >= 2) {
-    const question = bulletQuestion || 'Select an option to continue:'
+  if (
+    bullets.length >= 2 &&
+    bulletQuestion &&
+    !hasChangeSummaryHeader &&
+    !bullets.some((b) => isChangeSummaryItem(b.label))
+  ) {
     const id = last.id ?? `msg-${messages.length}`
     const qItem: AgentQuestionItem = {
       id: 'q-1',
-      question,
+      question: bulletQuestion,
       options: bullets
     }
     return {
       hasQuestion: true,
       questions: [qItem],
-      question,
+      question: bulletQuestion,
       options: bullets,
       messageId: id,
       changeKey: `${id}:${bullets.map((o) => o.id).join(',')}`
@@ -421,13 +479,17 @@ export function extractAgentQuestionOptions(
   // 2c. Confirmation Yes/No question
   const lastLine = lastLines[lastLines.length - 1]
   const prevLine = lastLines.length > 1 ? lastLines[lastLines.length - 2] : ''
-  const targetLine = lastLine.endsWith('?') ? lastLine : prevLine.endsWith('?') ? prevLine : ''
+  const targetLine = QUESTION_MARK_RE.test(lastLine)
+    ? lastLine
+    : QUESTION_MARK_RE.test(prevLine)
+      ? prevLine
+      : ''
 
   if (
     targetLine &&
-    /(?:would you like|do you want|should (?:i|we)|shall (?:i|we)|can i proceed|proceed with|confirm|are you sure|ready to proceed|want me to)\b/i.test(
-      targetLine
-    )
+    !hasChangeSummaryHeader &&
+    !COMPLETION_SIGN_OFF_RE.test(targetLine) &&
+    CONFIRM_PROCEED_RE.test(targetLine)
   ) {
     const question = targetLine.replace(/^[*_#\s]+|[*_#\s]+$/g, '')
     const options: AgentInputOption[] = [

@@ -10,6 +10,7 @@ import Skills from './routes/Skills'
 import Mcp from './routes/Mcp'
 import Themes from './routes/Themes'
 import Settings from './routes/Settings'
+import GitPage from './routes/GitPage'
 import { ChatView } from './components/ChatView'
 import { VtuberStandalone } from './components/VtuberStandalone'
 import { StandaloneTerminal } from './components/StandaloneTerminal'
@@ -218,6 +219,7 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
             <Route path="/mcp" element={<Mcp />} />
             <Route path="/themes" element={<Themes />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/git" element={<GitPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

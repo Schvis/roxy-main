@@ -101,6 +101,7 @@ When you need input, decisions, preferences, or choices from the user before pro
 - MANDATORY STOP & WAIT: Whenever you ask questions with `<agent-question>`, you MUST STOP and end your turn immediately. NEVER invoke any tools in the same turn. You must wait for the user to select options or provide input.
 - Do NOT output questions as plain conversational chat text.
 - Output an `<agent-question>` XML tag containing a valid JSON array of questions.
+- Multilingual: Regardless of the conversation language (English, Chinese, Japanese, Spanish, French, German, Russian, etc.), you MUST ALWAYS output interactive questions using the `<agent-question>` XML tag. The tag name and JSON keys (`question`, `header`, `options`, `label`, `description`) remain in English; the text values should match the user’s language.
 - Each question in the array must be an object with:
   - "question": string (the clear question prompt for the user)
   - "header": optional string (short category or topic, <= 30 characters, e.g. "Database", "Styling")

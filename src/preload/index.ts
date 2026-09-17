@@ -550,7 +550,17 @@ const roxy: RoxyApi = {
     createWorktree: (input) => ipcRenderer.invoke(CHANNELS.gitCreateWorktree, input),
     removeWorktree: (path, force) => ipcRenderer.invoke(CHANNELS.gitRemoveWorktree, path, force),
     renameBranch: (sessionId, to) => ipcRenderer.invoke(CHANNELS.gitRenameBranch, sessionId, to),
-    pruneWorktrees: (cwd, dryRun) => ipcRenderer.invoke(CHANNELS.gitPruneWorktrees, cwd, dryRun)
+    pruneWorktrees: (cwd, dryRun) => ipcRenderer.invoke(CHANNELS.gitPruneWorktrees, cwd, dryRun),
+    init: (cwd) => ipcRenderer.invoke(CHANNELS.gitInit, cwd),
+    commit: (cwd, message) => ipcRenderer.invoke(CHANNELS.gitCommit, cwd, message),
+    fetch: (cwd) => ipcRenderer.invoke(CHANNELS.gitFetch, cwd),
+    pull: (cwd) => ipcRenderer.invoke(CHANNELS.gitPull, cwd),
+    push: (cwd) => ipcRenderer.invoke(CHANNELS.gitPush, cwd),
+    logGraph: (cwd, limit) => ipcRenderer.invoke(CHANNELS.gitLogGraph, cwd, limit),
+    changedFiles: (cwd) => ipcRenderer.invoke(CHANNELS.gitChangedFiles, cwd),
+    commitFiles: (cwd, sha) => ipcRenderer.invoke(CHANNELS.gitCommitFiles, cwd, sha),
+    fileDiff: (cwd, filePath, sha) => ipcRenderer.invoke(CHANNELS.gitFileDiff, cwd, filePath, sha),
+    publish: (cwd, remoteUrl) => ipcRenderer.invoke(CHANNELS.gitPublish, cwd, remoteUrl)
   },
   forge: {
     status: (cwd, force) => ipcRenderer.invoke(CHANNELS.forgeStatus, cwd, force),

@@ -1799,6 +1799,52 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.gitPruneWorktrees, (_e, cwd: string, dryRun?: boolean) =>
     pruneWorktrees(cwd, { dryRun: dryRun ?? true, force: true })
   )
+  ipcMain.handle(CHANNELS.gitInit, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.initRepository(cwd)
+  })
+  ipcMain.handle(CHANNELS.gitCommit, async (_e, cwd: string, message: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.commitChanges(cwd, message)
+  })
+  ipcMain.handle(CHANNELS.gitFetch, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const r = await git.fetchOrigin(cwd)
+    return { ok: r.ok, error: r.ok ? undefined : r.stderr }
+  })
+  ipcMain.handle(CHANNELS.gitPull, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.pullFastForward(cwd)
+  })
+  ipcMain.handle(CHANNELS.gitPush, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const branch = await git.currentBranch(cwd)
+    if (!branch) return { ok: false, error: 'Not on a branch (detached HEAD).' }
+    const st = await git.status(cwd)
+    return git.pushBranch(cwd, branch, { setUpstream: !st?.hasUpstream })
+  })
+  ipcMain.handle(CHANNELS.gitLogGraph, async (_e, cwd: string, limit?: number) => {
+    if (!(await git.isGitAvailable())) return []
+    return git.getLogGraph(cwd, limit)
+  })
+  ipcMain.handle(CHANNELS.gitChangedFiles, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return []
+    return git.getChangedFiles(cwd)
+  })
+  ipcMain.handle(CHANNELS.gitCommitFiles, async (_e, cwd: string, sha: string) => {
+    if (!(await git.isGitAvailable())) return []
+    return git.getCommitFiles(cwd, sha)
+  })
+  ipcMain.handle(CHANNELS.gitFileDiff, async (_e, cwd: string, filePath: string, sha?: string) => {
+    if (!(await git.isGitAvailable())) {
+      return { path: filePath, before: '', after: '', ok: false, error: 'Git is not available' }
+    }
+    return git.getFileDiff(cwd, filePath, sha)
+  })
+  ipcMain.handle(CHANNELS.gitPublish, async (_e, cwd: string, remoteUrl: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.publishWorkspace(cwd, remoteUrl)
+  })
 
   // ---- forge (the git host behind `origin`: PR state for the branch) ----
   // Same degrade-never-throw contract as the git handlers above: no remote, an

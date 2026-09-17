@@ -34,7 +34,7 @@ export function setSpeakingStateListener(
 
 const EMOTION_TAG_RE = /\[[a-zA-Z\s-]+\]\s*/g
 const QUESTION_TAG_RE =
-  /<(?:agent-question|agent-questions|questions)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions)>|$)/gi
+  /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/gi
 
 export function stripEmotionTags(text: string): string {
   return text.replace(EMOTION_TAG_RE, '').replace(QUESTION_TAG_RE, '')

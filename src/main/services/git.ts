@@ -32,7 +32,12 @@ import {
   placeholderBranchName
 } from '../../shared/branch'
 import * as repo from '../db/repo'
-import type { RepoSyncTarget } from '../../shared/api'
+import type {
+  RepoSyncTarget,
+  GitCommitNode,
+  GitChangedFile,
+  GitFileDiffResult
+} from '../../shared/api'
 
 /** How long any single git command may run before it's killed. */
 const GIT_TIMEOUT_MS = 30_000
@@ -1107,4 +1112,241 @@ function cleanGitError(r: GitResult, fallback: string): string {
     .map((l) => l.replace(/^fatal:\s*/i, '').trim())
     .find((l) => l.length > 0)
   return first ? `${fallback}: ${first}` : fallback
+}
+
+/** Initialize a git repository in `cwd` with default branch `main`. */
+export async function initRepository(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  const r = await git(['init'], cwd)
+  if (!r.ok) return { ok: false, error: cleanGitError(r, 'Failed to initialize repository') }
+  await git(['branch', '-M', 'main'], cwd)
+  return { ok: true }
+}
+
+/** Stage all changes and commit with the given message. */
+export async function commitChanges(
+  cwd: string,
+  message: string
+): Promise<{ ok: boolean; error?: string; sha?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  const msg = message.trim()
+  if (!msg) return { ok: false, error: 'Commit message cannot be empty.' }
+
+  const add = await git(['add', '-A'], cwd)
+  if (!add.ok) return { ok: false, error: cleanGitError(add, 'Failed to stage files') }
+
+  const r = await git(['commit', '-m', msg], cwd)
+  if (!r.ok) return { ok: false, error: cleanGitError(r, 'Commit failed') }
+
+  const sha = await resolveCommit(cwd, 'HEAD')
+  return { ok: true, sha: sha ?? undefined }
+}
+
+/** Fetch commit graph history including merges, branches, and author metadata. */
+export async function getLogGraph(cwd: string, limit = 60): Promise<GitCommitNode[]> {
+  if (!cwd) return []
+  const r = await git(
+    [
+      'log',
+      '--all',
+      '--topo-order',
+      '--format=%H%x00%h%x00%P%x00%an%x00%ar%x00%s%x00%D',
+      '-n',
+      String(Math.min(5000, Math.max(1, limit)))
+    ],
+    cwd
+  )
+  if (!r.ok || !r.stdout.trim()) return []
+
+  const nodes: GitCommitNode[] = []
+  const lines = r.stdout.split('\n').filter((l) => l.trim())
+  for (const line of lines) {
+    const parts = line.split('\x00')
+    if (parts.length < 6) continue
+    const [sha, shortSha, rawParents, author, date, message, rawRefs] = parts
+    const parents = rawParents ? rawParents.trim().split(/\s+/).filter(Boolean) : []
+    const refs = rawRefs
+      ? rawRefs
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : []
+    nodes.push({
+      sha,
+      shortSha: shortSha || sha.slice(0, 7),
+      parents,
+      isMerge: parents.length > 1,
+      author: author || 'Unknown',
+      date: date || '',
+      message: (message || '').trim(),
+      refs
+    })
+  }
+  return nodes
+}
+
+/** Get list of files modified in a specific commit. */
+export async function getCommitFiles(cwd: string, sha: string): Promise<GitChangedFile[]> {
+  if (!cwd || !sha) return []
+  const cleanSha = sha.trim()
+  if (!/^[0-9a-fA-F]{7,40}$/.test(cleanSha)) return []
+
+  const r = await git(
+    ['diff-tree', '--no-commit-id', '--name-status', '-r', '--root', cleanSha],
+    cwd
+  )
+  if (!r.ok || !r.stdout.trim()) return []
+
+  const files: GitChangedFile[] = []
+  const lines = r.stdout.split('\n').filter((l) => l.trim())
+  for (const line of lines) {
+    const parts = line.split('\t')
+    if (parts.length < 2) continue
+    const rawStatus = parts[0].trim().toUpperCase()
+    const filePath = parts[parts.length - 1].trim()
+    let status: GitChangedFile['status'] = 'modified'
+    if (rawStatus.startsWith('A')) status = 'added'
+    else if (rawStatus.startsWith('D')) status = 'deleted'
+    else if (rawStatus.startsWith('R')) status = 'renamed'
+    else if (rawStatus.startsWith('C')) status = 'copied'
+
+    files.push({
+      path: filePath,
+      status,
+      staged: false
+    })
+  }
+  return files
+}
+
+/** Get list of uncommitted changed files in `cwd`. */
+export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
+  if (!cwd) return []
+  const r = await git(['status', '--porcelain=v1'], cwd)
+  if (!r.ok || !r.stdout.trim()) return []
+
+  const list: GitChangedFile[] = []
+  const lines = r.stdout.split('\n').filter((l) => l.trim())
+  for (const line of lines) {
+    if (line.length < 3) continue
+    const x = line[0]
+    const y = line[1]
+    const filePath = line.slice(3).trim()
+    let status: GitChangedFile['status'] = 'modified'
+    if (x === '?' || y === '?') status = 'untracked'
+    else if (x === 'A' || y === 'A') status = 'added'
+    else if (x === 'D' || y === 'D') status = 'deleted'
+    else if (x === 'R' || y === 'R') status = 'renamed'
+    else if (x === 'C' || y === 'C') status = 'copied'
+    list.push({
+      path: filePath,
+      status,
+      staged: x !== ' ' && x !== '?'
+    })
+  }
+  return list
+}
+
+/** Fetch before/after content of a file for diffing. */
+export async function getFileDiff(
+  cwd: string,
+  filePath: string,
+  sha?: string
+): Promise<GitFileDiffResult> {
+  if (!cwd || !filePath) {
+    return { path: filePath, before: '', after: '', ok: false, error: 'Missing path or cwd' }
+  }
+
+  const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
+
+  try {
+    if (sha && sha.trim()) {
+      const cleanSha = sha.trim()
+      if (!/^[0-9a-fA-F]{7,40}$/.test(cleanSha)) {
+        return { path: filePath, before: '', after: '', ok: false, error: 'Invalid commit SHA' }
+      }
+
+      const [afterRes, beforeRes] = await Promise.all([
+        git(['show', `${cleanSha}:${normalizedPath}`], cwd),
+        git(['show', `${cleanSha}~1:${normalizedPath}`], cwd)
+      ])
+
+      const after = afterRes.ok ? afterRes.stdout : ''
+      const before = beforeRes.ok ? beforeRes.stdout : ''
+
+      const isBinary = after.includes('\0') || before.includes('\0')
+      return {
+        path: filePath,
+        before: isBinary ? '' : before,
+        after: isBinary ? '' : after,
+        isBinary,
+        ok: true
+      }
+    } else {
+      // Uncommitted changes in working tree: before is HEAD, after is current working file
+      const beforeRes = await git(['show', `HEAD:${normalizedPath}`], cwd)
+      const before = beforeRes.ok ? beforeRes.stdout : ''
+
+      let after = ''
+      try {
+        const fullPath = path.resolve(cwd, filePath)
+        after = await fs.readFile(fullPath, 'utf-8')
+      } catch {
+        after = ''
+      }
+
+      const isBinary = after.includes('\0') || before.includes('\0')
+      return {
+        path: filePath,
+        before: isBinary ? '' : before,
+        after: isBinary ? '' : after,
+        isBinary,
+        ok: true
+      }
+    }
+  } catch (e) {
+    return {
+      path: filePath,
+      before: '',
+      after: '',
+      ok: false,
+      error: e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
+/** Initialize, commit, add origin remote, and push to publish current workspace. */
+export async function publishWorkspace(
+  cwd: string,
+  remoteUrlStr: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  const url = remoteUrlStr.trim()
+  if (!url) return { ok: false, error: 'Missing remote URL.' }
+
+  const isRepo = await repoRoot(cwd)
+  if (!isRepo) {
+    const initRes = await initRepository(cwd)
+    if (!initRes.ok) return initRes
+  }
+
+  const hasRemote = await hasOrigin(cwd)
+  if (hasRemote) {
+    await git(['remote', 'set-url', 'origin', url], cwd)
+  } else {
+    const remoteRes = await git(['remote', 'add', 'origin', url], cwd)
+    if (!remoteRes.ok)
+      return { ok: false, error: cleanGitError(remoteRes, 'Failed to add remote origin') }
+  }
+
+  const head = await resolveCommit(cwd, 'HEAD')
+  if (!head) {
+    await git(['add', '-A'], cwd)
+    const initCommit = await git(['commit', '-m', 'Initial commit'], cwd)
+    if (!initCommit.ok)
+      return { ok: false, error: cleanGitError(initCommit, 'Failed to create initial commit') }
+  }
+
+  const branch = (await currentBranch(cwd)) || 'main'
+  return pushBranch(cwd, branch, { setUpstream: true })
 }

@@ -35,6 +35,29 @@
   opacity: 0.9;
 }
 
+.diff-code-cell {
+  margin: 0;
+  border: 0;
+  padding: 0 12px;
+  height: 20px;
+  line-height: 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  tab-size: 4;
+  white-space: pre;
+  vertical-align: top;
+  box-sizing: border-box;
+}
+
+.diff-code-cell span {
+  color: var(--syntax-dark, inherit);
+}
+
+:root[data-appearance='light'] .diff-code-cell span {
+  color: var(--syntax-light, inherit);
+}
+
 .file-editor-input {
   caret-color: var(--color-text);
   color: transparent;

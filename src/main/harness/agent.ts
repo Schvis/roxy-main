@@ -1178,7 +1178,7 @@ function recordCall(
 function shouldWaitForUserInput(text: string): boolean {
   if (!text) return false
 
-  return /<(?:agent-question|agent-questions|questions|question)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question)>|$)/i.test(
+  return /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/i.test(
     text
   )
 }

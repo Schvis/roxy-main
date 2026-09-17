@@ -8,6 +8,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   Loader2,
   Pencil,
   Replace,
@@ -15,7 +16,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import type { WorkspaceFileEntry, WorkspaceFileSearchMatch } from '@shared/api'
+import type { GitFileDiffResult, WorkspaceFileEntry, WorkspaceFileSearchMatch } from '@shared/api'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { writeClipboardText } from '../lib/clipboard'
@@ -34,9 +35,16 @@ import { ContextMenuRow, ContextMenuSurface, CONTEXT_MENU_PAD, CONTEXT_ROW_H } f
 import { CommandsPane } from './CommandsDialog'
 import { FileEditor } from './FileEditor'
 import { findRunningTool } from './ChatView'
+import { GitActionsView } from './GitActionsView'
+import { FileDiffView } from './diff/FileDiffView'
 
 const control =
   'rounded p-1.5 text-text-muted hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+
+const MIN_PANEL_WIDTH = 180
+const MAX_PANEL_WIDTH = 800
+const DEFAULT_PANEL_WIDTH = 260
+const PANEL_WIDTH_KEY = 'roxy:ide-panel-width'
 
 interface ExplorerActions {
   sessionId: string
@@ -497,6 +505,114 @@ function FileContextMenu({
   )
 }
 
+function GitDiffViewer({
+  root,
+  path,
+  commitSha,
+  onClose,
+  onOpenEditor
+}: {
+  root: string
+  path: string
+  commitSha?: string
+  onClose: () => void
+  onOpenEditor: () => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [diff, setDiff] = useState<GitFileDiffResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(null)
+    api.git
+      .fileDiff(root, path, commitSha)
+      .then((res) => {
+        if (!active) return
+        if (res.ok) {
+          setDiff(res)
+        } else {
+          setError(res.error || t('git.diffError'))
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [root, path, commitSha, t])
+
+  return (
+    <section
+      aria-label={t('ide.diffTab')}
+      className="flex min-h-0 min-w-[280px] flex-1 flex-col bg-bg"
+    >
+      {/* Top File & Revision Header Bar */}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="h-4 w-4 text-accent shrink-0" />
+          <span className="truncate font-mono text-xs font-semibold text-text" title={path}>
+            {path}
+          </span>
+          <span className="rounded bg-surface-2 border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-subtle shrink-0">
+            {commitSha ? commitSha.slice(0, 7) : t('git.workingTree')}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!commitSha && (
+            <button
+              type="button"
+              onClick={onOpenEditor}
+              title={t('git.viewEditor')}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-text-muted hover:bg-white/5 hover:text-text transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+              <span>{t('git.viewEditor')}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            title={t('common.close')}
+            aria-label={t('common.close')}
+            className="flex h-6 w-6 items-center justify-center rounded text-text-subtle hover:bg-white/5 hover:text-text transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Diff Content */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center p-6 text-text-muted gap-2">
+            <Loader2 className="h-5 w-5 animate-spin text-accent" />
+            <span className="text-xs">{t('git.loadingFiles')}</span>
+          </div>
+        ) : error ? (
+          <div className="flex flex-1 items-center justify-center p-6 text-danger text-xs text-center">
+            {error}
+          </div>
+        ) : diff?.isBinary ? (
+          <div className="flex flex-1 items-center justify-center p-6 text-text-subtle text-xs text-center">
+            {t('git.binaryDiff')}
+          </div>
+        ) : diff ? (
+          <FileDiffView path={path} before={diff.before} after={diff.after} />
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
 function Preview({
   sessionId,
   root,
@@ -560,6 +676,10 @@ function WorkspaceContents({
     const saved = loadActiveFile(root)
     return saved?.line
   })
+  const [diffTarget, setDiffTarget] = useState<{
+    path: string
+    commitSha?: string
+  } | null>(null)
   const [copied, setCopied] = useState(0)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [creating, setCreating] = useState<{ parentPath: string; isDirectory: boolean } | null>(
@@ -593,6 +713,19 @@ function WorkspaceContents({
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null
   const [terminalHeight, setTerminalHeight] = useState(260)
   const isDragging = useRef(false)
+
+  const asideRef = useRef<HTMLElement | null>(null)
+  const isPanelDragging = useRef(false)
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem(PANEL_WIDTH_KEY))
+    return Number.isFinite(v) && v >= MIN_PANEL_WIDTH && v <= MAX_PANEL_WIDTH
+      ? v
+      : DEFAULT_PANEL_WIDTH
+  })
+
+  useEffect(() => {
+    localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth))
+  }, [panelWidth])
 
   const streaming = useRoxyStore((s) =>
     activeChatId ? (s.streamingChats[activeChatId] ?? null) : null
@@ -860,6 +993,7 @@ function WorkspaceContents({
     setSelected(entry)
     setSelectedLine(match.line)
     setIdeSelectedFile(entry, match.line)
+    setDiffTarget(null)
     expandAncestors(match.path)
   }
 
@@ -867,6 +1001,7 @@ function WorkspaceContents({
     setSelected(entry)
     setSelectedLine(undefined)
     setIdeSelectedFile(entry, undefined)
+    setDiffTarget(null)
   }
 
   const handleDeleteEntry = async (entry: WorkspaceFileEntry): Promise<void> => {
@@ -920,8 +1055,15 @@ function WorkspaceContents({
   return (
     <>
       <aside
-        aria-label={ideTab === 'files' ? t('ide.explorer') : t('ide.searchTab')}
-        className="flex h-full shrink-0 border-r border-border bg-surface"
+        ref={asideRef}
+        aria-label={
+          ideTab === 'files'
+            ? t('ide.explorer')
+            : ideTab === 'search'
+              ? t('ide.searchTab')
+              : t('ide.gitTab')
+        }
+        className="relative flex h-full shrink-0 border-r border-border bg-surface"
       >
         {/* Activity bar / tab switcher on the side */}
         <div
@@ -970,10 +1112,32 @@ function WorkspaceContents({
             )}
             <Search className="h-4 w-4" />
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={ideTab === 'git'}
+            onClick={() => setIdeTab('git')}
+            title={t('ide.gitTab')}
+            aria-label={t('ide.gitTab')}
+            className={cn(
+              'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+              ideTab === 'git'
+                ? 'bg-elevated text-accent shadow-xs'
+                : 'text-text-muted hover:bg-white/5 hover:text-text'
+            )}
+          >
+            {ideTab === 'git' && (
+              <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
+            )}
+            <GitBranch className="h-4 w-4" />
+          </button>
         </div>
 
-        {/* Panel content (Files or Search) */}
-        <div className="flex h-full w-[240px] flex-col overflow-hidden">
+        {/* Panel content (Files, Search, or Git) */}
+        <div
+          style={{ width: panelWidth }}
+          className="flex h-full flex-col overflow-hidden shrink-0"
+        >
           {sessionId && root ? (
             ideTab === 'files' ? (
               <ExplorerContext.Provider value={explorerContextValue}>
@@ -1044,7 +1208,7 @@ function WorkspaceContents({
                   <Directory path="" />
                 </div>
               </ExplorerContext.Provider>
-            ) : (
+            ) : ideTab === 'search' ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="border-b border-border p-2 space-y-1.5">
                   <div className="flex items-center gap-1">
@@ -1276,18 +1440,77 @@ function WorkspaceContents({
                   })}
                 </div>
               </div>
+            ) : (
+              <GitActionsView
+                root={root}
+                sessionId={sessionId}
+                onOpenFile={(filePath, commitSha) => {
+                  const fileName = filePath.split('/').pop() || filePath
+                  const entry: WorkspaceFileEntry = {
+                    path: filePath,
+                    name: fileName,
+                    directory: false
+                  }
+                  setSelected(entry)
+                  setSelectedLine(undefined)
+                  setIdeSelectedFile(entry, undefined)
+                  setDiffTarget({ path: filePath, commitSha })
+                }}
+              />
             )
           ) : (
             <p className="p-4 text-xs text-text-muted">{t('ide.noWorkspace')}</p>
           )}
         </div>
+
+        {/* Horizontal drag handle to resize the sidebar panel width */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('ide.resizePanel')}
+          aria-valuenow={panelWidth}
+          onPointerDown={(e) => {
+            isPanelDragging.current = true
+            e.currentTarget.setPointerCapture(e.pointerId)
+          }}
+          onPointerMove={(e) => {
+            if (!isPanelDragging.current) return
+            const aside = asideRef.current
+            if (!aside) return
+            const rect = aside.getBoundingClientRect()
+            const newW = e.clientX - rect.left - 44
+            setPanelWidth(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newW)))
+          }}
+          onPointerUp={(e) => {
+            isPanelDragging.current = false
+            e.currentTarget.releasePointerCapture(e.pointerId)
+          }}
+          onDoubleClick={() => {
+            setPanelWidth(DEFAULT_PANEL_WIDTH)
+          }}
+          className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize touch-none z-20 hover:bg-accent/40 focus-visible:bg-accent transition-colors"
+          title={t('ide.resizePanel')}
+        />
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          {sessionId &&
-            root &&
-            (selected ? (
+          {sessionId && root ? (
+            diffTarget ? (
+              <GitDiffViewer
+                key={`diff:${diffTarget.path}:${diffTarget.commitSha ?? 'wt'}`}
+                root={root}
+                path={diffTarget.path}
+                commitSha={diffTarget.commitSha}
+                onClose={() => {
+                  setDiffTarget(null)
+                  setSelected(null)
+                  setSelectedLine(undefined)
+                  setIdeSelectedFile(null, undefined)
+                }}
+                onOpenEditor={() => setDiffTarget(null)}
+              />
+            ) : selected ? (
               <Preview
                 key={`${selected.path}:${selectedLine ?? 0}`}
                 sessionId={sessionId}
@@ -1308,7 +1531,10 @@ function WorkspaceContents({
                 <FileText aria-hidden className="h-8 w-8 opacity-40" />
                 <p className="max-w-52 text-sm">{t('ide.selectFile')}</p>
               </section>
-            ))}
+            )
+          ) : (
+            <p className="p-4 text-xs text-text-muted">{t('ide.noWorkspace')}</p>
+          )}
         </div>
 
         {commandsOpen && activeChat && (

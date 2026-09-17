@@ -47,7 +47,7 @@ function renderInlineHighlighted(
       nodes.push(
         <span
           key={`hl-${idx}`}
-          className={cn(highlightBg, 'rounded-xs px-0.5 font-medium underline underline-offset-2')}
+          className={cn(highlightBg, 'font-medium underline underline-offset-2')}
         >
           {text.slice(range.start, range.end)}
         </span>
@@ -267,17 +267,21 @@ export function FileDiffView({
       {/* Diff content view */}
       {mode === 'unified' ? (
         <div className="flex min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-5">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse" style={{ tabSize: 4 }}>
             <tbody>
               {rows.map((row, idx) => {
                 if (row.kind === 'gap') {
                   return (
                     <tr
                       key={`gap-${idx}`}
+                      style={{ height: '20px' }}
                       onClick={() => toggleSection(row.section)}
                       className="cursor-pointer border-y border-border/50 bg-surface-2/60 hover:bg-surface-2 text-text-subtle text-[11px] transition-colors"
                     >
-                      <td colSpan={3} className="py-1 px-4 text-center font-sans">
+                      <td
+                        colSpan={4}
+                        className="py-0 px-4 text-center font-sans text-[11px] h-5 leading-5 select-none"
+                      >
                         {t('ide.expandGap', { count: row.count })}
                       </td>
                     </tr>
@@ -306,8 +310,9 @@ export function FileDiffView({
                 return (
                   <tr
                     key={`line-${idx}`}
+                    style={{ height: '20px' }}
                     className={cn(
-                      'border-l-2 transition-colors',
+                      'h-5 leading-5 border-l-2 transition-colors',
                       isDeleted &&
                         'border-rose-500 bg-rose-500/15 hover:bg-rose-500/20 text-rose-100',
                       isAdded &&
@@ -316,17 +321,17 @@ export function FileDiffView({
                     )}
                   >
                     {/* Line numbers gutter */}
-                    <td className="w-12 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums">
+                    <td className="w-11 h-5 leading-5 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums align-top">
                       {beforeLineNum}
                     </td>
-                    <td className="w-12 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums">
+                    <td className="w-11 h-5 leading-5 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums align-top">
                       {afterLineNum}
                     </td>
 
                     {/* Change sign indicator */}
                     <td
                       className={cn(
-                        'w-5 select-none text-center font-mono text-[12px] font-bold',
+                        'w-5 h-5 leading-5 select-none text-center font-mono text-[11px] font-bold align-top',
                         isDeleted && 'text-rose-400',
                         isAdded && 'text-emerald-400',
                         isContext && 'text-transparent'
@@ -336,7 +341,7 @@ export function FileDiffView({
                     </td>
 
                     {/* Code text with green or red highlights */}
-                    <td className="whitespace-pre px-2 py-0 font-mono file-editor-code">
+                    <td className="diff-code-cell">
                       {renderInlineHighlighted(
                         text,
                         inlineRanges,
@@ -367,17 +372,21 @@ export function FileDiffView({
             <div className="sticky top-0 z-10 border-b border-border/60 bg-surface px-2 py-1 text-[10px] font-semibold text-rose-400">
               {t('ide.oldCode')}
             </div>
-            <table className="w-full border-collapse">
+            <table className="w-full border-collapse" style={{ tabSize: 4 }}>
               <tbody>
                 {rows.map((row, idx) => {
                   if (row.kind === 'gap') {
                     return (
                       <tr
                         key={`sgap-${idx}`}
+                        style={{ height: '20px' }}
                         onClick={() => toggleSection(row.section)}
                         className="cursor-pointer border-y border-border/50 bg-surface-2/60 text-text-subtle text-[11px]"
                       >
-                        <td colSpan={2} className="py-1 px-4 text-center">
+                        <td
+                          colSpan={2}
+                          className="py-0 px-4 text-center font-sans text-[11px] h-5 leading-5 select-none"
+                        >
                           {t('ide.expandGap', { count: row.count })}
                         </td>
                       </tr>
@@ -395,8 +404,9 @@ export function FileDiffView({
                   return (
                     <tr
                       key={`sline-left-${idx}`}
+                      style={{ height: '20px' }}
                       className={cn(
-                        'border-l-2',
+                        'h-5 leading-5 border-l-2',
                         isDeleted
                           ? 'border-rose-500 bg-rose-500/15 text-rose-100'
                           : hasBefore
@@ -404,10 +414,10 @@ export function FileDiffView({
                             : 'border-transparent bg-surface-2/30 text-transparent select-none'
                       )}
                     >
-                      <td className="w-10 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums">
+                      <td className="w-11 h-5 leading-5 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums align-top">
                         {hasBefore ? row.before! + 1 : ''}
                       </td>
-                      <td className="whitespace-pre px-2 py-0 font-mono file-editor-code">
+                      <td className="diff-code-cell">
                         {hasBefore ? (
                           renderInlineHighlighted(
                             text,
@@ -436,17 +446,21 @@ export function FileDiffView({
             <div className="sticky top-0 z-10 border-b border-border/60 bg-surface px-2 py-1 text-[10px] font-semibold text-emerald-400">
               {t('ide.newCode')}
             </div>
-            <table className="w-full border-collapse">
+            <table className="w-full border-collapse" style={{ tabSize: 4 }}>
               <tbody>
                 {rows.map((row, idx) => {
                   if (row.kind === 'gap') {
                     return (
                       <tr
                         key={`sgap-r-${idx}`}
+                        style={{ height: '20px' }}
                         onClick={() => toggleSection(row.section)}
                         className="cursor-pointer border-y border-border/50 bg-surface-2/60 text-text-subtle text-[11px]"
                       >
-                        <td colSpan={2} className="py-1 px-4 text-center">
+                        <td
+                          colSpan={2}
+                          className="py-0 px-4 text-center font-sans text-[11px] h-5 leading-5 select-none"
+                        >
                           {t('ide.expandGap', { count: row.count })}
                         </td>
                       </tr>
@@ -464,8 +478,9 @@ export function FileDiffView({
                   return (
                     <tr
                       key={`sline-right-${idx}`}
+                      style={{ height: '20px' }}
                       className={cn(
-                        'border-l-2',
+                        'h-5 leading-5 border-l-2',
                         isAdded
                           ? 'border-emerald-500 bg-emerald-500/15 text-emerald-100'
                           : hasAfter
@@ -473,10 +488,10 @@ export function FileDiffView({
                             : 'border-transparent bg-surface-2/30 text-transparent select-none'
                       )}
                     >
-                      <td className="w-10 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums">
+                      <td className="w-11 h-5 leading-5 select-none border-r border-border/40 px-2 py-0 text-right font-mono text-[11px] text-text-subtle/80 tabular-nums align-top">
                         {hasAfter ? row.after! + 1 : ''}
                       </td>
-                      <td className="whitespace-pre px-2 py-0 font-mono file-editor-code">
+                      <td className="diff-code-cell">
                         {hasAfter ? (
                           renderInlineHighlighted(
                             text,

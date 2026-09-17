@@ -99,7 +99,7 @@ interface RoxyStore {
   chats: Chat[]
   activeChatId: string | null
   commandsOpen: boolean
-  ideTab: 'files' | 'search'
+  ideTab: 'files' | 'search' | 'git'
   ideSelectedFile: WorkspaceFileEntry | null
   ideSelectedLine: number | undefined
   sidebarRailed: boolean
@@ -400,7 +400,7 @@ interface RoxyStore {
   setCommandsOpen: (open: boolean) => void
   contextPickerOpen: boolean
   setContextPickerOpen: (open: boolean) => void
-  setIdeTab: (tab: 'files' | 'search') => void
+  setIdeTab: (tab: 'files' | 'search' | 'git') => void
   setIdeSelectedFile: (entry: WorkspaceFileEntry | null, line?: number) => void
   setSidebarRailed: (railed: boolean) => void
   pendingContextAttachments: Record<string, ChatContextAttachment[]>

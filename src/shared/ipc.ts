@@ -397,6 +397,16 @@ export const CHANNELS = {
   gitRemoveWorktree: 'git:remove-worktree',
   gitPruneWorktrees: 'git:prune-worktrees',
   gitRenameBranch: 'git:rename-branch',
+  gitInit: 'git:init',
+  gitCommit: 'git:commit',
+  gitFetch: 'git:fetch',
+  gitPull: 'git:pull',
+  gitPush: 'git:push',
+  gitLogGraph: 'git:log-graph',
+  gitChangedFiles: 'git:changed-files',
+  gitCommitFiles: 'git:commit-files',
+  gitFileDiff: 'git:file-diff',
+  gitPublish: 'git:publish',
 
   /** Forge = the git host (GitHub/Azure DevOps/GitLab/Bitbucket) behind `origin`. */
   forgeStatus: 'forge:status',

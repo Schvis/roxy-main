@@ -185,13 +185,42 @@ export interface GitStatusView {
   defaultBranch: string | null
 }
 
-/** One checkout of a repository â€” the main working tree, or a workstream's. */
+/** One checkout of a repository — the main working tree, or a workstream's. */
 export interface WorktreeView {
   path: string
   branch: string | null
   head: string | null
   /** The repo's own working tree; never removable. */
   isMain: boolean
+}
+
+/** One commit in the visual commit graph. */
+export interface GitCommitNode {
+  sha: string
+  shortSha: string
+  parents: string[]
+  isMerge: boolean
+  author: string
+  date: string
+  message: string
+  refs: string[]
+}
+
+/** A changed file in the working tree or index. */
+export interface GitChangedFile {
+  path: string
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed' | 'copied'
+  staged: boolean
+}
+
+/** Result of comparing a file between revisions (or working tree vs HEAD). */
+export interface GitFileDiffResult {
+  path: string
+  before: string
+  after: string
+  ok: boolean
+  error?: string
+  isBinary?: boolean
 }
 
 /** One repo inside a multi-repo session's composite worktree, with its status. */
@@ -1512,6 +1541,26 @@ export interface RoxyApi {
      * `dryRun:false` to actually delete them.
      */
     pruneWorktrees(cwd: string, dryRun?: boolean): Promise<PruneWorktreesResult>
+    /** Initialize a git repository in `cwd`. */
+    init(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Stage all and commit with a message. */
+    commit(cwd: string, message: string): Promise<{ ok: boolean; error?: string; sha?: string }>
+    /** Fetch from origin. */
+    fetch(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Pull / fast-forward from upstream. */
+    pull(cwd: string): Promise<SyncOutcome>
+    /** Push checked-out branch to origin. */
+    push(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Commit and merge graph history. */
+    logGraph(cwd: string, limit?: number): Promise<GitCommitNode[]>
+    /** Uncommitted changed files in the working directory. */
+    changedFiles(cwd: string): Promise<GitChangedFile[]>
+    /** Files modified in a specific commit. */
+    commitFiles(cwd: string, sha: string): Promise<GitChangedFile[]>
+    /** Content before and after changes for diffing. */
+    fileDiff(cwd: string, filePath: string, sha?: string): Promise<GitFileDiffResult>
+    /** Initialize, commit, set remote, and push to publish the workspace. */
+    publish(cwd: string, remoteUrl: string): Promise<{ ok: boolean; error?: string }>
   }
   remote: {
     /** Mint a room on roxy.gg + open the host relay socket for a session. */
