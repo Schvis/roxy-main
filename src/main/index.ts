@@ -41,9 +41,10 @@ let isQuitting = false
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin'
+  const savedIdeSize = repo.getIdeWindowSize()
   const mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
+    width: savedIdeSize?.width ?? 1100,
+    height: savedIdeSize?.height ?? 720,
     minWidth: 760,
     minHeight: 480,
     show: false,
@@ -62,6 +63,20 @@ function createWindow(): BrowserWindow {
     }
   })
   setMainWindow(mainWindow)
+  let saveWindowSizeTimer: NodeJS.Timeout | null = null
+  const saveWindowSize = (): void => {
+    if (mainWindow.isDestroyed() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
+    const { width, height } = mainWindow.getNormalBounds()
+    repo.setIdeWindowSize(width, height)
+  }
+  mainWindow.on('resize', () => {
+    if (!repo.getSettings().ideMode) return
+    if (saveWindowSizeTimer) clearTimeout(saveWindowSizeTimer)
+    saveWindowSizeTimer = setTimeout(() => {
+      saveWindowSizeTimer = null
+      saveWindowSize()
+    }, 200)
+  })
 
   mainWindow.on('ready-to-show', () => {
     // Repaint the native window controls from the active theme before the
@@ -78,6 +93,11 @@ function createWindow(): BrowserWindow {
   })
 
   mainWindow.on('close', (event) => {
+    if (saveWindowSizeTimer) {
+      clearTimeout(saveWindowSizeTimer)
+      saveWindowSizeTimer = null
+    }
+    if (repo.getSettings().ideMode) saveWindowSize()
     if (repo.getSettings().overlayMode && !isQuitting) {
       event.preventDefault()
       mainWindow.hide()

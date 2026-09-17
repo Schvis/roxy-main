@@ -560,7 +560,17 @@ const roxy: RoxyApi = {
     changedFiles: (cwd) => ipcRenderer.invoke(CHANNELS.gitChangedFiles, cwd),
     commitFiles: (cwd, sha) => ipcRenderer.invoke(CHANNELS.gitCommitFiles, cwd, sha),
     fileDiff: (cwd, filePath, sha) => ipcRenderer.invoke(CHANNELS.gitFileDiff, cwd, filePath, sha),
-    publish: (cwd, remoteUrl) => ipcRenderer.invoke(CHANNELS.gitPublish, cwd, remoteUrl)
+    publish: (cwd, remoteUrl) => ipcRenderer.invoke(CHANNELS.gitPublish, cwd, remoteUrl),
+    createAndPublishGitHub: (cwd, input) =>
+      ipcRenderer.invoke(CHANNELS.gitCreateAndPublish, cwd, input),
+    revertFile: (cwd, filePath) => ipcRenderer.invoke(CHANNELS.gitRevertFile, cwd, filePath),
+    revertAll: (cwd) => ipcRenderer.invoke(CHANNELS.gitRevertAll, cwd),
+    stageFile: (cwd, filePath) => ipcRenderer.invoke(CHANNELS.gitStageFile, cwd, filePath),
+    unstageFile: (cwd, filePath) => ipcRenderer.invoke(CHANNELS.gitUnstageFile, cwd, filePath),
+    resolveConflict: (cwd, filePath, content) =>
+      ipcRenderer.invoke(CHANNELS.gitResolveConflict, cwd, filePath, content),
+    abortMerge: (cwd) => ipcRenderer.invoke(CHANNELS.gitAbortMerge, cwd),
+    isMerging: (cwd) => ipcRenderer.invoke(CHANNELS.gitIsMerging, cwd)
   },
   forge: {
     status: (cwd, force) => ipcRenderer.invoke(CHANNELS.forgeStatus, cwd, force),

@@ -208,6 +208,8 @@ async function runTurn(
     return { ok: true }
   } catch (e) {
     if (signal.aborted) return { ok: false, error: 'Stopped.' }
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    const error = e instanceof Error ? e.message : String(e)
+    emit({ type: 'text', delta: `\n\n_\u26a0 ${error}_\n\n` })
+    return { ok: false, error }
   }
 }

@@ -32,6 +32,7 @@ import {
   placeholderBranchName
 } from '../../shared/branch'
 import * as repo from '../db/repo'
+import { getCredential } from './forge/credentials'
 import type {
   RepoSyncTarget,
   GitCommitNode,
@@ -690,6 +691,90 @@ export async function pullFastForward(cwd: string): Promise<SyncResult> {
 }
 
 /**
+ * Pull upstream changes for the checked-out branch.
+ * Tries fast-forward first. If the branches have diverged, performs a merge.
+ * If conflicts occur, leaves conflict markers and enters a merge state so the
+ * user can resolve them via the conflict solver.
+ */
+export async function pullBranch(cwd: string): Promise<SyncResult & { conflict?: boolean }> {
+  if (!cwd) return { ok: false, error: 'pull: missing cwd' }
+  const st = await status(cwd)
+  if (!st?.branch) return { ok: false, error: 'Not on a branch (detached HEAD).' }
+
+  const target = await syncRefFor(cwd, { branch: st.branch, upstream: st.upstream })
+  if (!target) {
+    return { ok: false, error: `"${st.branch}" has nothing to update from.` }
+  }
+
+  if (!target.local) {
+    const remote = (await upstreamRemote(cwd, st.branch)) ?? 'origin'
+    const fetched = await fetchOrigin(cwd, remote)
+    if (!fetched.ok) {
+      return { ok: false, error: cleanGitError(fetched, `Could not reach ${remote}`) }
+    }
+  }
+
+  const behind = target.viaUpstream
+    ? ((await status(cwd))?.behind ?? 0)
+    : (await distanceFrom(cwd, target.ref)).behind
+  if (behind === 0) {
+    return { ok: true, upstream: target.ref, updated: false }
+  }
+
+  const ahead = target.viaUpstream
+    ? ((await status(cwd))?.ahead ?? 0)
+    : (await distanceFrom(cwd, target.ref)).ahead
+
+  // Try fast-forward if no local commits ahead
+  if (ahead === 0) {
+    const r = await git(['merge', '--ff-only', target.ref], cwd, FETCH_TIMEOUT_MS)
+    if (r.ok) {
+      return { ok: true, upstream: target.ref, updated: true }
+    }
+    // If ff-only failed because of dirty tree collisions (not divergence), report the error
+    if (
+      !r.stderr.includes('Not possible to fast-forward') &&
+      !r.stderr.includes('Diverging branches') &&
+      !r.stdout.includes('Not possible to fast-forward')
+    ) {
+      return { ok: false, error: cleanGitError(r, 'Could not fast-forward'), upstream: target.ref }
+    }
+  }
+
+  // If already merging, don't start another merge
+  if (await isMerging(cwd)) {
+    return {
+      ok: false,
+      conflict: true,
+      error: 'A merge is already in progress. Please resolve conflicts or abort the merge.',
+      upstream: target.ref
+    }
+  }
+
+  // Branches diverged. Perform a merge.
+  const mergeResult = await git(['merge', target.ref, '--no-edit'], cwd, FETCH_TIMEOUT_MS)
+  if (mergeResult.ok) {
+    return { ok: true, upstream: target.ref, updated: true }
+  }
+
+  // Check if conflicts arose
+  if (await isMerging(cwd)) {
+    return {
+      ok: false,
+      conflict: true,
+      error: 'Merge conflict detected. Please resolve conflicts.',
+      upstream: target.ref
+    }
+  }
+
+  return {
+    ok: false,
+    error: cleanGitError(mergeResult, 'Merge failed'),
+    upstream: target.ref
+  }
+}
+
+/**
  * Hard-reset the branch onto a ref, parking any local work in a stash first.
  *
  * This is the "just give me what's on the server" escape hatch, and it is
@@ -1123,19 +1208,20 @@ export async function initRepository(cwd: string): Promise<{ ok: boolean; error?
   return { ok: true }
 }
 
-/** Stage all changes and commit with the given message. */
+/** Stage all changes and commit with the given message. Supports completing an active merge. */
 export async function commitChanges(
   cwd: string,
   message: string
 ): Promise<{ ok: boolean; error?: string; sha?: string }> {
   if (!cwd) return { ok: false, error: 'Missing repository directory.' }
   const msg = message.trim()
-  if (!msg) return { ok: false, error: 'Commit message cannot be empty.' }
+  const merging = await isMerging(cwd)
+  if (!msg && !merging) return { ok: false, error: 'Commit message cannot be empty.' }
 
   const add = await git(['add', '-A'], cwd)
   if (!add.ok) return { ok: false, error: cleanGitError(add, 'Failed to stage files') }
 
-  const r = await git(['commit', '-m', msg], cwd)
+  const r = msg ? await git(['commit', '-m', msg], cwd) : await git(['commit', '--no-edit'], cwd)
   if (!r.ok) return { ok: false, error: cleanGitError(r, 'Commit failed') }
 
   const sha = await resolveCommit(cwd, 'HEAD')
@@ -1233,7 +1319,9 @@ export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
     const y = line[1]
     const filePath = line.slice(3).trim()
     let status: GitChangedFile['status'] = 'modified'
-    if (x === '?' || y === '?') status = 'untracked'
+    if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
+      status = 'conflict'
+    } else if (x === '?' || y === '?') status = 'untracked'
     else if (x === 'A' || y === 'A') status = 'added'
     else if (x === 'D' || y === 'D') status = 'deleted'
     else if (x === 'R' || y === 'R') status = 'renamed'
@@ -1241,7 +1329,7 @@ export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
     list.push({
       path: filePath,
       status,
-      staged: x !== ' ' && x !== '?'
+      staged: x !== ' ' && x !== '?' && x !== 'U'
     })
   }
   return list
@@ -1255,6 +1343,11 @@ export async function getFileDiff(
 ): Promise<GitFileDiffResult> {
   if (!cwd || !filePath) {
     return { path: filePath, before: '', after: '', ok: false, error: 'Missing path or cwd' }
+  }
+
+  const root = await repoRoot(cwd)
+  if (!root) {
+    return { path: filePath, before: '', after: '', ok: false, error: 'Not a git repository' }
   }
 
   const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
@@ -1283,6 +1376,11 @@ export async function getFileDiff(
         ok: true
       }
     } else {
+      const isIgnored = await git(['check-ignore', '-q', normalizedPath], cwd)
+      if (isIgnored.code === 0) {
+        return { path: filePath, before: '', after: '', ok: false, error: 'File is ignored by git' }
+      }
+
       // Uncommitted changes in working tree: before is HEAD, after is current working file
       const beforeRes = await git(['show', `HEAD:${normalizedPath}`], cwd)
       const before = beforeRes.ok ? beforeRes.stdout : ''
@@ -1348,5 +1446,223 @@ export async function publishWorkspace(
   }
 
   const branch = (await currentBranch(cwd)) || 'main'
-  return pushBranch(cwd, branch, { setUpstream: true })
+  if (branch === 'master') {
+    await git(['branch', '-M', 'main'], cwd)
+  }
+  const finalBranch = (await currentBranch(cwd)) || 'main'
+  return pushBranch(cwd, finalBranch, { setUpstream: true })
+}
+
+/** Call GitHub API to create a new repository for the current user. */
+export async function createGitHubRepo(
+  name: string,
+  opts: { description?: string; isPrivate?: boolean; token?: string } = {}
+): Promise<{ ok: boolean; cloneUrl?: string; htmlUrl?: string; error?: string }> {
+  let token = opts.token?.trim()
+  if (!token) {
+    const cred = await getCredential('github.com')
+    if (cred?.password) {
+      token = cred.password
+    }
+  }
+
+  if (!token) {
+    return {
+      ok: false,
+      error:
+        'No GitHub token found. Please sign in with Git Credential Manager or enter a Personal Access Token.'
+    }
+  }
+
+  try {
+    const res = await fetch('https://api.github.com/user/repos', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'Roxy-App',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: name.trim(),
+        description: opts.description?.trim() || undefined,
+        private: opts.isPrivate !== false,
+        auto_init: false
+      })
+    })
+
+    const data = (await res.json()) as {
+      clone_url?: string
+      html_url?: string
+      message?: string
+      errors?: Array<{ message: string }>
+    }
+
+    if (res.status === 201 && data.clone_url) {
+      return {
+        ok: true,
+        cloneUrl: data.clone_url,
+        htmlUrl: data.html_url
+      }
+    }
+
+    const detail = data.errors?.map((e) => e.message).join('; ')
+    const errMsg = detail
+      ? `${data.message}: ${detail}`
+      : data.message || `GitHub API error (${res.status})`
+    return { ok: false, error: errMsg }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
+/** Create a GitHub repository and publish the current workspace to it. */
+export async function createAndPublishGitHub(
+  cwd: string,
+  input: { name: string; description?: string; isPrivate?: boolean; token?: string }
+): Promise<{ ok: boolean; url?: string; cloneUrl?: string; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  if (!input.name || !input.name.trim()) {
+    return { ok: false, error: 'Missing repository name.' }
+  }
+
+  const ghRes = await createGitHubRepo(input.name.trim(), {
+    description: input.description,
+    isPrivate: input.isPrivate,
+    token: input.token
+  })
+
+  if (!ghRes.ok || !ghRes.cloneUrl) {
+    return { ok: false, error: ghRes.error || 'Failed to create GitHub repository.' }
+  }
+
+  const pushUrl = input.token
+    ? ghRes.cloneUrl.replace('https://', `https://${encodeURIComponent(input.token)}@`)
+    : ghRes.cloneUrl
+
+  const pubRes = await publishWorkspace(cwd, pushUrl)
+  if (input.token) {
+    await git(['remote', 'set-url', 'origin', ghRes.cloneUrl], cwd)
+  }
+
+  if (!pubRes.ok) {
+    return {
+      ok: false,
+      url: ghRes.htmlUrl,
+      cloneUrl: ghRes.cloneUrl,
+      error: `Repository created at ${ghRes.htmlUrl}, but push failed: ${pubRes.error}`
+    }
+  }
+
+  return {
+    ok: true,
+    url: ghRes.htmlUrl,
+    cloneUrl: ghRes.cloneUrl
+  }
+}
+
+/** Revert uncommitted changes to a specific file (restore tracked to HEAD, or delete untracked). */
+export async function revertFile(
+  cwd: string,
+  filePath: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd || !filePath) return { ok: false, error: 'Missing path or directory' }
+  const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
+
+  // Check if file is untracked
+  const statusRes = await git(['status', '--porcelain=v1', '--', normalizedPath], cwd)
+  if (statusRes.ok && statusRes.stdout.trim().startsWith('??')) {
+    try {
+      const fullPath = path.resolve(cwd, filePath)
+      await fs.rm(fullPath, { recursive: true, force: true })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  // Restore tracked file from HEAD (staged + worktree)
+  const r = await git(['restore', '--staged', '--worktree', '--', normalizedPath], cwd)
+  if (r.ok) return { ok: true }
+
+  const r2 = await git(['checkout', 'HEAD', '--', normalizedPath], cwd)
+  return r2.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to revert file') }
+}
+
+/** Revert all uncommitted working tree changes in `cwd`. */
+export async function revertAll(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing directory' }
+  const r1 = await git(['restore', '--staged', '--worktree', '.'], cwd)
+  const r2 = await git(['clean', '-fd'], cwd)
+  return r1.ok && r2.ok
+    ? { ok: true }
+    : { ok: false, error: cleanGitError(r1.ok ? r2 : r1, 'Failed to revert all changes') }
+}
+
+/** Stage a file in git. */
+export async function stageFile(
+  cwd: string,
+  filePath: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd || !filePath) return { ok: false, error: 'Missing path or directory' }
+  const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const r = await git(['add', '--', normalizedPath], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to stage file') }
+}
+
+/** Unstage a file from git index. */
+export async function unstageFile(
+  cwd: string,
+  filePath: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd || !filePath) return { ok: false, error: 'Missing path or directory' }
+  const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const r = await git(['restore', '--staged', '--', normalizedPath], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to unstage file') }
+}
+
+/** Save resolved conflict file content to disk and stage it in git. */
+export async function resolveConflict(
+  cwd: string,
+  filePath: string,
+  content: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd || !filePath) return { ok: false, error: 'Missing path or directory' }
+  const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const fullPath = path.resolve(cwd, filePath)
+  try {
+    await fs.writeFile(fullPath, content, 'utf-8')
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+  const r = await git(['add', '--', normalizedPath], cwd)
+  return r.ok
+    ? { ok: true }
+    : { ok: false, error: cleanGitError(r, 'Failed to stage resolved conflict') }
+}
+
+/** Check whether git is in an active merge state (.git/MERGE_HEAD). */
+export async function isMerging(cwd: string): Promise<boolean> {
+  if (!cwd) return false
+  try {
+    const gitDirRes = await git(['rev-parse', '--git-dir'], cwd)
+    if (!gitDirRes.ok || !gitDirRes.stdout.trim()) return false
+    const gitDir = path.resolve(cwd, gitDirRes.stdout.trim())
+    const mergeHead = path.join(gitDir, 'MERGE_HEAD')
+    await fs.access(mergeHead)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Abort a merge in progress (`git merge --abort`). */
+export async function abortMerge(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing directory' }
+  const r = await git(['merge', '--abort'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to abort merge') }
 }

@@ -134,6 +134,7 @@ import {
   deleteWorkspaceFile,
   getWorkspaceFileDiagnostics,
   listWorkspaceFiles,
+  notifyWorkspaceFilesChanged,
   onWorkspaceFilesChanged,
   readWorkspaceFile,
   renameWorkspaceFile,
@@ -1439,7 +1440,7 @@ export function registerIpc(): void {
         input,
         (llmEvent) => {
           applyTurnEvent(input.requestId, llmEvent)
-          if (llmEvent.type === 'text') {
+          if (llmEvent.type === 'text' && !llmEvent.delta.includes('\u26a0')) {
             tts.onText(llmEvent.delta)
           } else {
             broadcastLlmDelta(llmEvent)
@@ -1814,7 +1815,7 @@ export function registerIpc(): void {
   })
   ipcMain.handle(CHANNELS.gitPull, async (_e, cwd: string) => {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
-    return git.pullFastForward(cwd)
+    return git.pullBranch(cwd)
   })
   ipcMain.handle(CHANNELS.gitPush, async (_e, cwd: string) => {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
@@ -1844,6 +1845,56 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.gitPublish, async (_e, cwd: string, remoteUrl: string) => {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
     return git.publishWorkspace(cwd, remoteUrl)
+  })
+  ipcMain.handle(
+    CHANNELS.gitCreateAndPublish,
+    async (
+      _e,
+      cwd: string,
+      input: { name: string; description?: string; isPrivate?: boolean; token?: string }
+    ) => {
+      if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+      return git.createAndPublishGitHub(cwd, input)
+    }
+  )
+  ipcMain.handle(CHANNELS.gitRevertFile, async (_e, cwd: string, filePath: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const r = await git.revertFile(cwd, filePath)
+    if (r.ok) notifyWorkspaceFilesChanged(cwd)
+    return r
+  })
+  ipcMain.handle(CHANNELS.gitRevertAll, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const r = await git.revertAll(cwd)
+    if (r.ok) notifyWorkspaceFilesChanged(cwd)
+    return r
+  })
+  ipcMain.handle(CHANNELS.gitStageFile, async (_e, cwd: string, filePath: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.stageFile(cwd, filePath)
+  })
+  ipcMain.handle(CHANNELS.gitUnstageFile, async (_e, cwd: string, filePath: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.unstageFile(cwd, filePath)
+  })
+  ipcMain.handle(
+    CHANNELS.gitResolveConflict,
+    async (_e, cwd: string, filePath: string, content: string) => {
+      if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+      const r = await git.resolveConflict(cwd, filePath, content)
+      if (r.ok) notifyWorkspaceFilesChanged(cwd)
+      return r
+    }
+  )
+  ipcMain.handle(CHANNELS.gitAbortMerge, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const r = await git.abortMerge(cwd)
+    if (r.ok) notifyWorkspaceFilesChanged(cwd)
+    return r
+  })
+  ipcMain.handle(CHANNELS.gitIsMerging, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return false
+    return git.isMerging(cwd)
   })
 
   // ---- forge (the git host behind `origin`: PR state for the branch) ----

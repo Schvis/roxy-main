@@ -346,6 +346,11 @@ import {
   toResponsesTools,
   type ResponsesEvent
 } from '../src/main/services/responses'
+import {
+  parseConflictHunks,
+  resolveConflictHunk,
+  resolveAllConflictHunks
+} from '../src/renderer/src/lib/conflict-solver'
 
 let pass = 0
 const fails: string[] = []
@@ -6237,6 +6242,111 @@ async function main(): Promise<void> {
     'image: relative path with ./ and workspace',
     resolveImageSrc('./sub/plot.png', '/home/user/proj') ===
       'roxy-local://image?path=%2Fhome%2Fuser%2Fproj%2Fsub%2Fplot.png'
+  )
+
+  // ---- merge conflict solver (diff & 3-way parser / resolution) ----
+  console.log('\nmerge conflict solver\n')
+  const sampleConflict = [
+    'line 1',
+    '<<<<<<< HEAD',
+    'const user = "Alice"',
+    '=======',
+    'const user = "Bob"',
+    '>>>>>>> feature-branch',
+    'line 5'
+  ].join('\n')
+
+  const parsedHunks = parseConflictHunks(sampleConflict)
+  check('conflict: finds exactly 1 hunk', parsedHunks.length === 1)
+  check('conflict: extracts our branch HEAD', parsedHunks[0]?.currentLabel === 'HEAD')
+  check('conflict: extracts their branch', parsedHunks[0]?.incomingLabel === 'feature-branch')
+  check(
+    'conflict: extracts current text',
+    parsedHunks[0]?.currentText.trim() === 'const user = "Alice"'
+  )
+  check(
+    'conflict: extracts incoming text',
+    parsedHunks[0]?.incomingText.trim() === 'const user = "Bob"'
+  )
+  check('conflict: diff3 base is undefined for 2-way', parsedHunks[0]?.baseText === undefined)
+
+  // Test individual hunk resolution
+  const resolvedCurrent = resolveConflictHunk(sampleConflict, parsedHunks[0].id, 'current')
+  check(
+    'conflict: resolve current keeps ours',
+    resolvedCurrent.includes('const user = "Alice"') &&
+      !resolvedCurrent.includes('const user = "Bob"') &&
+      !resolvedCurrent.includes('<<<<<<<')
+  )
+
+  const resolvedIncoming = resolveConflictHunk(sampleConflict, parsedHunks[0].id, 'incoming')
+  check(
+    'conflict: resolve incoming keeps theirs',
+    resolvedIncoming.includes('const user = "Bob"') &&
+      !resolvedIncoming.includes('const user = "Alice"') &&
+      !resolvedIncoming.includes('>>>>>>>')
+  )
+
+  const resolvedBoth = resolveConflictHunk(sampleConflict, parsedHunks[0].id, 'both')
+  check(
+    'conflict: resolve both keeps both lines in order',
+    resolvedBoth.includes('const user = "Alice"\nconst user = "Bob"') &&
+      !resolvedBoth.includes('=======')
+  )
+
+  const resolvedDiscard = resolveConflictHunk(sampleConflict, parsedHunks[0].id, 'discard')
+  check(
+    'conflict: resolve discard removes both',
+    !resolvedDiscard.includes('const user =') &&
+      resolvedDiscard.includes('line 1') &&
+      resolvedDiscard.includes('line 5')
+  )
+
+  // Test 3-way conflict diff3 parsing
+  const diff3Conflict = [
+    '<<<<<<< HEAD',
+    'my change',
+    '||||||| common-ancestor',
+    'original text',
+    '=======',
+    'their change',
+    '>>>>>>> remote-branch'
+  ].join('\n')
+
+  const parsedDiff3 = parseConflictHunks(diff3Conflict)
+  check('conflict diff3: parsed successfully', parsedDiff3.length === 1)
+  check('conflict diff3: extracts base text', parsedDiff3[0]?.baseText?.trim() === 'original text')
+  check('conflict diff3: extracts ours', parsedDiff3[0]?.currentText.trim() === 'my change')
+  check('conflict diff3: extracts theirs', parsedDiff3[0]?.incomingText.trim() === 'their change')
+
+  // Test bulk resolution
+  const multiConflict = [
+    'top',
+    '<<<<<<< HEAD',
+    'one',
+    '=======',
+    '1',
+    '>>>>>>> b1',
+    'mid',
+    '<<<<<<< HEAD',
+    'two',
+    '=======',
+    '2',
+    '>>>>>>> b2',
+    'bot'
+  ].join('\n')
+
+  const parsedMulti = parseConflictHunks(multiConflict)
+  check('conflict multi: finds 2 hunks', parsedMulti.length === 2)
+  const allCurrent = resolveAllConflictHunks(multiConflict, 'current')
+  check(
+    'conflict multi: resolveAll current',
+    allCurrent === ['top', 'one', 'mid', 'two', 'bot'].join('\n')
+  )
+  const allIncoming = resolveAllConflictHunks(multiConflict, 'incoming')
+  check(
+    'conflict multi: resolveAll incoming',
+    allIncoming === ['top', '1', 'mid', '2', 'bot'].join('\n')
   )
 
   if (fails.length) {

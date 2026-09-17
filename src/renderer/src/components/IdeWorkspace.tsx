@@ -12,6 +12,7 @@ import {
   Loader2,
   Pencil,
   Replace,
+  RotateCcw,
   Search,
   Trash2,
   X
@@ -29,12 +30,12 @@ import {
   saveActiveFile,
   getAncestorPaths,
   migrateRenamedPath,
-  pruneDeletedPath
+  pruneDeletedPath,
+  normalizeRoot
 } from '../lib/ide-state'
 import { ContextMenuRow, ContextMenuSurface, CONTEXT_MENU_PAD, CONTEXT_ROW_H } from './ContextMenu'
 import { CommandsPane } from './CommandsDialog'
-import { FileEditor } from './FileEditor'
-import { findRunningTool } from './ChatView'
+import { FileEditor, clearDraftForPath } from './FileEditor'
 import { GitActionsView } from './GitActionsView'
 import { FileDiffView } from './diff/FileDiffView'
 
@@ -521,11 +522,28 @@ function GitDiffViewer({
   const { t } = useTranslation()
   const [diff, setDiff] = useState<GitFileDiffResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [reverting, setReverting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [diffNonce, setDiffNonce] = useState(0)
+
+  // Auto-refresh working tree diff when files change or window focuses
+  useEffect(() => {
+    if (commitSha) return
+    return api.files.onChanged(() => {
+      setDiffNonce((n) => n + 1)
+    })
+  }, [commitSha])
+
+  useEffect(() => {
+    if (commitSha) return
+    const onFocus = (): void => setDiffNonce((n) => n + 1)
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [commitSha])
 
   useEffect(() => {
     let active = true
-    setLoading(true)
+    if (diffNonce === 0) setLoading(true)
     setError(null)
     api.git
       .fileDiff(root, path, commitSha)
@@ -547,7 +565,26 @@ function GitDiffViewer({
     return () => {
       active = false
     }
-  }, [root, path, commitSha, t])
+  }, [root, path, commitSha, diffNonce, t])
+
+  const handleRevert = async (): Promise<void> => {
+    if (!window.confirm(t('git.revertFileConfirm', { path }))) return
+    setReverting(true)
+    setError(null)
+    try {
+      const res = await api.git.revertFile(root, path)
+      if (res.ok) {
+        clearDraftForPath(path, root)
+        onClose()
+      } else {
+        setError(res.error || 'Failed to revert file')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setReverting(false)
+    }
+  }
 
   return (
     <section
@@ -568,15 +605,27 @@ function GitDiffViewer({
 
         <div className="flex items-center gap-1.5 shrink-0">
           {!commitSha && (
-            <button
-              type="button"
-              onClick={onOpenEditor}
-              title={t('git.viewEditor')}
-              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-text-muted hover:bg-white/5 hover:text-text transition-colors"
-            >
-              <Pencil className="h-3 w-3" />
-              <span>{t('git.viewEditor')}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void handleRevert()}
+                disabled={reverting}
+                title={t('git.revertFile')}
+                className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-danger hover:bg-danger/10 disabled:opacity-50 transition-colors"
+              >
+                <RotateCcw className={cn('h-3 w-3', reverting && 'animate-spin')} />
+                <span>{t('git.revertFile')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onOpenEditor}
+                title={t('git.viewEditor')}
+                className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-text-muted hover:bg-white/5 hover:text-text transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+                <span>{t('git.viewEditor')}</span>
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -653,14 +702,18 @@ function WorkspaceContents({
   const { t } = useTranslation()
   const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
   const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
+  const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
   const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
+  const selectionMatchesRoot = Boolean(
+    root && ideSelectedRoot && normalizeRoot(ideSelectedRoot) === normalizeRoot(root)
+  )
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() =>
     loadExpandedFolders(root)
   )
 
   const [selected, setSelected] = useState<WorkspaceFileEntry | null>(() => {
-    if (ideSelectedFile) return ideSelectedFile
+    if (ideSelectedFile && selectionMatchesRoot) return ideSelectedFile
     const saved = loadActiveFile(root)
     if (saved) {
       return {
@@ -672,7 +725,7 @@ function WorkspaceContents({
     return null
   })
   const [selectedLine, setSelectedLine] = useState<number | undefined>(() => {
-    if (ideSelectedFile) return ideSelectedLine
+    if (ideSelectedFile && selectionMatchesRoot) return ideSelectedLine
     const saved = loadActiveFile(root)
     return saved?.line
   })
@@ -727,18 +780,6 @@ function WorkspaceContents({
     localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth))
   }, [panelWidth])
 
-  const streaming = useRoxyStore((s) =>
-    activeChatId ? (s.streamingChats[activeChatId] ?? null) : null
-  )
-  const runningTool = useMemo(() => findRunningTool(streaming), [streaming])
-
-  // Automatically open the terminal pane when an agent command begins execution
-  useEffect(() => {
-    if (runningTool && (runningTool.tool === 'bash' || runningTool.tool.startsWith('bash_'))) {
-      setCommandsOpen(true)
-    }
-  }, [runningTool?.callId, setCommandsOpen])
-
   // Auto-refresh when files change in workspace
   useEffect(() => {
     return api.files.onChanged((payload) => {
@@ -776,14 +817,17 @@ function WorkspaceContents({
       setExpandedFolders(loadExpandedFolders(root))
       const saved = loadActiveFile(root)
       if (saved) {
-        setSelected({ path: saved.path, name: saved.name, directory: false })
+        const entry = { path: saved.path, name: saved.name, directory: false }
+        setSelected(entry)
         setSelectedLine(saved.line)
+        setIdeSelectedFile(entry, saved.line, root)
       } else {
         setSelected(null)
         setSelectedLine(undefined)
+        setIdeSelectedFile(null, undefined, root)
       }
     }
-  }, [root])
+  }, [root, setIdeSelectedFile])
 
   // Save expanded folders whenever they change
   useEffect(() => {
@@ -805,11 +849,9 @@ function WorkspaceContents({
     }
   }, [root, selected, selectedLine])
 
-  // On initial mount, sync restored active file to store if store is empty
+  // On initial mount, replace stale cross-workspace selection with restored local state.
   useEffect(() => {
-    if (selected && !useRoxyStore.getState().ideSelectedFile) {
-      setIdeSelectedFile(selected, selectedLine)
-    }
+    setIdeSelectedFile(selected, selectedLine, root)
   }, [])
 
   const isExpanded = useCallback(
@@ -869,7 +911,7 @@ function WorkspaceContents({
             path: updatedPath
           }
           setSelected(updatedEntry)
-          setIdeSelectedFile(updatedEntry, selectedLine)
+          setIdeSelectedFile(updatedEntry, selectedLine, root)
         }
       } else {
         if (selected && selected.path === oldPath) {
@@ -880,20 +922,20 @@ function WorkspaceContents({
             name: newName
           }
           setSelected(updatedEntry)
-          setIdeSelectedFile(updatedEntry, selectedLine)
+          setIdeSelectedFile(updatedEntry, selectedLine, root)
         }
       }
     },
-    [selected, selectedLine, setIdeSelectedFile]
+    [selected, selectedLine, setIdeSelectedFile, root]
   )
 
   useEffect(() => {
-    if (ideSelectedFile) {
+    if (ideSelectedFile && selectionMatchesRoot) {
       setSelected(ideSelectedFile)
       setSelectedLine(ideSelectedLine)
       expandAncestors(ideSelectedFile.path)
     }
-  }, [ideSelectedFile, ideSelectedLine, expandAncestors])
+  }, [ideSelectedFile, ideSelectedLine, selectionMatchesRoot, expandAncestors])
 
   useEffect(() => {
     if (!copied) return
@@ -992,7 +1034,7 @@ function WorkspaceContents({
     }
     setSelected(entry)
     setSelectedLine(match.line)
-    setIdeSelectedFile(entry, match.line)
+    setIdeSelectedFile(entry, match.line, root)
     setDiffTarget(null)
     expandAncestors(match.path)
   }
@@ -1000,7 +1042,7 @@ function WorkspaceContents({
   const handleSelectFile = (entry: WorkspaceFileEntry): void => {
     setSelected(entry)
     setSelectedLine(undefined)
-    setIdeSelectedFile(entry, undefined)
+    setIdeSelectedFile(entry, undefined, root)
     setDiffTarget(null)
   }
 
@@ -1015,7 +1057,7 @@ function WorkspaceContents({
       ) {
         setSelected(null)
         setSelectedLine(undefined)
-        setIdeSelectedFile(null, undefined)
+        setIdeSelectedFile(null, undefined, root)
       }
       if (entry.directory) {
         setExpandedFolders((prev) => pruneDeletedPath(prev, entry.path))
@@ -1453,7 +1495,7 @@ function WorkspaceContents({
                   }
                   setSelected(entry)
                   setSelectedLine(undefined)
-                  setIdeSelectedFile(entry, undefined)
+                  setIdeSelectedFile(entry, undefined, root)
                   setDiffTarget({ path: filePath, commitSha })
                 }}
               />
@@ -1506,7 +1548,7 @@ function WorkspaceContents({
                   setDiffTarget(null)
                   setSelected(null)
                   setSelectedLine(undefined)
-                  setIdeSelectedFile(null, undefined)
+                  setIdeSelectedFile(null, undefined, root)
                 }}
                 onOpenEditor={() => setDiffTarget(null)}
               />
@@ -1520,7 +1562,7 @@ function WorkspaceContents({
                 onClose={() => {
                   setSelected(null)
                   setSelectedLine(undefined)
-                  setIdeSelectedFile(null, undefined)
+                  setIdeSelectedFile(null, undefined, root)
                 }}
               />
             ) : (

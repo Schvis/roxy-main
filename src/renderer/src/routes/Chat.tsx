@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Sidebar } from '../components/Sidebar'
 import { ChatView } from '../components/ChatView'
@@ -6,16 +6,44 @@ import { IdeWorkspace } from '../components/IdeWorkspace'
 import { TopNavbar } from '../components/TopNavbar'
 import { useRoxyStore } from '../lib/store'
 
+const IDE_CHAT_SIZES_KEY = 'roxy.ide.chatSizes.v1'
+const DEFAULT_IDE_CHAT_SIZES = { left: 42, right: 42, bottom: 42 }
+
+function clampChatSize(value: number): number {
+  return Math.max(20, Math.min(75, value))
+}
+
+function loadChatSizes(): typeof DEFAULT_IDE_CHAT_SIZES {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(IDE_CHAT_SIZES_KEY) ?? '{}') as Record<
+      string,
+      unknown
+    >
+    return {
+      left: typeof parsed.left === 'number' ? clampChatSize(parsed.left) : 42,
+      right: typeof parsed.right === 'number' ? clampChatSize(parsed.right) : 42,
+      bottom: typeof parsed.bottom === 'number' ? clampChatSize(parsed.bottom) : 42
+    }
+  } catch {
+    return DEFAULT_IDE_CHAT_SIZES
+  }
+}
+
 function Chat(): JSX.Element {
   const { t } = useTranslation()
   const dock = useRoxyStore((s) => s.settings?.ideChatDock ?? 'right')
-  const [sizes, setSizes] = useState({ left: 42, right: 42, bottom: 42 })
+  const [sizes, setSizes] = useState(loadChatSizes)
+  useEffect(() => {
+    try {
+      localStorage.setItem(IDE_CHAT_SIZES_KEY, JSON.stringify(sizes))
+    } catch {}
+  }, [sizes])
   const pane = useRef<HTMLDivElement>(null)
   const dragging = useRef<number | null>(null)
   const bottom = dock === 'bottom'
   const size = sizes[dock]
   const resize = (value: number): void => {
-    setSizes((current) => ({ ...current, [dock]: Math.max(20, Math.min(75, value)) }))
+    setSizes((current) => ({ ...current, [dock]: clampChatSize(value) }))
   }
   const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const activeChatId = useRoxyStore((s) => s.activeChatId)

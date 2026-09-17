@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertCircle,
@@ -14,6 +14,7 @@ import {
   GitMerge,
   Loader2,
   RefreshCw,
+  RotateCcw,
   UploadCloud,
   X
 } from 'lucide-react'
@@ -23,6 +24,10 @@ import { writeClipboardText } from '../lib/clipboard'
 import { cn } from '../lib/cn'
 import { Button, Input } from './ui'
 import { FileDiffView } from './diff/FileDiffView'
+import { MergeConflictSolver } from './MergeConflictSolver'
+import { clearDraftForPath, clearDraftsForRoot } from './FileEditor'
+import { useRoxyStore } from '../lib/store'
+import { subscribeFileReviews } from '../lib/agent-file-changes'
 
 const LANE_COLORS = [
   '#3b82f6', // blue
@@ -89,10 +94,23 @@ export function GitActionsView({
 
   // Publishing / Initialize state
   const [publishOpen, setPublishOpen] = useState(false)
+  const [publishMode, setPublishMode] = useState<'new' | 'existing'>('new')
+  const [repoName, setRepoName] = useState(() => {
+    return root ? root.split(/[\\/]/).filter(Boolean).pop() || '' : ''
+  })
+  const [repoDescription, setRepoDescription] = useState('')
+  const [isPrivateRepo, setIsPrivateRepo] = useState(true)
+  const [personalToken, setPersonalToken] = useState('')
+  const [showTokenInput, setShowTokenInput] = useState(false)
   const [remoteUrl, setRemoteUrl] = useState('')
-  const [publishMessage, setPublishMessage] = useState('Initial commit')
   const [initializing, setInitializing] = useState(false)
   const [publishing, setPublishing] = useState(false)
+
+  useEffect(() => {
+    if (root) {
+      setRepoName(root.split(/[\\/]/).filter(Boolean).pop() || '')
+    }
+  }, [root])
 
   // Changed files collapse
   const [filesExpanded, setFilesExpanded] = useState(true)
@@ -106,6 +124,13 @@ export function GitActionsView({
   const [selectedCommit, setSelectedCommit] = useState<GitCommitNode | null>(null)
   const [selectedCommitFiles, setSelectedCommitFiles] = useState<GitChangedFile[]>([])
   const [loadingCommitFiles, setLoadingCommitFiles] = useState(false)
+
+  // Merge conflict resolution and revert states
+  const [resolvingConflictPath, setResolvingConflictPath] = useState<string | null>(null)
+  const [isGitMerging, setIsGitMerging] = useState(false)
+  const [abortingMerge, setAbortingMerge] = useState(false)
+  const [revertingPath, setRevertingPath] = useState<string | null>(null)
+  const [isRevertingAll, setIsRevertingAll] = useState(false)
 
   // Internal diff modal state (used when onOpenFile is not provided, e.g. standalone view)
   const [internalDiff, setInternalDiff] = useState<{ path: string; commitSha?: string } | null>(
@@ -173,13 +198,18 @@ export function GitActionsView({
       setChangedFiles([])
       setLoading(false)
       setHasMoreCommits(false)
+      setIsGitMerging(false)
       return
     }
 
     try {
       setError(null)
-      const st = await api.git.status(targetRoot)
+      const [st, merging] = await Promise.all([
+        api.git.status(targetRoot),
+        api.git.isMerging(targetRoot)
+      ])
       setGitStatus(st)
+      setIsGitMerging(merging)
       if (st.isRepo) {
         const [graph, files] = await Promise.all([
           api.git.logGraph(targetRoot, 60),
@@ -206,6 +236,96 @@ export function GitActionsView({
     void refreshAll(root)
   }, [root])
 
+  const commitsCountRef = useRef(commits.length)
+  useEffect(() => {
+    commitsCountRef.current = commits.length
+  }, [commits.length])
+
+  const isRefreshingRef = useRef(false)
+  const pendingRefreshRef = useRef(false)
+
+  const refreshSilently = useCallback(async (): Promise<void> => {
+    if (!root) return
+    if (isRefreshingRef.current) {
+      pendingRefreshRef.current = true
+      return
+    }
+    isRefreshingRef.current = true
+    try {
+      const [st, merging] = await Promise.all([api.git.status(root), api.git.isMerging(root)])
+      setGitStatus(st)
+      setIsGitMerging(merging)
+      if (st.isRepo) {
+        const count = Math.max(60, commitsCountRef.current)
+        const [graph, files] = await Promise.all([
+          api.git.logGraph(root, count),
+          api.git.changedFiles(root)
+        ])
+        setCommits(graph)
+        setChangedFiles(files)
+        setHasMoreCommits(graph.length >= count)
+      } else {
+        setCommits([])
+        setChangedFiles([])
+        setHasMoreCommits(false)
+      }
+    } catch {
+      // Ignore background errors (e.g. index.lock during active git command)
+    } finally {
+      isRefreshingRef.current = false
+      if (pendingRefreshRef.current) {
+        pendingRefreshRef.current = false
+        void refreshSilently()
+      }
+    }
+  }, [root])
+
+  // 1. Auto-refresh when files change in workspace
+  useEffect(() => {
+    return api.files.onChanged((payload) => {
+      if (!payload.sessionId || payload.sessionId === _sessionId) {
+        void refreshSilently()
+      }
+    })
+  }, [_sessionId, refreshSilently])
+
+  // 2. Auto-refresh when window regains focus
+  useEffect(() => {
+    const onFocus = (): void => {
+      void refreshSilently()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshSilently])
+
+  // 3. Auto-refresh when agent file reviews change
+  useEffect(() => {
+    return subscribeFileReviews(() => {
+      void refreshSilently()
+    })
+  }, [refreshSilently])
+
+  // 4. Periodic background poll (every 2.5s) to catch external terminal git actions
+  useEffect(() => {
+    if (!root) return
+    const timer = setInterval(() => {
+      void refreshSilently()
+    }, 2500)
+    return () => clearInterval(timer)
+  }, [root, refreshSilently])
+
+  // 5. Auto-refresh when agent streaming finishes
+  const streaming = useRoxyStore((s) =>
+    _sessionId ? (s.streamingChats[_sessionId] ?? null) : null
+  )
+  const prevStreamingRef = useRef(streaming)
+  useEffect(() => {
+    if (prevStreamingRef.current && !streaming) {
+      void refreshSilently()
+    }
+    prevStreamingRef.current = streaming
+  }, [streaming, refreshSilently])
+
   const handleManualRefresh = (): void => {
     setRefreshing(true)
     void refreshAll(root)
@@ -230,16 +350,47 @@ export function GitActionsView({
   }
 
   const handlePublish = async (): Promise<void> => {
-    if (!root || !remoteUrl.trim()) return
+    if (!root) return
     setPublishing(true)
     setError(null)
     try {
-      const res = await api.git.publish(root, remoteUrl.trim())
-      if (res.ok) {
-        setPublishOpen(false)
-        await refreshAll(root)
+      if (publishMode === 'new') {
+        if (!repoName.trim()) {
+          setError(t('git.repoNamePlaceholder'))
+          setPublishing(false)
+          return
+        }
+        const res = await api.git.createAndPublishGitHub(root, {
+          name: repoName.trim(),
+          description: repoDescription.trim() || undefined,
+          isPrivate: isPrivateRepo,
+          token: personalToken.trim() || undefined
+        })
+        if (res.ok) {
+          setPublishOpen(false)
+          await refreshAll(root)
+        } else {
+          setError(res.error || t('git.publishFailed'))
+          if (
+            res.error?.toLowerCase().includes('token') ||
+            res.error?.toLowerCase().includes('auth')
+          ) {
+            setShowTokenInput(true)
+          }
+        }
       } else {
-        setError(res.error || 'Failed to publish workspace')
+        if (!remoteUrl.trim()) {
+          setError(t('git.remoteUrlPlaceholder'))
+          setPublishing(false)
+          return
+        }
+        const res = await api.git.publish(root, remoteUrl.trim())
+        if (res.ok) {
+          setPublishOpen(false)
+          await refreshAll(root)
+        } else {
+          setError(res.error || t('git.publishFailed'))
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -249,11 +400,13 @@ export function GitActionsView({
   }
 
   const handleCommit = async (): Promise<void> => {
-    if (!root || !commitMessage.trim()) return
+    if (!root) return
+    const msg = commitMessage.trim()
+    if (!msg && !isGitMerging) return
     setCommitting(true)
     setError(null)
     try {
-      const res = await api.git.commit(root, commitMessage.trim())
+      const res = await api.git.commit(root, msg)
       if (res.ok) {
         setCommitMessage('')
         await refreshAll(root)
@@ -291,9 +444,8 @@ export function GitActionsView({
     setError(null)
     try {
       const res = await api.git.pull(root)
-      if (res.ok) {
-        await refreshAll(root)
-      } else {
+      await refreshAll(root)
+      if (!res.ok && !res.conflict) {
         setError(res.error || 'Pull failed')
       }
     } catch (e) {
@@ -327,8 +479,11 @@ export function GitActionsView({
     setError(null)
     try {
       const pullRes = await api.git.pull(root)
+      await refreshAll(root)
       if (!pullRes.ok) {
-        setError(pullRes.error || 'Pull failed during sync')
+        if (!pullRes.conflict) {
+          setError(pullRes.error || 'Pull failed during sync')
+        }
         setSyncing(false)
         return
       }
@@ -341,6 +496,66 @@ export function GitActionsView({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const handleRevertFile = async (filePath: string): Promise<void> => {
+    if (!root) return
+    if (!window.confirm(t('git.revertFileConfirm', { path: filePath }))) return
+    setRevertingPath(filePath)
+    setError(null)
+    try {
+      const res = await api.git.revertFile(root, filePath)
+      if (res.ok) {
+        clearDraftForPath(filePath, root)
+        await refreshAll(root)
+      } else {
+        setError(res.error || 'Failed to revert file')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRevertingPath(null)
+    }
+  }
+
+  const handleRevertAll = async (): Promise<void> => {
+    if (!root) return
+    if (!window.confirm(t('git.revertAllConfirm'))) return
+    setIsRevertingAll(true)
+    setError(null)
+    try {
+      const res = await api.git.revertAll(root)
+      if (res.ok) {
+        clearDraftsForRoot(root)
+        await refreshAll(root)
+      } else {
+        setError(res.error || 'Failed to revert all changes')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setIsRevertingAll(false)
+    }
+  }
+
+  const handleAbortMerge = async (): Promise<void> => {
+    if (!root) return
+    if (!window.confirm(t('git.abortMergeConfirm'))) return
+    setAbortingMerge(true)
+    setError(null)
+    try {
+      const res = await api.git.abortMerge(root)
+      if (res.ok) {
+        clearDraftsForRoot(root)
+        await refreshAll(root)
+      } else {
+        setError(res.error || 'Failed to abort merge')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAbortingMerge(false)
     }
   }
 
@@ -515,6 +730,155 @@ export function GitActionsView({
     )
   }
 
+  const renderPublishForm = (): JSX.Element => (
+    <div className="w-full text-left rounded-xl border border-border bg-surface p-4 space-y-3 shadow-sm">
+      <div className="flex items-center justify-between border-b border-border pb-2">
+        <div className="flex items-center gap-1.5">
+          <UploadCloud className="h-4 w-4 text-accent" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-text">
+            {t('git.publishTitle')}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPublishOpen(false)}
+          className="text-xs text-text-subtle hover:text-text"
+        >
+          {t('common.cancel')}
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-1.5 rounded-md border border-danger/30 bg-danger/10 p-2 text-xs text-danger">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span className="break-words">{error}</span>
+        </div>
+      )}
+
+      {/* Mode switch */}
+      <div className="flex items-center rounded-lg bg-surface-2 p-0.5 border border-border text-xs">
+        <button
+          type="button"
+          onClick={() => setPublishMode('new')}
+          className={cn(
+            'flex-1 py-1 px-2 rounded-md font-medium transition-colors text-center',
+            publishMode === 'new'
+              ? 'bg-surface text-text shadow-xs'
+              : 'text-text-muted hover:text-text'
+          )}
+        >
+          {t('git.publishModeNew')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPublishMode('existing')}
+          className={cn(
+            'flex-1 py-1 px-2 rounded-md font-medium transition-colors text-center',
+            publishMode === 'existing'
+              ? 'bg-surface text-text shadow-xs'
+              : 'text-text-muted hover:text-text'
+          )}
+        >
+          {t('git.publishModeExisting')}
+        </button>
+      </div>
+
+      {publishMode === 'new' ? (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[11px] font-medium text-text-muted mb-1">
+              {t('git.repoName')}
+            </label>
+            <Input
+              value={repoName}
+              onChange={(e) => setRepoName(e.target.value)}
+              placeholder={t('git.repoNamePlaceholder')}
+              className="w-full text-xs font-mono"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-text-muted mb-1">
+              {t('git.repoDescription')}
+            </label>
+            <Input
+              value={repoDescription}
+              onChange={(e) => setRepoDescription(e.target.value)}
+              placeholder={t('git.repoDescriptionPlaceholder')}
+              className="w-full text-xs"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-text pt-0.5">
+            <input
+              type="checkbox"
+              checked={isPrivateRepo}
+              onChange={(e) => setIsPrivateRepo(e.target.checked)}
+              className="rounded border-border accent-accent h-3.5 w-3.5"
+            />
+            <span>{isPrivateRepo ? t('git.privateRepo') : t('git.publicRepo')}</span>
+          </label>
+
+          {showTokenInput ? (
+            <div>
+              <label className="block text-[11px] font-medium text-text-muted mb-1">
+                {t('git.personalAccessToken')}
+              </label>
+              <Input
+                type="password"
+                value={personalToken}
+                onChange={(e) => setPersonalToken(e.target.value)}
+                placeholder={t('git.personalAccessTokenPlaceholder')}
+                className="w-full text-xs font-mono"
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowTokenInput(true)}
+              className="text-[10px] text-text-subtle hover:text-text underline block text-left"
+            >
+              {t('git.personalAccessToken')}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div>
+          <label className="block text-[11px] font-medium text-text-muted mb-1">
+            {t('git.remoteUrl')}
+          </label>
+          <Input
+            value={remoteUrl}
+            onChange={(e) => setRemoteUrl(e.target.value)}
+            placeholder={t('git.remoteUrlPlaceholder')}
+            className="w-full text-xs font-mono"
+            autoFocus
+          />
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="ghost" size="sm" onClick={() => setPublishOpen(false)}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void handlePublish()}
+          disabled={publishing || (publishMode === 'new' ? !repoName.trim() : !remoteUrl.trim())}
+        >
+          {publishing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <UploadCloud className="h-3.5 w-3.5" />
+          )}
+          {publishing ? t('git.publishing') : t('git.publish')}
+        </Button>
+      </div>
+    </div>
+  )
+
   // Not initialized
   if (gitStatus && !gitStatus.isRepo) {
     return (
@@ -549,7 +913,10 @@ export function GitActionsView({
               </Button>
               <Button
                 variant="secondary"
-                onClick={() => setPublishOpen(true)}
+                onClick={() => {
+                  setError(null)
+                  setPublishOpen(true)
+                }}
                 disabled={initializing}
               >
                 <UploadCloud className="h-4 w-4" />
@@ -557,63 +924,7 @@ export function GitActionsView({
               </Button>
             </div>
           ) : (
-            <div className="w-full text-left rounded-xl border border-border bg-surface p-4 space-y-3 shadow-sm">
-              <div className="flex items-center justify-between border-b border-border pb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text">
-                  {t('git.publishTitle')}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPublishOpen(false)}
-                  className="text-xs text-text-subtle hover:text-text"
-                >
-                  {t('common.cancel')}
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-text-muted mb-1">
-                  {t('git.remoteUrl')}
-                </label>
-                <Input
-                  value={remoteUrl}
-                  onChange={(e) => setRemoteUrl(e.target.value)}
-                  placeholder={t('git.remoteUrlPlaceholder')}
-                  className="w-full text-xs"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-text-muted mb-1">
-                  {t('git.initialCommitMessage')}
-                </label>
-                <Input
-                  value={publishMessage}
-                  onChange={(e) => setPublishMessage(e.target.value)}
-                  className="w-full text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="ghost" size="sm" onClick={() => setPublishOpen(false)}>
-                  {t('common.cancel')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => void handlePublish()}
-                  disabled={publishing || !remoteUrl.trim()}
-                >
-                  {publishing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <UploadCloud className="h-3.5 w-3.5" />
-                  )}
-                  {publishing ? t('git.publishing') : t('git.publish')}
-                </Button>
-              </div>
-            </div>
+            renderPublishForm()
           )}
         </div>
       </div>
@@ -703,6 +1014,22 @@ export function GitActionsView({
             <ArrowUp className={cn('h-3 w-3', pushing && 'animate-spin')} />
           </button>
 
+          {!gitStatus?.hasUpstream && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null)
+                setPublishOpen(true)
+              }}
+              title={t('git.publishRepo')}
+              aria-label={t('git.publishRepo')}
+              className="press-scale flex h-6 items-center gap-1 rounded bg-accent/15 px-1.5 text-[11px] font-medium text-accent hover:bg-accent/25 transition-colors"
+            >
+              <UploadCloud className="h-3 w-3" />
+              <span className="hidden sm:inline">{t('git.publish')}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleSync}
@@ -745,6 +1072,52 @@ export function GitActionsView({
         </div>
       )}
 
+      {/* Merge In Progress banner */}
+      {(isGitMerging || changedFiles.some((f) => f.status === 'conflict')) && (
+        <div className="flex items-center justify-between gap-2 border-b border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span className="font-semibold truncate">
+              {changedFiles.some((f) => f.status === 'conflict')
+                ? t('git.mergeInProgress')
+                : t('git.allConflictsResolved')}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!changedFiles.some((f) => f.status === 'conflict') && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => void handleCommit()}
+                disabled={committing}
+                className="h-6 px-2 text-[10px]"
+              >
+                {committing ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Check className="h-3 w-3 mr-1" />
+                )}
+                {t('git.completeMerge')}
+              </Button>
+            )}
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => void handleAbortMerge()}
+              disabled={abortingMerge}
+              className="h-6 px-2 text-[10px]"
+            >
+              {abortingMerge ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3 w-3 mr-1" />
+              )}
+              {t('git.abortMerge')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Commit & Changes Section (Top Split) */}
       <section className="flex flex-1 min-h-0 flex-col border-b border-border bg-surface/50 p-2.5 overflow-hidden">
         <div className="shrink-0 space-y-2">
@@ -758,42 +1131,66 @@ export function GitActionsView({
                   void handleCommit()
                 }
               }}
-              placeholder={t('git.commitPlaceholder')}
+              placeholder={isGitMerging ? t('git.completeMerge') : t('git.commitPlaceholder')}
               rows={2}
               className="w-full resize-none rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-text placeholder:text-text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
 
           <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setFilesExpanded(!filesExpanded)}
-              className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text transition-colors"
-            >
-              {filesExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => setFilesExpanded(!filesExpanded)}
+                className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text transition-colors"
+              >
+                {filesExpanded ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+                <span>
+                  {changedFiles.length > 0
+                    ? t('git.changes', { count: changedFiles.length })
+                    : t('git.noChanges')}
+                </span>
+              </button>
+
+              {changedFiles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleRevertAll()}
+                  disabled={isRevertingAll}
+                  title={t('git.revertAll')}
+                  className="press-scale flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-50 transition-colors ml-1"
+                >
+                  <RotateCcw className={cn('h-2.5 w-2.5', isRevertingAll && 'animate-spin')} />
+                  <span>{t('git.revertAll')}</span>
+                </button>
               )}
-              <span>
-                {changedFiles.length > 0
-                  ? t('git.changes', { count: changedFiles.length })
-                  : t('git.noChanges')}
-              </span>
-            </button>
+            </div>
 
             <Button
               variant="primary"
               size="sm"
               onClick={() => void handleCommit()}
-              disabled={committing || changedFiles.length === 0 || !commitMessage.trim()}
+              disabled={
+                committing ||
+                changedFiles.length === 0 ||
+                (!commitMessage.trim() && !isGitMerging) ||
+                changedFiles.some((f) => f.status === 'conflict')
+              }
             >
               {committing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <GitCommitHorizontal className="h-3.5 w-3.5" />
               )}
-              {committing ? t('git.committing') : t('git.commit')}
+              {committing
+                ? t('git.committing')
+                : isGitMerging
+                  ? t('git.completeMerge')
+                  : t('git.commit')}
             </Button>
           </div>
         </div>
@@ -802,8 +1199,10 @@ export function GitActionsView({
         {filesExpanded && changedFiles.length > 0 && (
           <div className="mt-2 flex-1 min-h-0 overflow-y-auto rounded-lg border border-border/70 bg-surface divide-y divide-border/40">
             {changedFiles.map((file) => {
-              const statusColor =
-                file.status === 'added'
+              const isConflict = file.status === 'conflict'
+              const statusColor = isConflict
+                ? 'text-danger bg-danger/20 border-danger/40'
+                : file.status === 'added'
                   ? 'text-success bg-success/15 border-success/30'
                   : file.status === 'deleted'
                     ? 'text-danger bg-danger/15 border-danger/30'
@@ -811,8 +1210,9 @@ export function GitActionsView({
                       ? 'text-accent bg-accent/15 border-accent/30'
                       : 'text-warning bg-warning/15 border-warning/30'
 
-              const statusLetter =
-                file.status === 'added'
+              const statusLetter = isConflict
+                ? 'C'
+                : file.status === 'added'
                   ? 'A'
                   : file.status === 'deleted'
                     ? 'D'
@@ -823,21 +1223,57 @@ export function GitActionsView({
               return (
                 <div
                   key={file.path}
-                  onClick={() => handleFileClick(file.path)}
-                  className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs hover:bg-white/5 transition-colors cursor-pointer hover:text-text"
+                  onClick={() => {
+                    if (isConflict) {
+                      setResolvingConflictPath(file.path)
+                    } else {
+                      handleFileClick(file.path)
+                    }
+                  }}
+                  className="group flex items-center justify-between gap-2 px-2.5 py-1 text-xs hover:bg-white/5 transition-colors cursor-pointer hover:text-text"
                   title={file.path}
                 >
-                  <span className="truncate font-mono text-[11px] text-text-muted">
+                  <span className="truncate font-mono text-[11px] text-text-muted group-hover:text-text">
                     {file.path}
                   </span>
-                  <span
-                    className={cn(
-                      'flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold border',
-                      statusColor
-                    )}
+
+                  <div
+                    className="flex items-center gap-1 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {statusLetter}
-                  </span>
+                    {isConflict ? (
+                      <button
+                        type="button"
+                        onClick={() => setResolvingConflictPath(file.path)}
+                        title={t('git.resolveConflict')}
+                        className="rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-medium text-danger hover:bg-danger/30 transition-colors"
+                      >
+                        {t('git.resolveConflict')}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleRevertFile(file.path)}
+                        disabled={revertingPath === file.path}
+                        title={t('git.revertFile')}
+                        className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-text-muted hover:bg-danger/15 hover:text-danger disabled:opacity-50 transition-all"
+                      >
+                        <RotateCcw
+                          className={cn('h-3 w-3', revertingPath === file.path && 'animate-spin')}
+                        />
+                      </button>
+                    )}
+
+                    <span
+                      className={cn(
+                        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold border',
+                        statusColor
+                      )}
+                      title={isConflict ? t('git.status.conflict') : file.status}
+                    >
+                      {statusLetter}
+                    </span>
+                  </div>
                 </div>
               )
             })}
@@ -1275,6 +1711,28 @@ export function GitActionsView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Standalone Publish Modal when already a repo but publishing to GitHub */}
+      {publishOpen && gitStatus?.isRepo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md animate-in fade-in zoom-in-95 duration-150">
+            {renderPublishForm()}
+          </div>
+        </div>
+      )}
+
+      {/* Merge Conflict Solver Modal */}
+      {resolvingConflictPath && root && (
+        <MergeConflictSolver
+          root={root}
+          filePath={resolvingConflictPath}
+          onClose={() => setResolvingConflictPath(null)}
+          onResolved={async () => {
+            setResolvingConflictPath(null)
+            await refreshAll(root)
+          }}
+        />
       )}
     </div>
   )

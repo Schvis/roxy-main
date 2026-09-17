@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -236,8 +235,11 @@ export function CodePreviewRail({
     }
   }, [scrollContainerRef, updateScrollState, lines.length])
 
-  // Extract symbols for structure outline
-  const symbols = useMemo(() => extractCodeStructure(lines, hunks), [lines, hunks])
+  // Structure extraction is unnecessary while minimap is active.
+  const symbols = useMemo(
+    () => (mode === 'outline' ? extractCodeStructure(lines, hunks) : []),
+    [lines, hunks, mode]
+  )
 
   // Scroll metrics calculations
   const containerHeight = containerRef.current?.clientHeight || 400
@@ -301,7 +303,7 @@ export function CodePreviewRail({
   }
 
   // Draw minimap on HTML5 canvas with consistent line spacing
-  useLayoutEffect(() => {
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || mode !== 'minimap') return
     const ctx = canvas.getContext('2d', { alpha: true })

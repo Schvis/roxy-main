@@ -38,7 +38,7 @@ export function useFileDiagnostics(
           }
         }
       )
-    }, 300)
+    }, 750)
     return () => {
       current = false
       window.clearTimeout(timer)

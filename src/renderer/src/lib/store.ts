@@ -102,6 +102,7 @@ interface RoxyStore {
   ideTab: 'files' | 'search' | 'git'
   ideSelectedFile: WorkspaceFileEntry | null
   ideSelectedLine: number | undefined
+  ideSelectedRoot: string | null
   sidebarRailed: boolean
   messages: Message[]
   /**
@@ -401,7 +402,11 @@ interface RoxyStore {
   contextPickerOpen: boolean
   setContextPickerOpen: (open: boolean) => void
   setIdeTab: (tab: 'files' | 'search' | 'git') => void
-  setIdeSelectedFile: (entry: WorkspaceFileEntry | null, line?: number) => void
+  setIdeSelectedFile: (
+    entry: WorkspaceFileEntry | null,
+    line?: number,
+    root?: string | null
+  ) => void
   setSidebarRailed: (railed: boolean) => void
   pendingContextAttachments: Record<string, ChatContextAttachment[]>
   addPendingContextAttachment: (chatId: string, item: ChatContextAttachment) => void
@@ -982,6 +987,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   setIdeTab: (tab) => set({ ideTab: tab }),
   ideSelectedFile: null,
   ideSelectedLine: undefined,
+  ideSelectedRoot: null,
   sidebarRailed:
     typeof window !== 'undefined' && localStorage.getItem('roxy.sidebar.collapsed') === '1',
   setSidebarRailed: (railed) => {
@@ -990,7 +996,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     } catch {}
     set({ sidebarRailed: railed })
   },
-  setIdeSelectedFile: (entry, line) => {
+  setIdeSelectedFile: (entry, line, root) => {
     const state = get()
     const autoIde = Boolean(entry && !state.settings?.ideMode)
     if (autoIde) {
@@ -999,6 +1005,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({
       ideSelectedFile: entry,
       ideSelectedLine: line,
+      ideSelectedRoot: entry ? (root ?? null) : null,
       ...(autoIde && state.settings
         ? { settings: { ...state.settings, ideMode: true, ttsEnabled: false } }
         : {})
@@ -2240,26 +2247,30 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     })
     inFlightTurns.set(chatId, turnPromise)
 
+    // Send state is keyed by chat id, so switching chats (or running several
+    // sessions at once) never crosses the streams or drops a reply.
+    const setSending = (v: boolean): void =>
+      set((s) => ({ sendingChats: { ...s.sendingChats, [chatId]: v } }))
+
+    // Streamed parts are published at most once per animation frame — see
+    // `createStreamPublisher` for why that matters.
+    const setStreaming = (parts: MessagePart[] | null): void => publishStream(chatId, parts)
+    const clearStop = (): void =>
+      set((s) => {
+        const next = { ...s.stopChats }
+        delete next[chatId]
+        return { stopChats: next }
+      })
+
+    let parts: MessagePart[] = []
+    let finishTurn = async (): Promise<void> => {}
+
     try {
       // Make sure the workspace's instruction files are cached before we size the
       // window cut (the main process reads them fresh when it builds the prompt).
       const workspacePath = get().chats.find((c) => c.id === chatId)?.workspacePath
       if (workspacePath) await get().ensureProjectInstructions(workspacePath)
 
-      // Send state is keyed by chat id, so switching chats (or running several
-      // sessions at once) never crosses the streams or drops a reply.
-      const setSending = (v: boolean): void =>
-        set((s) => ({ sendingChats: { ...s.sendingChats, [chatId]: v } }))
-
-      // Streamed parts are published at most once per animation frame — see
-      // `createStreamPublisher` for why that matters.
-      const setStreaming = (parts: MessagePart[] | null): void => publishStream(chatId, parts)
-      const clearStop = (): void =>
-        set((s) => {
-          const next = { ...s.stopChats }
-          delete next[chatId]
-          return { stopChats: next }
-        })
       const isActive = (): boolean => get().activeChatId === chatId
       const chatExists = (): boolean => get().chats.some((c) => c.id === chatId)
       const stopped = (): boolean => !!get().stopChats[chatId]
@@ -2270,10 +2281,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         if (get().messages.some((x) => x.id === m.id)) return
         set({ messages: [...get().messages, m] })
       }
-
-      // The assistant turn is an ordered list of parts so reasoning, tool calls,
-      // and prose interleave through one render path instead of being grouped.
-      let parts: MessagePart[] = []
 
       // Append a new text/reasoning part and reveal it token by token. Returns
       // false only if the chat was deleted mid-stream (caller bails immediately).
@@ -2298,7 +2305,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       }
 
       // Persist the turn (always — even if the user navigated away) and clean up.
-      const finishTurn = async (): Promise<void> => {
+      finishTurn = async (): Promise<void> => {
         // Capture the stop flag BEFORE clearStop() wipes it below — otherwise the
         // queue would drain even after the user hit Stop (the guard read `false`).
         const wasStopped = stopped()
@@ -2316,13 +2323,17 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         clearStop()
 
         if (chatExists()) {
-          const assistantMessage = await api.messages.add({
-            chatId,
-            role: 'assistant',
-            content: partsToContent(parts),
-            parts
-          })
-          appendIfActive(assistantMessage)
+          try {
+            const assistantMessage = await api.messages.add({
+              chatId,
+              role: 'assistant',
+              content: partsToContent(parts),
+              parts
+            })
+            appendIfActive(assistantMessage)
+          } catch (e) {
+            console.error('[finishTurn] Failed to save assistant message:', e)
+          }
         }
         void api.chats?.setTurnState(chatId, 'idle')
         // If a remote (phone) turn landed while this local send was streaming, we
@@ -2548,10 +2559,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
             const needed = await api.copilot.needsReauthentication().catch(() => false)
             if (get().providers === providers) set({ copilotNeedsReauthentication: needed })
           }
-          parts = [
-            ...parts,
-            { type: 'text', text: `_\u26a0 ${result.error ?? 'Model request failed.'}_` }
-          ]
+          const errText = result.error ?? 'Model request failed.'
+          if (!parts.some((p) => p.type === 'text' && p.text.includes(errText))) {
+            parts = [...parts, { type: 'text', text: `_\u26a0 ${errText}_` }]
+          }
           setStreaming(parts)
         }
         await finishTurn()
@@ -2565,9 +2576,25 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         if (!(await streamText('text', reply))) return
       }
       await finishTurn()
+    } catch (err) {
+      console.error('[sendMessage] turn failed:', err)
+      const errorText = err instanceof Error ? err.message : String(err)
+      if (!parts.some((p) => p.type === 'text' && p.text.includes(errorText))) {
+        parts = [...parts, { type: 'text', text: `_\u26a0 ${errorText}_` }]
+      }
+      setStreaming(parts)
+      try {
+        await finishTurn()
+      } catch (finishErr) {
+        console.error('[sendMessage] finishTurn failed:', finishErr)
+      }
     } finally {
       inFlightTurns.delete(chatId)
       markTurnDone()
+      setSending(false)
+      setStreaming(null)
+      clearStop()
+      void api.chats?.setTurnState(chatId, 'idle')
     }
   },
 

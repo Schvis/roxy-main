@@ -4351,19 +4351,22 @@ async function main(): Promise<void> {
       check('streamTurn retries transient failures then succeeds', r.text === 'done' && calls === 3)
     }
     {
-      // A 429 window longer than MODEL_FATAL_ATTEMPTS still recovers — the core
-      // overnight guarantee: transient errors are never given up on.
+      // After 4 attempts it stops on 429 and surfaces the error
       const ac = new AbortController()
       let calls = 0
       const runOnce = async (): Promise<{ text: string; toolCalls: never[] }> => {
         calls++
-        if (calls <= MODEL_FATAL_ATTEMPTS + 3) throw new ModelHttpError(429, 'rate limited')
-        return ok
+        throw new ModelHttpError(429, 'rate limited')
       }
-      const r = await call(ac.signal, { runOnce, delay: noDelay })
+      let threw = false
+      try {
+        await call(ac.signal, { runOnce, delay: noDelay })
+      } catch {
+        threw = true
+      }
       check(
-        'streamTurn never gives up on 429 (survives a long rate-limit)',
-        r.text === 'done' && calls === MODEL_FATAL_ATTEMPTS + 4
+        'streamTurn stops after 4 attempts on 429 and surfaces error',
+        threw && calls === MODEL_FATAL_ATTEMPTS
       )
     }
     {

@@ -380,7 +380,10 @@ export function layoutParts(
       ? stripPlanSteps(stripQuestionTags(last.text)).trim()
       : ''
   const liveText = cleanLastText !== ''
-  if (indicator && streaming && !runningTool && (!liveText || input.quiet)) {
+  const hasError = parts.some(
+    (p) => (p.type === 'text' || p.type === 'reasoning') && p.text.includes('\u26a0')
+  )
+  if (indicator && streaming && !runningTool && !hasError && (!liveText || input.quiet)) {
     cursor += layoutThinking(
       builder,
       x,

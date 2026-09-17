@@ -113,10 +113,9 @@ const MAX_SUBAGENT_DEPTH = 1
  *  until it recovers or the user stops the turn. */
 const MODEL_RETRY_MAX_DELAY = 30_000
 
-/** How many times to retry a NON-transient model error (bad request / auth /
- *  404) before giving up. Transient errors (429 / 5xx / network) ignore this and
- *  retry forever, so a long autonomous run isn't killed by a temporary outage. */
-export const MODEL_FATAL_ATTEMPTS = 5
+/** Maximum number of attempts for a model request before giving up and surfacing the error. */
+export const MODEL_MAX_ATTEMPTS = 4
+export const MODEL_FATAL_ATTEMPTS = 4
 
 /** Backoff (ms) before retry attempt N (0-based): 1s, 2s, 4s, 8s, 16s, then
  *  capped at 30s. Capped so an overnight run keeps poking a rate-limited
@@ -247,9 +246,13 @@ export function isTransientModelError(e: unknown): boolean {
 
 /** A short, log-friendly description of a model failure. */
 function describeModelError(e: unknown): string {
-  if (APICallError.isInstance(e)) return `HTTP ${e.statusCode ?? '?'}`
-  if (e instanceof ModelHttpError) return `HTTP ${e.status}`
-  return e instanceof Error ? e.message.slice(0, 140) : String(e)
+  if (APICallError.isInstance(e)) {
+    const status = e.statusCode ? `HTTP ${e.statusCode}` : ''
+    const msg = e.message || ''
+    return [status, msg].filter(Boolean).join(': ').slice(0, 200) || 'API error'
+  }
+  if (e instanceof ModelHttpError) return e.message.slice(0, 200)
+  return e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200)
 }
 
 /** Injectable seams for `streamTurn`, used only by the smoke tests to stub the
@@ -267,6 +270,8 @@ interface StreamTurnDeps {
    * app would ever show it.
    */
   onRetry?: () => void
+  /** Called immediately when an attempt fails, so the error can be shown to the user. */
+  onError?: (error: unknown, attempt: number, nextRetryMs?: number) => void
 }
 
 /**
@@ -325,20 +330,22 @@ export async function streamTurn(
       // are safe to ride out.
       if (emitted) throw e
       // A hard billing / quota / out-of-credits wall won't heal by retrying —
+      // A hard billing / quota / out-of-credits wall won't heal by retrying —
       // surface it at once (not after minutes of pointless backoff) so the user
       // can top up or switch providers instead of watching the run silently spin.
       if (isNonRetryableModelError(e)) throw e
-      const transient = isTransientModelError(e)
-      if (!transient && attempt + 1 >= MODEL_FATAL_ATTEMPTS) throw e
+      if (attempt + 1 >= MODEL_MAX_ATTEMPTS) {
+        deps.onError?.(e, attempt, undefined)
+        throw e
+      }
       const ms = nextRetryDelay(attempt)
       // Counted here rather than at the catch, so it reflects retries we actually
       // took - not failures that were about to be rethrown.
       deps.onRetry?.()
+      deps.onError?.(e, attempt, ms)
       console.warn(
         `[agent] model turn failed (${describeModelError(e)}); ` +
-          `retrying in ${Math.round(ms / 1000)}s (attempt ${attempt + 1}${
-            transient ? '' : `/${MODEL_FATAL_ATTEMPTS}`
-          })`
+          `retrying in ${Math.round(ms / 1000)}s (attempt ${attempt + 1}/${MODEL_MAX_ATTEMPTS})`
       )
       await delay(ms, signal)
     }
@@ -1237,7 +1244,17 @@ async function runLoop(o: LoopOptions): Promise<string> {
       liveTools,
       onText,
       onReasoning,
-      { onRetry: () => recordRetry(metricsId) }
+      {
+        onRetry: () => recordRetry(metricsId),
+        onError: (err, attempt, nextRetryMs) => {
+          const errDesc = describeModelError(err)
+          const retryDesc =
+            nextRetryMs != null
+              ? ` (retrying in ${Math.round(nextRetryMs / 1000)}s, attempt ${attempt + 1}/${MODEL_MAX_ATTEMPTS})`
+              : ` (attempt ${attempt + 1}/${MODEL_MAX_ATTEMPTS} failed)`
+          onReasoning(`\n\u26a0 Model request failed: ${errDesc}${retryDesc}\n`)
+        }
+      }
     )
     // Record this model call's usage/cost (subagents pass their own sessionId).
     const cost = recordCall(providerId, model, sessionId, usage)

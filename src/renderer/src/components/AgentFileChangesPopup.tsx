@@ -31,10 +31,21 @@ export function AgentFileChangesPopup(): JSX.Element | null {
   const { t } = useTranslation()
   const messages = useRoxyStore((s) => s.messages)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
+  const chats = useRoxyStore((s) => s.chats)
   const streaming = useRoxyStore((s) =>
     s.activeChatId ? (s.streamingChats[s.activeChatId] ?? null) : null
   )
   const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
+  const activeChat = chats.find((chat) => chat.id === activeChatId)
+  const parentChat = activeChat?.parentId
+    ? chats.find((chat) => chat.id === activeChat.parentId)
+    : undefined
+  const workspaceRoot =
+    activeChat?.worktreePath ??
+    activeChat?.workspacePath ??
+    parentChat?.worktreePath ??
+    parentChat?.workspacePath ??
+    null
 
   const [reviewNonce, setReviewNonce] = useState(0)
   useEffect(() => subscribeFileReviews(() => setReviewNonce((n) => n + 1)), [])
@@ -58,7 +69,7 @@ export function AgentFileChangesPopup(): JSX.Element | null {
   )
   const [isExpanded, setIsExpanded] = useState(true)
   const [lastChangeKey, setLastChangeKey] = useState(summary.changeKey)
-  const [activeTab, setActiveTab] = useState<'latest' | 'all'>('latest')
+  const [activeTab, setActiveTab] = useState<'all' | 'latest'>('all')
   const [revertingPath, setRevertingPath] = useState<string | null>(null)
   const [isRevertingAll, setIsRevertingAll] = useState(false)
 
@@ -66,6 +77,7 @@ export function AgentFileChangesPopup(): JSX.Element | null {
   useEffect(() => {
     if (summary.changeKey && summary.changeKey !== lastChangeKey) {
       setLastChangeKey(summary.changeKey)
+      setActiveTab('all')
       const dismissed = isDismissedStored(activeChatId, summary.changeKey)
       if (!dismissed || Boolean(streaming)) {
         setIsDismissed(false)
@@ -95,7 +107,7 @@ export function AgentFileChangesPopup(): JSX.Element | null {
       path: change.path,
       name: change.fileName,
       directory: false
-    })
+    }, undefined, workspaceRoot)
   }
 
   const handleKeepFile = (file: AgentFileChange): void => {
@@ -220,18 +232,6 @@ export function AgentFileChangesPopup(): JSX.Element | null {
               <div className="flex items-center rounded-md border border-border bg-surface-2 p-0.5 text-[10px]">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('latest')}
-                  className={cn(
-                    'rounded px-1.5 py-0.5 font-medium transition-colors',
-                    activeTab === 'latest'
-                      ? 'bg-surface text-text shadow-sm'
-                      : 'text-text-muted hover:text-text'
-                  )}
-                >
-                  {t('chat.latestTurnChanges')} ({latestPendingFiles.length})
-                </button>
-                <button
-                  type="button"
                   onClick={() => setActiveTab('all')}
                   className={cn(
                     'rounded px-1.5 py-0.5 font-medium transition-colors',
@@ -241,6 +241,18 @@ export function AgentFileChangesPopup(): JSX.Element | null {
                   )}
                 >
                   {t('chat.allSessionChanges')} ({pendingFiles.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('latest')}
+                  className={cn(
+                    'rounded px-1.5 py-0.5 font-medium transition-colors',
+                    activeTab === 'latest'
+                      ? 'bg-surface text-text shadow-sm'
+                      : 'text-text-muted hover:text-text'
+                  )}
+                >
+                  {t('chat.latestTurnChanges')} ({latestPendingFiles.length})
                 </button>
               </div>
             )}

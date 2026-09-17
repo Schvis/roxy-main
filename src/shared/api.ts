@@ -209,7 +209,7 @@ export interface GitCommitNode {
 /** A changed file in the working tree or index. */
 export interface GitChangedFile {
   path: string
-  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed' | 'copied'
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed' | 'copied' | 'conflict'
   staged: boolean
 }
 
@@ -334,6 +334,8 @@ export interface SyncOutcome {
    * indistinguishable from one that lost the work.
    */
   stashed?: boolean
+  /** Set when a pull / merge resulted in unresolved conflicts. */
+  conflict?: boolean
 }
 
 /**
@@ -1561,6 +1563,29 @@ export interface RoxyApi {
     fileDiff(cwd: string, filePath: string, sha?: string): Promise<GitFileDiffResult>
     /** Initialize, commit, set remote, and push to publish the workspace. */
     publish(cwd: string, remoteUrl: string): Promise<{ ok: boolean; error?: string }>
+    /** Create a new GitHub repository and publish the workspace to it. */
+    createAndPublishGitHub(
+      cwd: string,
+      input: { name: string; description?: string; isPrivate?: boolean; token?: string }
+    ): Promise<{ ok: boolean; url?: string; cloneUrl?: string; error?: string }>
+    /** Revert uncommitted changes to a specific file. */
+    revertFile(cwd: string, filePath: string): Promise<{ ok: boolean; error?: string }>
+    /** Revert all uncommitted changes in the workspace. */
+    revertAll(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Stage a file for commit. */
+    stageFile(cwd: string, filePath: string): Promise<{ ok: boolean; error?: string }>
+    /** Unstage a file. */
+    unstageFile(cwd: string, filePath: string): Promise<{ ok: boolean; error?: string }>
+    /** Save resolved conflict file and stage it in git. */
+    resolveConflict(
+      cwd: string,
+      filePath: string,
+      content: string
+    ): Promise<{ ok: boolean; error?: string }>
+    /** Abort current merge in progress. */
+    abortMerge(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Check whether git is in a merge state (.git/MERGE_HEAD). */
+    isMerging(cwd: string): Promise<boolean>
   }
   remote: {
     /** Mint a room on roxy.gg + open the host relay socket for a session. */

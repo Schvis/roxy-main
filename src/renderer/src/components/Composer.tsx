@@ -43,8 +43,8 @@ import { matchesKeybindDown, matchesKeybindRelease } from '../lib/keybind'
 import { cn } from '../lib/cn'
 import { useMenuAnchor } from '../lib/useMenuAnchor'
 import { createContextAttachment } from '@shared/context'
+import { loadActiveFile, normalizeRoot } from '../lib/ide-state'
 import type { ChatContextAttachment } from '@shared/types'
-import { loadActiveFile } from '../lib/ide-state'
 
 const EMPTY_ATTACHMENTS: ChatContextAttachment[] = []
 
@@ -86,6 +86,7 @@ export function Composer({
   const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
   const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
+  const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
   const chats = useRoxyStore((s) => s.chats)
   const rawAttachments = useRoxyStore((s) =>
     s.activeChatId ? s.pendingContextAttachments[s.activeChatId] : undefined
@@ -108,7 +109,12 @@ export function Composer({
 
   const currentFile = useMemo(() => {
     if (!ideMode) return null
-    if (ideSelectedFile && !ideSelectedFile.directory) {
+    if (
+      ideSelectedFile &&
+      !ideSelectedFile.directory &&
+      ideSelectedRoot &&
+      normalizeRoot(ideSelectedRoot) === normalizeRoot(workspaceRoot)
+    ) {
       return {
         path: ideSelectedFile.path,
         name: ideSelectedFile.name || ideSelectedFile.path.split('/').pop() || ideSelectedFile.path,
@@ -124,7 +130,7 @@ export function Composer({
       }
     }
     return null
-  }, [ideMode, ideSelectedFile, ideSelectedLine, workspaceRoot])
+  }, [ideMode, ideSelectedFile, ideSelectedLine, ideSelectedRoot, workspaceRoot])
 
   const isCurrentFileAttached = Boolean(
     currentFile &&

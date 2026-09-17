@@ -407,6 +407,14 @@ export const CHANNELS = {
   gitCommitFiles: 'git:commit-files',
   gitFileDiff: 'git:file-diff',
   gitPublish: 'git:publish',
+  gitCreateAndPublish: 'git:create-and-publish',
+  gitRevertFile: 'git:revert-file',
+  gitRevertAll: 'git:revert-all',
+  gitStageFile: 'git:stage-file',
+  gitUnstageFile: 'git:unstage-file',
+  gitResolveConflict: 'git:resolve-conflict',
+  gitAbortMerge: 'git:abort-merge',
+  gitIsMerging: 'git:is-merging',
 
   /** Forge = the git host (GitHub/Azure DevOps/GitLab/Bitbucket) behind `origin`. */
   forgeStatus: 'forge:status',

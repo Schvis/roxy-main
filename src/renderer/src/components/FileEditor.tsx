@@ -36,7 +36,6 @@ import { api } from '../lib/api'
 import { useRoxyStore } from '../lib/store'
 import {
   extractAgentFileChanges,
-  getFileReviewStatus,
   keepFileChange,
   subscribeFileReviews,
   registerDraftReverter,
@@ -222,26 +221,60 @@ export function computeEditorLineInfos(
 }
 
 function useFileSyntaxTokens(path: string, text: string): SyntaxToken[][] | null {
-  const [tokens, setTokens] = useState<SyntaxToken[][] | null>(null)
+  const [result, setResult] = useState<{
+    path: string
+    text: string
+    tokens: SyntaxToken[][] | null
+  } | null>(null)
   useEffect(() => {
-    if (text.length > 200_000 || text.split('\n').length > 5000) return
+    if (text.length > 200_000 || text.split('\n').length > 5000) {
+      setResult(null)
+      return
+    }
     let current = true
     const timer = window.setTimeout(() => {
       void import('./diff/syntax')
         .then(({ highlightSource }) => highlightSource(path, text))
         .then((lines) => {
-          if (current) setTokens(lines)
+          if (current) setResult({ path, text, tokens: lines })
         })
-        .catch(() => {
-          if (current) setTokens(null)
-        })
-    }, 150)
+        .catch(() => undefined)
+    }, 300)
     return () => {
       current = false
       window.clearTimeout(timer)
     }
   }, [path, text])
-  return tokens
+  return result?.path === path ? result.tokens : null
+}
+
+function fitSyntaxTokensToLine(tokens: SyntaxToken[] | undefined, text: string): SyntaxToken[] | null {
+  if (!tokens?.length) return null
+  const fitted: SyntaxToken[] = []
+  let offset = 0
+
+  for (const token of tokens) {
+    if (offset >= text.length) break
+    const tokenText = text.slice(offset, offset + token.text.length)
+    if (tokenText) fitted.push({ ...token, text: tokenText })
+    offset += token.text.length
+  }
+
+  if (offset < text.length) {
+    const color = fitted.at(-1) ?? tokens.at(-1)
+    fitted.push({ ...color, text: text.slice(offset) })
+  }
+
+  return fitted
+}
+
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay)
+    return () => window.clearTimeout(timer)
+  }, [value, delay])
+  return debounced
 }
 
 type Draft = {
@@ -268,11 +301,11 @@ const subscribe = (listener: () => void): (() => void) => {
   }
 }
 
-export function revertDraft(sessionId: string, path: string, content?: string): void {
+export function revertDraft(sessionId?: string, path?: string, content?: string): void {
   for (const [key, d] of drafts.entries()) {
     try {
       const [sId, , p] = JSON.parse(key)
-      if (sId === sessionId && pathsMatch(p, path)) {
+      if ((!sessionId || sId === sessionId) && (!path || pathsMatch(p, path))) {
         if (content !== undefined) {
           d.text = content
           d.saved = content
@@ -281,6 +314,34 @@ export function revertDraft(sessionId: string, path: string, content?: string): 
         } else {
           drafts.delete(key)
         }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  notify()
+}
+
+export function clearDraftForPath(filePath: string, root?: string): void {
+  for (const [key] of drafts.entries()) {
+    try {
+      const [, r, p] = JSON.parse(key)
+      if (pathsMatch(p, filePath) && (!root || pathsMatch(r, root))) {
+        drafts.delete(key)
+      }
+    } catch {
+      // ignore
+    }
+  }
+  notify()
+}
+
+export function clearDraftsForRoot(root?: string): void {
+  for (const [key] of drafts.entries()) {
+    try {
+      const [, r] = JSON.parse(key)
+      if (!root || pathsMatch(r, root)) {
+        drafts.delete(key)
       }
     } catch {
       // ignore
@@ -326,6 +387,8 @@ export function FileEditor({
   const [readError, setReadError] = useState(false)
   const [loading, setLoading] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const [revertingThisFile, setRevertingThisFile] = useState(false)
   const [showErrors, setShowErrors] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -409,7 +472,10 @@ export function FileEditor({
   const text = draft?.text ?? (file?.binary ? '' : (file?.content.replace(/\r\n?/g, '\n') ?? ''))
   const lines = useMemo(() => text.split('\n'), [text])
   const diagnostics = useFileDiagnostics(sessionId, path, text, !!draft && !loading)
-  const errorLines = new Set(diagnostics.issues.map((issue) => issue.line))
+  const errorLines = useMemo(
+    () => new Set(diagnostics.issues.map((issue) => issue.line)),
+    [diagnostics.issues]
+  )
   const focusIssue = (issue: WorkspaceFileDiagnostic): void => {
     const input = textarea.current
     if (!input) return
@@ -439,16 +505,13 @@ export function FileEditor({
   )
 
   const [reviewNonce, setReviewNonce] = useState(0)
-  useEffect(() => subscribeFileReviews(() => setReviewNonce((n) => n + 1)), [])
 
   const agentChange = useMemo(() => {
     const summary = extractAgentFileChanges(messages, streaming, sessionId)
     return summary.files.find((f) => pathsMatch(f.path, path)) ?? null
   }, [messages, streaming, sessionId, path, reviewNonce])
 
-  const reviewStatus = agentChange
-    ? getFileReviewStatus(sessionId, agentChange.path, agentChange.latestAfter)
-    : 'pending'
+  const reviewStatus = agentChange ? agentChange.reviewStatus : 'none'
 
   const [activeAligned, setActiveAligned] = useState<AlignedEditorLine[] | null>(null)
   const hunkActionsLayer = useRef<HTMLDivElement>(null)
@@ -480,46 +543,89 @@ export function FileEditor({
     }
   }, [agentChange, reviewStatus, draft, path])
 
+  // Whether current workspace root is a git repository
+  const [isGitFolder, setIsGitFolder] = useState<boolean>(false)
   // Fetch committed HEAD content from git for working-tree diff visual decorations
   const [gitHeadText, setGitHeadText] = useState<string | null>(null)
 
   const refreshGitHead = useCallback(() => {
     if (!root || !path) {
+      setIsGitFolder(false)
       setGitHeadText(null)
       return
     }
     api.git
-      .fileDiff(root, path)
-      .then((res) => {
-        if (res.ok && !res.isBinary) {
-          setGitHeadText(res.before ? res.before.replace(/\r\n?/g, '\n') : '')
-        } else {
+      .status(root)
+      .then((st) => {
+        if (!st.isRepo) {
+          setIsGitFolder(false)
           setGitHeadText(null)
+          return
         }
+        setIsGitFolder(true)
+        return api.git.fileDiff(root, path).then((res) => {
+          if (res.ok && !res.isBinary) {
+            setGitHeadText(res.before ? res.before.replace(/\r\n?/g, '\n') : '')
+          } else {
+            setGitHeadText(null)
+          }
+        })
       })
       .catch(() => {
+        setIsGitFolder(false)
         setGitHeadText(null)
       })
   }, [root, path])
 
   useEffect(() => {
     refreshGitHead()
+  }, [refreshGitHead, reloadNonce])
+
+  useEffect(() => {
+    return subscribeFileReviews(() => {
+      setReviewNonce((n) => n + 1)
+      refreshGitHead()
+    })
   }, [refreshGitHead])
 
-  // Real-time git diff computation for line counter and minimap
+  const isModifiedVsGit = Boolean(isGitFolder && gitHeadText !== null && gitHeadText !== text)
+  const hasUnsavedDraft = Boolean(draft && draft.text !== draft.saved)
+
+  const handleRevertThisFile = async (): Promise<void> => {
+    if (!window.confirm(t('git.revertFileConfirm', { path: entry.path }))) return
+    setRevertingThisFile(true)
+    try {
+      const res = await api.git.revertFile(root, entry.path)
+      if (res.ok) {
+        clearDraftForPath(entry.path, root)
+        setReloadNonce((n) => n + 1)
+        refreshGitHead()
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRevertingThisFile(false)
+    }
+  }
+
+  // Git diff is visual metadata. Keep typing responsive by updating it only after input settles.
+  const diffText = useDebouncedValue(text, 250)
   const gitDiffInfo = useMemo(() => {
-    if (activeAligned || gitHeadText === null) {
+    if (!isGitFolder || activeAligned || gitHeadText === null) {
       return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
     }
-    if (gitHeadText === text) {
+    if (gitHeadText === diffText) {
       return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
     }
 
     const bLines = gitHeadText ? gitHeadText.split('\n') : []
-    const cLines = lines
+    const cLines = diffText.split('\n')
+    if (bLines.length > 5000 || cLines.length > 5000) {
+      return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
+    }
     let changes
     try {
-      changes = diffArrays(bLines, cLines, { timeout: 150, maxEditLength: 10000 })
+      changes = diffArrays(bLines, cLines, { timeout: 50, maxEditLength: 10000 })
     } catch {
       return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
     }
@@ -559,7 +665,7 @@ export function FileEditor({
     }
 
     return { addedLines, deletedMarkers }
-  }, [activeAligned, gitHeadText, text, lines])
+  }, [activeAligned, gitHeadText, diffText, isGitFolder])
 
   const hunks = useMemo<GroupedHunk[]>(() => {
     if (!activeAligned) return []
@@ -625,6 +731,10 @@ export function FileEditor({
     })
   }, [activeAligned, lines, agentChange, text, gitDiffInfo])
 
+  const previewLines = useDebouncedValue(lines, 200)
+  const previewLineInfos = useDebouncedValue(lineInfos, 200)
+  const previewErrorLines = useDebouncedValue(errorLines, 200)
+
   const handleKeepHunk = (hunkId: string): void => {
     if (!activeAligned || !draft) return
     const nextAligned: AlignedEditorLine[] = []
@@ -652,6 +762,8 @@ export function FileEditor({
     const hasRemaining = nextAligned.some((l) => Boolean(l.hunkId))
     if (!hasRemaining && agentChange) {
       keepFileChange(sessionId, agentChange.path, newText)
+      setActiveAligned(null)
+      refreshGitHead()
     }
   }
 
@@ -679,6 +791,8 @@ export function FileEditor({
     const hasRemaining = nextAligned.some((l) => Boolean(l.hunkId))
     if (!hasRemaining && agentChange) {
       keepFileChange(sessionId, agentChange.path, newText)
+      setActiveAligned(null)
+      refreshGitHead()
     }
   }
 
@@ -830,9 +944,10 @@ export function FileEditor({
     syncScroll()
   }
 
-  useLayoutEffect(() => {
-    syncScroll()
-  }, [text, syntaxTokens])
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(syncScroll)
+    return () => window.cancelAnimationFrame(frame)
+  }, [lines.length, syntaxTokens])
   useLayoutEffect(() => {
     if (!textarea.current) return
     const observer = new ResizeObserver(syncScroll)
@@ -840,8 +955,22 @@ export function FileEditor({
     syncScroll()
     return () => observer.disconnect()
   }, [!!draft])
+
+  // Auto-reload when workspace file changes on disk (git revert, git pull, agent edit, external tool)
   useEffect(() => {
-    if (drafts.has(key) && attempt === 0) return
+    return api.files.onChanged((payload) => {
+      if (payload.root && !pathsMatch(payload.root, root)) return
+      const curDraft = drafts.get(key)
+      if (!curDraft || curDraft.text === curDraft.saved) {
+        drafts.delete(key)
+        notify()
+        setReloadNonce((n) => n + 1)
+      }
+    })
+  }, [root, key])
+
+  useEffect(() => {
+    if (drafts.has(key) && attempt === 0 && reloadNonce === 0) return
     let current = true
     setLoading(true)
     setReadError(false)
@@ -861,6 +990,8 @@ export function FileEditor({
             )
             text = initialAligned.map((l) => l.text).join('\n')
             setActiveAligned(initialAligned)
+          } else {
+            setActiveAligned(null)
           }
           drafts.set(key, {
             text,
@@ -885,7 +1016,7 @@ export function FileEditor({
     return () => {
       current = false
     }
-  }, [key, sessionId, path, attempt])
+  }, [key, sessionId, path, attempt, reloadNonce])
 
   const save = async (): Promise<void> => {
     if (!draft || draft.pending || loading || draft.text === draft.saved) return
@@ -916,25 +1047,23 @@ export function FileEditor({
     }
   }
 
-  // When review status becomes kept externally (e.g. from popup), clean ghost blank lines and save
+  // When review status becomes kept (externally from popup or internally), auto-refresh file from disk and git diff
   const prevReviewStatusRef = useRef(reviewStatus)
   useEffect(() => {
     const prev = prevReviewStatusRef.current
     prevReviewStatusRef.current = reviewStatus
-    if (prev === 'pending' && reviewStatus === 'kept' && draft) {
-      const curLines = draft.text.split('\n')
-      const cleanLines = curLines.filter((line, idx) => {
-        const info = lineInfos[idx]
-        return !(info?.kind === 'deleted' && line === '')
-      })
-      const cleanText = cleanLines.join('\n')
-      if (cleanText !== draft.text) {
-        draft.text = cleanText
+    if (prev === 'pending' && reviewStatus === 'kept') {
+      setActiveAligned(null)
+      if (agentChange && draft) {
+        draft.text = agentChange.latestAfter
+        draft.saved = agentChange.latestAfter
         notify()
-        void save()
       }
+      clearDraftForPath(path, root)
+      setReloadNonce((n) => n + 1)
+      refreshGitHead()
     }
-  }, [reviewStatus, draft, lineInfos])
+  }, [reviewStatus, agentChange, draft, path, root, refreshGitHead])
 
   const reload = (): void => {
     if (draft?.pending || loading) return
@@ -1158,6 +1287,20 @@ export function FileEditor({
               <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-subtle">
                 {t('ide.readOnly')}
               </span>
+            )}
+
+            {(isModifiedVsGit || hasUnsavedDraft) && (
+              <button
+                type="button"
+                onClick={() => void handleRevertThisFile()}
+                disabled={revertingThisFile}
+                title={t('git.revertFile')}
+                aria-label={t('git.revertFile')}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-400 hover:bg-rose-500/15 disabled:opacity-50 transition-colors shrink-0 font-medium"
+              >
+                <RotateCcw className={cn('h-3.5 w-3.5', revertingThisFile && 'animate-spin')} />
+                <span className="hidden sm:inline">{t('git.revertFile')}</span>
+              </button>
             )}
           </>
         )}
@@ -1540,7 +1683,7 @@ export function FileEditor({
               {lines.map((lineText, index) => {
                 const info = lineInfos[index]
                 const isDeleted = info?.kind === 'deleted'
-                const lineTokens = syntaxTokens?.[index]
+                const lineTokens = fitSyntaxTokensToLine(syntaxTokens?.[index], lineText)
 
                 return (
                   <div
@@ -1625,6 +1768,15 @@ export function FileEditor({
                 className="pointer-events-none absolute inset-0 select-none overflow-hidden z-20"
                 style={{ padding: '16px 0' }}
               >
+                {/* Spacer ensuring hunkActionsLayer scrollHeight matches textarea so last hunk scrolls off-screen properly */}
+                <div
+                  aria-hidden="true"
+                  style={{
+                    height: `${lines.length * 20 + 64}px`,
+                    width: '1px',
+                    pointerEvents: 'none'
+                  }}
+                />
                 {hunks.map((hunk) => (
                   <div
                     key={hunk.id}
@@ -1670,10 +1822,10 @@ export function FileEditor({
           </div>
           {showCodePreview && (
             <CodePreviewRail
-              lines={lines}
-              lineInfos={lineInfos}
+              lines={previewLines}
+              lineInfos={previewLineInfos}
               hunks={hunks}
-              errorLines={errorLines}
+              errorLines={previewErrorLines}
               syntaxTokens={syntaxTokens}
               scrollContainerRef={textarea}
               onScrollToLine={scrollToLine}
@@ -1776,7 +1928,7 @@ export function FileEditor({
                     {lines.map((lineText, index) => {
                       const info = lineInfos[index]
                       const isDeleted = info?.kind === 'deleted' && !lineText
-                      const lineTokens = syntaxTokens?.[index]
+                      const lineTokens = fitSyntaxTokensToLine(syntaxTokens?.[index], lineText)
 
                       return (
                         <div

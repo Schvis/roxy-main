@@ -226,6 +226,26 @@ function setSetting(key: string, value: string | null): void {
   ).run(key, value)
 }
 
+export function getIdeWindowSize(): { width: number; height: number } | null {
+  const rows = getDb()
+    .prepare("SELECT key, value FROM settings WHERE key IN ('ide_window_w', 'ide_window_h')")
+    .all() as { key: string; value: string }[]
+  const map = new Map(rows.map((row) => [row.key, Number(row.value)]))
+  const width = map.get('ide_window_w')
+  const height = map.get('ide_window_h')
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null
+  return {
+    width: Math.max(760, width as number),
+    height: Math.max(480, height as number)
+  }
+}
+
+export function setIdeWindowSize(width: number, height: number): void {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return
+  setSetting('ide_window_w', String(Math.max(760, Math.round(width))))
+  setSetting('ide_window_h', String(Math.max(480, Math.round(height))))
+}
+
 // ---- Forge host overrides ----------------------------------------------
 // Which software an UNRECOGNISED git host runs (`git.mycorp.com` -> gitlab).
 // Only consulted when auto-detection fails, so a stale or mistaken answer can

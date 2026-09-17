@@ -244,6 +244,20 @@ export function revertEditorDraft(sessionId: string, path: string, content?: str
   draftReverter?.(sessionId, path, content)
 }
 
+export function getPersistedReview(
+  sessionId: string,
+  path: string
+): PersistedReviewEntry | undefined {
+  for (const [key, entry] of reviewStatusMap.entries()) {
+    const [sId, ...rest] = key.split(':')
+    const storedPath = rest.join(':')
+    if (sId === sessionId && pathsMatch(storedPath, path)) {
+      return entry
+    }
+  }
+  return undefined
+}
+
 export function getFileReviewStatus(
   sessionId: string,
   path: string,
@@ -316,6 +330,7 @@ export async function undoFileChange(
 
 export function keepFileChange(sessionId: string, path: string, latestAfter?: string): void {
   setFileReviewStatus(sessionId, path, 'kept', latestAfter)
+  revertEditorDraft(sessionId, path, latestAfter)
 }
 
 export async function undoAllFileChanges(
@@ -325,7 +340,7 @@ export async function undoAllFileChanges(
 ): Promise<boolean> {
   let ok = true
   for (const c of changes) {
-    if (getFileReviewStatus(sessionId, c.path, c.latestAfter) === 'undone') continue
+    if (c.reviewStatus === 'undone') continue
     const res = await undoFileChange(sessionId, c, onReverted)
     if (!res) ok = false
   }
@@ -395,44 +410,35 @@ export function extractAgentFileChanges(
     }
   }
 
-  // Aggregate by normalized path: initialBefore = first before, latestAfter = last after
-  const byPath = new Map<
+  // Group diffs by normalized path maintaining chronological order
+  const diffsByPath = new Map<
     string,
     {
       path: string
       fileName: string
-      initialBefore: string
-      latestAfter: string
-      tools: Set<string>
-      isLatestTurn: boolean
+      items: RawDiffEntry[]
     }
   >()
 
   for (const item of rawDiffs) {
-    let existingKey: string | undefined
-    for (const key of byPath.keys()) {
+    let matchedKey: string | undefined
+    for (const key of diffsByPath.keys()) {
       if (pathsMatch(key, item.path)) {
-        existingKey = key
+        matchedKey = key
         break
       }
     }
-    const existing = existingKey ? byPath.get(existingKey) : undefined
-    const fileName = item.path.split(/[/\\]/).pop() || item.path
+    const targetKey = matchedKey ?? item.path
+    const existing = diffsByPath.get(targetKey)
     if (!existing) {
-      byPath.set(item.path, {
+      const fileName = item.path.split(/[/\\]/).pop() || item.path
+      diffsByPath.set(targetKey, {
         path: item.path,
         fileName,
-        initialBefore: item.diff.before,
-        latestAfter: item.diff.after,
-        tools: new Set([item.tool]),
-        isLatestTurn: item.isLatestTurn
+        items: [item]
       })
     } else {
-      existing.latestAfter = item.diff.after
-      existing.tools.add(item.tool)
-      if (item.isLatestTurn) {
-        existing.isLatestTurn = true
-      }
+      existing.items.push(item)
     }
   }
 
@@ -443,32 +449,103 @@ export function extractAgentFileChanges(
   let deletedCount = 0
   let modifiedCount = 0
 
-  for (const item of byPath.values()) {
-    const stats = getLineStats(item.path, item.initialBefore, item.latestAfter)
-    const changedLines = stats.added + stats.removed
-    totalAdded += stats.added
-    totalRemoved += stats.removed
-    if (stats.isCreated) createdCount++
-    else if (stats.isDeleted) deletedCount++
-    else if (stats.isModified) modifiedCount++
+  for (const group of diffsByPath.values()) {
+    const items = group.items
+    const overallLatestAfter = items[items.length - 1].diff.after
 
-    const reviewStatus = sessionId
-      ? getFileReviewStatus(sessionId, item.path, item.latestAfter)
-      : 'pending'
+    // Check if user has an existing review status for this file
+    const review = sessionId ? getPersistedReview(sessionId, group.path) : undefined
+
+    let initialBefore = items[0].diff.before
+    let latestAfter = overallLatestAfter
+    let reviewStatus: FileReviewStatus = 'pending'
+    let isLatestTurn = items.some((it) => it.isLatestTurn)
+    let tools = new Set(items.map((it) => it.tool))
+
+    if (review && review.status === 'kept') {
+      if (review.afterSignature) {
+        if (computeSignature(overallLatestAfter) === review.afterSignature) {
+          // The current latest state of this file has already been kept by the user
+          reviewStatus = 'kept'
+          initialBefore = items[0].diff.before
+          latestAfter = overallLatestAfter
+        } else {
+          // Find the most recent boundary that matches the kept signature
+          let foundBaseline: string | null = null
+          let newStartIndex = -1
+
+          for (let i = items.length - 1; i >= 0; i--) {
+            if (i > 0 && computeSignature(items[i].diff.before) === review.afterSignature) {
+              foundBaseline = items[i].diff.before
+              newStartIndex = i
+              break
+            }
+            if (computeSignature(items[i].diff.after) === review.afterSignature) {
+              foundBaseline = items[i].diff.after
+              newStartIndex = i + 1
+              break
+            }
+          }
+
+          if (foundBaseline !== null && newStartIndex >= 0 && newStartIndex < items.length) {
+            initialBefore = foundBaseline
+            latestAfter = overallLatestAfter
+            reviewStatus = 'pending'
+            const newItems = items.slice(newStartIndex)
+            tools = new Set(newItems.map((it) => it.tool))
+            isLatestTurn = newItems.some((it) => it.isLatestTurn)
+          } else {
+            reviewStatus = 'pending'
+            initialBefore = items[0].diff.before
+            latestAfter = overallLatestAfter
+          }
+        }
+      } else {
+        reviewStatus = 'kept'
+      }
+    } else if (review && review.status === 'undone') {
+      if (review.afterSignature && computeSignature(overallLatestAfter) === review.afterSignature) {
+        reviewStatus = 'undone'
+      } else {
+        reviewStatus = 'pending'
+      }
+    }
+
+    const stats = getLineStats(group.path, initialBefore, latestAfter)
+    const changedLines = stats.added + stats.removed
+
+    // If previously kept and net change since kept is zero, retain kept status
+    if (
+      reviewStatus === 'pending' &&
+      review?.status === 'kept' &&
+      changedLines === 0 &&
+      !stats.isCreated &&
+      !stats.isDeleted
+    ) {
+      reviewStatus = 'kept'
+    }
+
+    if (reviewStatus === 'pending') {
+      totalAdded += stats.added
+      totalRemoved += stats.removed
+      if (stats.isCreated) createdCount++
+      else if (stats.isDeleted) deletedCount++
+      else if (stats.isModified) modifiedCount++
+    }
 
     files.push({
-      path: item.path,
-      fileName: item.fileName,
-      initialBefore: item.initialBefore,
-      latestAfter: item.latestAfter,
+      path: group.path,
+      fileName: group.fileName,
+      initialBefore,
+      latestAfter,
       addedLines: stats.added,
       removedLines: stats.removed,
       changedLines,
       isCreated: stats.isCreated,
       isDeleted: stats.isDeleted,
       isModified: stats.isModified,
-      isLatestTurn: item.isLatestTurn,
-      tools: Array.from(item.tools),
+      isLatestTurn,
+      tools: Array.from(tools),
       reviewStatus
     })
   }
