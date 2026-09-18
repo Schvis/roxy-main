@@ -348,6 +348,7 @@
     "removeImage": "Remove image",
     "attachImages": "Attach images",
     "placeholder": "Ask Roxy anything… (paste or drop images)",
+    "imagePlaceholder": "Describe an image to generate…",
     "queuePlaceholder": "Queue a follow-up…",
     "queuePlaceholderStop": "Queue a follow-up… (Esc to stop)",
     "readScreen": "Read screen",
@@ -417,6 +418,10 @@
     "toggleSecure": "Secure",
     "toggleHttpOnly": "HttpOnly",
     "toggleHostOnly": "Host only"
+  },
+  "images": {
+    "attachmentsUnavailable": "Image attachments are not supported in image generation mode.",
+    "failed": "Image generation failed: {{error}}"
   },
   "inference": {
     "agentMode": "Agent mode",
@@ -529,7 +534,8 @@
     "noMatchInProvider": "No models match “{{query}}” in {{provider}}.",
     "matchesInOther": "Available in:",
     "reasoning": "Reasoning",
-    "tools": "Tools"
+    "tools": "Tools",
+    "imageGeneration": "Image generation"
   },
   "onboarding": {
     "welcomeTagline": "This might be a complete disaster. It might also be the best thing you use all year!",
@@ -555,6 +561,8 @@
     "baseUrl": "Base URL",
     "modelId": "Fallback model ID (optional)",
     "modelIdPlaceholder": "Used only if /models is unavailable",
+    "discoverImageModels": "Check for image-generation models",
+    "discoverImageModelsBody": "Also load models from /v1/models/image and route those models through /v1/images/generations.",
     "getRoxyKey": "Get an API key from your roxy.gg dashboard",
     "connecting": "Connecting…",
     "connect": "Connect",
@@ -653,7 +661,9 @@
       "active": "Active",
       "signedInLocally": "signed in locally",
       "keyStored": "key stored",
-      "noCredential": "no credential"
+      "noCredential": "no credential",
+      "discoverImageModels": "Image-generation models",
+      "discoverImageModelsBody": "Check /v1/models/image and route discovered models through image generation."
     },
     "models": {
       "heading": "Models",
@@ -1068,6 +1078,8 @@
     "history": "Chat history",
     "copySelection": "Copy selection",
     "copyMessage": "Copy message",
+    "copyImage": "Copy image",
+    "imageCopied": "Image copied to clipboard.",
     "copyFailed": "Could not copy to the clipboard. Try again with the app focused.",
     "selectAll": "Select all",
     "openLink": "Open link",

@@ -124,6 +124,7 @@ import {
   openaiEndpoint
 } from '../src/main/services/llm'
 import { invalidateCopilotModels, listModels } from '../src/main/services/models'
+import { generateImages } from '../src/main/services/image-generation'
 import { getUsageStats } from '../src/main/services/usage'
 import { consumeAiSdkStream } from '../src/main/services/aisdk'
 import { APICallError } from 'ai'
@@ -351,6 +352,19 @@ async function main(): Promise<void> {
   repo.setLanguage('es-MX' as never)
   check('a regional tag folds to its base language', repo.getSettings().language === 'es')
   repo.setLanguage('en')
+
+  // ---- main window size persistence ----
+  check('main window size starts unset', repo.getIdeWindowSize() === null)
+  repo.setIdeWindowSize(1234.4, 777.6)
+  check(
+    'main window size round-trips rounded bounds',
+    repo.getIdeWindowSize()?.width === 1234 && repo.getIdeWindowSize()?.height === 778
+  )
+  repo.setIdeWindowSize(100, 100)
+  check(
+    'main window size respects minimum bounds',
+    repo.getIdeWindowSize()?.width === 760 && repo.getIdeWindowSize()?.height === 480
+  )
 
   // ---- hidden models (v22: the picker deny-list) ----
   // Against the real DB.
@@ -4534,16 +4548,20 @@ async function main(): Promise<void> {
 
   // ---- custom OpenAI-compatible model discovery ----
   try {
-    let requestPath = ''
+    const requestPaths: string[] = []
     let authorization: string | undefined
     const server = createServer((req, res) => {
-      requestPath = req.url ?? ''
+      const requestPath = req.url ?? ''
+      requestPaths.push(requestPath)
       authorization = req.headers.authorization
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(
         JSON.stringify({
           object: 'list',
-          data: [{ id: 'model-b' }, { id: 'model-a' }, { id: 'model-a' }, { id: 42 }]
+          data:
+            requestPath === '/v1/models/image'
+              ? [{ id: 'image-b' }, { id: 'image-a' }]
+              : [{ id: 'model-b' }, { id: 'model-a' }, { id: 'model-a' }, { id: 42 }]
         })
       )
     })
@@ -4553,23 +4571,101 @@ async function main(): Promise<void> {
     repo.connectProvider({
       id: 'openai-compatible',
       apiKey: 'custom-test-key',
-      baseURL: `http://127.0.0.1:${port}/v1/`
+      baseURL: `http://127.0.0.1:${port}/v1/`,
+      discoverImageModels: true
     })
     const discovered = await listModels('openai-compatible')
-    check('custom models: requests the standard endpoint', requestPath === '/v1/models')
+    check(
+      'custom models: requests both standard and image endpoints',
+      requestPaths.includes('/v1/models') && requestPaths.includes('/v1/models/image')
+    )
     check('custom models: sends optional bearer auth', authorization === 'Bearer custom-test-key')
     check(
       'custom models: maps, sorts, and deduplicates ids',
-      discovered.length === 2 &&
-        discovered[0]?.id === 'model-a' &&
-        discovered[1]?.id === 'model-b' &&
-        discovered.every((m) => m.toolCall)
+      discovered.length === 4 &&
+        discovered.some((m) => m.id === 'model-a' && m.toolCall && !m.imageCapable) &&
+        discovered.some((m) => m.id === 'model-b' && m.toolCall && !m.imageCapable)
+    )
+    check(
+      'custom image models: merge image-only ids',
+      discovered.some((m) => m.id === 'image-a' && m.imageCapable && !m.toolCall) &&
+        discovered.some((m) => m.id === 'image-b' && m.imageCapable && !m.toolCall)
+    )
+    check(
+      'custom image models: provider setting persists',
+      repo.listConnectedProviders().find((p) => p.id === 'openai-compatible')
+        ?.discoverImageModels === true
     )
     await new Promise<void>((r) => server.close(() => r()))
     repo.disconnectProvider('openai-compatible')
   } catch (e) {
     check(
       'custom OpenAI-compatible model discovery',
+      false,
+      e instanceof Error ? e.message : String(e)
+    )
+  }
+
+  // ---- custom OpenAI-compatible image generation ----
+  try {
+    let requestPath = ''
+    let authorization: string | undefined
+    let requestBody: Record<string, unknown> = {}
+    const server = createServer((req, res) => {
+      requestPath = req.url ?? ''
+      authorization = req.headers.authorization
+      let body = ''
+      req.on('data', (chunk) => (body += String(chunk)))
+      req.on('end', () => {
+        requestBody = JSON.parse(body) as Record<string, unknown>
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ data: [{ b64_json: 'aGVsbG8=' }] }))
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const addr = server.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+    repo.connectProvider({
+      id: 'openai-compatible',
+      apiKey: 'custom-image-key',
+      baseURL: `http://127.0.0.1:${port}/v1/`
+    })
+    const result = await generateImages(
+      {
+        sessionId: 'image-test',
+        providerId: 'openai-compatible',
+        model: 'ag/gemini-3.1-flash-image',
+        prompt: 'A cute cat wearing a hat'
+      },
+      new AbortController().signal
+    )
+    check(
+      'custom images: requests the generations endpoint',
+      requestPath === '/v1/images/generations'
+    )
+    check('custom images: sends bearer auth', authorization === 'Bearer custom-image-key')
+    check(
+      'custom images: sends the compatible request shape',
+      requestBody.model === 'ag/gemini-3.1-flash-image' &&
+        requestBody.prompt === 'A cute cat wearing a hat' &&
+        requestBody.n === 1 &&
+        requestBody.size === 'auto' &&
+        requestBody.quality === 'auto' &&
+        requestBody.background === 'auto' &&
+        requestBody.image_detail === 'high' &&
+        requestBody.output_format === 'png'
+    )
+    check(
+      'custom images: normalizes base64 output',
+      result.ok &&
+        result.images?.[0]?.dataUrl === 'data:image/png;base64,aGVsbG8=' &&
+        result.images[0].mediaType === 'image/png'
+    )
+    await new Promise<void>((r) => server.close(() => r()))
+    repo.disconnectProvider('openai-compatible')
+  } catch (e) {
+    check(
+      'custom OpenAI-compatible image generation',
       false,
       e instanceof Error ? e.message : String(e)
     )

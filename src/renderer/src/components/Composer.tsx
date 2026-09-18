@@ -45,6 +45,7 @@ import { useMenuAnchor } from '../lib/useMenuAnchor'
 import { createContextAttachment } from '@shared/context'
 import { loadActiveFile, normalizeRoot } from '../lib/ide-state'
 import type { ChatContextAttachment } from '@shared/types'
+import { resolveSessionConfig } from '@shared/session-config'
 
 const EMPTY_ATTACHMENTS: ChatContextAttachment[] = []
 
@@ -88,6 +89,20 @@ export function Composer({
   const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
   const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
   const chats = useRoxyStore((s) => s.chats)
+  const settings = useRoxyStore((s) => s.settings)
+  const providers = useRoxyStore((s) => s.providers)
+  const modelCatalog = useRoxyStore((s) => s.modelCatalog)
+  const imageMode = useMemo(() => {
+    const config = resolveSessionConfig(
+      chats.find((chat) => chat.id === activeChatId),
+      settings
+    )
+    const provider = providers.find((item) => item.id === config.providerId) ?? providers[0]
+    if (!provider || !config.model) return false
+    return (
+      modelCatalog[provider.id]?.find((model) => model.id === config.model)?.imageCapable === true
+    )
+  }, [activeChatId, chats, settings, providers, modelCatalog])
   const rawAttachments = useRoxyStore((s) =>
     s.activeChatId ? s.pendingContextAttachments[s.activeChatId] : undefined
   )
@@ -226,6 +241,7 @@ export function Composer({
   }
 
   const addFiles = async (files: File[]): Promise<void> => {
+    if (imageMode) return
     if (files.length === 0) return
     const read = await Promise.all(files.map(readImageFile))
     const valid = read.filter((x): x is ComposerImage => x !== null)
@@ -276,7 +292,7 @@ export function Composer({
       event.preventDefault()
       return
     }
-    const files = imageFilesFrom(event.clipboardData)
+    const files = imageMode ? [] : imageFilesFrom(event.clipboardData)
     if (files.length > 0) {
       event.preventDefault()
       void addFiles(files)
@@ -285,6 +301,7 @@ export function Composer({
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     setDragging(false)
+    if (imageMode) return
     const files = imageFilesFrom(event.dataTransfer)
     if (files.length > 0) {
       event.preventDefault()
@@ -646,7 +663,9 @@ export function Composer({
                   ? onStop
                     ? t('composer.queuePlaceholderStop')
                     : t('composer.queuePlaceholder')
-                  : t('composer.placeholder')
+                  : imageMode
+                    ? t('composer.imagePlaceholder')
+                    : t('composer.placeholder')
           }
           onChange={(e) => {
             if (isRecording || isTranscribing || isHoldingKeyRef.current) return
@@ -665,90 +684,92 @@ export function Composer({
               control, which against the row's px-2.5 puts each label's first
               glyph exactly on the textarea's px-4 text column. */}
           <div className="flex items-center gap-1 min-w-0">
-            <div ref={contextMenuRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setContextMenuOpen((o) => !o)}
-                title={t('composer.addContext')}
-                aria-label={t('composer.addContext')}
-                aria-expanded={contextMenuOpen}
-                className={cn(
-                  'press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text',
-                  contextMenuOpen && 'bg-white/10 text-text'
-                )}
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-
-              {contextMenuOpen && (
-                <div
-                  className="animate-pop-in absolute bottom-full left-0 z-50 mb-2 flex min-w-[220px] flex-col sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated shadow-float p-1 text-xs"
-                  style={contextMenuAnchor}
+            {!imageMode && (
+              <div ref={contextMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setContextMenuOpen((o) => !o)}
+                  title={t('composer.addContext')}
+                  aria-label={t('composer.addContext')}
+                  aria-expanded={contextMenuOpen}
+                  className={cn(
+                    'press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text',
+                    contextMenuOpen && 'bg-white/10 text-text'
+                  )}
                 >
-                  {ideMode && (
-                    <>
-                      {currentFile ? (
-                        <button
-                          type="button"
-                          disabled={isCurrentFileAttached}
-                          onClick={handleAttachCurrentFile}
-                          className={cn(
-                            'press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                            isCurrentFileAttached
-                              ? 'opacity-50 cursor-not-allowed text-text-subtle'
-                              : 'text-text hover:bg-white/5'
-                          )}
-                          title={t('composer.attachCurrentFile', { path: currentFile.name })}
-                        >
-                          <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
-                          <div className="flex flex-col min-w-0 flex-1">
-                            <span className="truncate font-medium">{currentFile.name}</span>
-                            <span className="truncate text-[10px] text-text-subtle">
-                              {currentFile.path}
-                              {currentFile.line ? `:${currentFile.line}` : ''}
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+
+                {contextMenuOpen && (
+                  <div
+                    className="animate-pop-in absolute bottom-full left-0 z-50 mb-2 flex min-w-[220px] flex-col sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated shadow-float p-1 text-xs"
+                    style={contextMenuAnchor}
+                  >
+                    {ideMode && (
+                      <>
+                        {currentFile ? (
+                          <button
+                            type="button"
+                            disabled={isCurrentFileAttached}
+                            onClick={handleAttachCurrentFile}
+                            className={cn(
+                              'press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                              isCurrentFileAttached
+                                ? 'opacity-50 cursor-not-allowed text-text-subtle'
+                                : 'text-text hover:bg-white/5'
+                            )}
+                            title={t('composer.attachCurrentFile', { path: currentFile.name })}
+                          >
+                            <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <span className="truncate font-medium">{currentFile.name}</span>
+                              <span className="truncate text-[10px] text-text-subtle">
+                                {currentFile.path}
+                                {currentFile.line ? `:${currentFile.line}` : ''}
+                              </span>
+                            </div>
+                            {isCurrentFileAttached && (
+                              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                            )}
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2 px-2.5 py-1.5 text-text-subtle">
+                            <FileCode className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                            <span className="truncate text-[11px]">
+                              {t('composer.noCurrentFile')}
                             </span>
                           </div>
-                          {isCurrentFileAttached && (
-                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                          )}
-                        </button>
-                      ) : (
-                        <div className="flex items-center gap-2 px-2.5 py-1.5 text-text-subtle">
-                          <FileCode className="h-3.5 w-3.5 shrink-0 opacity-40" />
-                          <span className="truncate text-[11px]">
-                            {t('composer.noCurrentFile')}
-                          </span>
-                        </div>
-                      )}
+                        )}
 
-                      <div className="my-1 border-t border-border/40" />
-                    </>
-                  )}
+                        <div className="my-1 border-t border-border/40" />
+                      </>
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={handleOpenContextPicker}
-                    className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-text hover:bg-white/5 transition-colors"
-                  >
-                    <Folder className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <span>{t('composer.attachFilesOrFolders')}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenContextPicker}
+                      className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-text hover:bg-white/5 transition-colors"
+                    >
+                      <Folder className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                      <span>{t('composer.attachFilesOrFolders')}</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setContextMenuOpen(false)
-                      fileRef.current?.click()
-                    }}
-                    className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-text hover:bg-white/5 transition-colors"
-                  >
-                    <ImageIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <span>{t('composer.attachImages')}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-            {!isCompact && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContextMenuOpen(false)
+                        fileRef.current?.click()
+                      }}
+                      className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-text hover:bg-white/5 transition-colors"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                      <span>{t('composer.attachImages')}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {!imageMode && !isCompact && (
               <button
                 type="button"
                 onClick={async () => {
@@ -854,17 +875,19 @@ export function Composer({
 
                     <div className="my-1 border-t border-border/40" />
 
-                    <div className="flex flex-wrap items-center gap-1 p-0.5">
-                      <AgentPicker />
-                      <PromptPicker />
-                      <ThinkingPicker />
-                      <ContextPicker />
-                      <ContextMeter />
-                    </div>
+                    {!imageMode && (
+                      <div className="flex flex-wrap items-center gap-1 p-0.5">
+                        <AgentPicker />
+                        <PromptPicker />
+                        <ThinkingPicker />
+                        <ContextPicker />
+                        <ContextMeter />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            ) : (
+            ) : !imageMode ? (
               <>
                 <AgentPicker />
                 <PromptPicker />
@@ -882,7 +905,7 @@ export function Composer({
                   </button>
                 )}
               </>
-            )}
+            ) : null}
           </div>
           {showStop ? (
             <button
@@ -948,6 +971,7 @@ export function Composer({
         ref={fileRef}
         type="file"
         accept="image/*"
+        disabled={imageMode}
         multiple
         className="hidden"
         onChange={(e) => {

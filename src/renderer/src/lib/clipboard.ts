@@ -21,3 +21,13 @@ export async function writeClipboardText(text: string): Promise<boolean> {
 
   return false
 }
+
+export async function writeClipboardImage(dataUrl: string): Promise<boolean> {
+  try {
+    if (!api?.clipboard?.writeImage) return false
+    await api.clipboard.writeImage(dataUrl)
+    return true
+  } catch {
+    return false
+  }
+}

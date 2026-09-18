@@ -3,7 +3,7 @@ import { useTranslation, Trans } from 'react-i18next'
 import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, Search } from 'lucide-react'
 import { AUTH_LABELS, SEED_PROVIDERS, isConnectableNow, resolveSeed } from '@shared/providers'
 import { pickDefaultModel } from '@shared/models'
-import type { SeedProvider } from '@shared/types'
+import type { ConnectedProvider, SeedProvider } from '@shared/types'
 import { api } from '../../lib/api'
 import { useRoxyStore } from '../../lib/store'
 import { Button, Input } from '../../components/ui'
@@ -86,7 +86,13 @@ export function ProviderStep(): JSX.Element {
         )}
       </div>
 
-      {setupId && <ProviderSetup seed={resolveSeed(setupId)} onClose={() => setSetupId(null)} />}
+      {setupId && (
+        <ProviderSetup
+          seed={resolveSeed(setupId)}
+          connected={providers.find((provider) => provider.id === setupId)}
+          onClose={() => setSetupId(null)}
+        />
+      )}
     </div>
   )
 }
@@ -170,17 +176,22 @@ function ProviderRow({
 
 function ProviderSetup({
   seed,
+  connected,
   onClose
 }: {
   seed: SeedProvider
+  connected?: ConnectedProvider
   onClose: () => void
 }): JSX.Element {
   const { t } = useTranslation()
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [apiKey, setApiKey] = useState('')
-  const [baseURL, setBaseURL] = useState(seed.baseURL ?? '')
-  const [defaultModel, setDefaultModel] = useState('')
+  const [baseURL, setBaseURL] = useState(connected?.baseURL ?? seed.baseURL ?? '')
+  const [defaultModel, setDefaultModel] = useState(connected?.defaultModel ?? '')
+  const [discoverImageModels, setDiscoverImageModels] = useState(
+    connected?.discoverImageModels ?? false
+  )
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -207,7 +218,8 @@ function ProviderSetup({
         id: seed.id,
         apiKey: apiKey.trim() || undefined,
         baseURL: baseURL.trim() || undefined,
-        defaultModel: defaultModel.trim() || undefined
+        defaultModel: defaultModel.trim() || undefined,
+        discoverImageModels
       })
       // Always auto-pick the provider's latest (tool-capable) model so the
       // composer's picker shows a real model right away and the first send just
@@ -302,13 +314,31 @@ function ProviderSetup({
                 </Field>
               )}
               {isCustomCompatible && (
-                <Field label={t('onboarding.modelId')}>
-                  <Input
-                    value={defaultModel}
-                    onChange={(e) => setDefaultModel(e.target.value)}
-                    placeholder={t('onboarding.modelIdPlaceholder')}
-                  />
-                </Field>
+                <>
+                  <Field label={t('onboarding.modelId')}>
+                    <Input
+                      value={defaultModel}
+                      onChange={(e) => setDefaultModel(e.target.value)}
+                      placeholder={t('onboarding.modelIdPlaceholder')}
+                    />
+                  </Field>
+                  <label className="flex items-start gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={discoverImageModels}
+                      onChange={(event) => setDiscoverImageModels(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-accent"
+                    />
+                    <span>
+                      <span className="block text-xs font-medium text-text">
+                        {t('onboarding.discoverImageModels')}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-text-subtle">
+                        {t('onboarding.discoverImageModelsBody')}
+                      </span>
+                    </span>
+                  </label>
+                </>
               )}
               {error && <p className="text-xs text-danger">{error}</p>}
               <div className="flex items-center gap-2">

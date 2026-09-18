@@ -65,12 +65,18 @@ function createWindow(): BrowserWindow {
   setMainWindow(mainWindow)
   let saveWindowSizeTimer: NodeJS.Timeout | null = null
   const saveWindowSize = (): void => {
-    if (mainWindow.isDestroyed() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
-    const { width, height } = mainWindow.getNormalBounds()
+    if (mainWindow.isDestroyed()) return
+    // `getNormalBounds()` returns the pre-Snap restore size on Windows. Use the
+    // visible bounds for ordinary/snapped windows, but keep restore bounds for
+    // minimized, maximized, and fullscreen states where current bounds are not
+    // a useful startup size.
+    const { width, height } =
+      mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()
+        ? mainWindow.getNormalBounds()
+        : mainWindow.getBounds()
     repo.setIdeWindowSize(width, height)
   }
   mainWindow.on('resize', () => {
-    if (!repo.getSettings().ideMode) return
     if (saveWindowSizeTimer) clearTimeout(saveWindowSizeTimer)
     saveWindowSizeTimer = setTimeout(() => {
       saveWindowSizeTimer = null
@@ -97,7 +103,7 @@ function createWindow(): BrowserWindow {
       clearTimeout(saveWindowSizeTimer)
       saveWindowSizeTimer = null
     }
-    if (repo.getSettings().ideMode) saveWindowSize()
+    saveWindowSize()
     if (repo.getSettings().overlayMode && !isQuitting) {
       event.preventDefault()
       mainWindow.hide()

@@ -301,6 +301,8 @@ export const CHANNELS = {
   /** renderer -> main: pull live parts of an active session turn */
   llmSnapshot: 'llm:snapshot',
 
+  imagesGenerate: 'images:generate',
+
   /** main -> renderer event when a background subagent task changes state */
   taskUpdate: 'task:update',
   /** renderer -> main: list a session's running background tasks */
@@ -347,6 +349,7 @@ export const CHANNELS = {
   clipboardExec: 'clipboard:exec',
   /** Write plain text directly to the system clipboard. */
   clipboardWriteText: 'clipboard:writeText',
+  clipboardWriteImage: 'clipboard:writeImage',
 
   browserOpen: 'browser:open',
   browserNavigate: 'browser:navigate',

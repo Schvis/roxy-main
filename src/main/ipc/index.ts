@@ -5,6 +5,7 @@ import {
   desktopCapturer,
   dialog,
   ipcMain,
+  nativeImage,
   screen,
   shell
 } from 'electron'
@@ -22,6 +23,7 @@ import type {
   CreateWorktreeResult,
   ForkChatInput,
   GitStatusView,
+  ImageGenerationInput,
   MultiSyncOutcome,
   RepoStatusView,
   RepoSyncResult,
@@ -79,6 +81,7 @@ import * as browser from '../services/browser'
 import * as cookies from '../services/cookies'
 import { invalidateCopilotModels, listModels } from '../services/models'
 import { copilotNeedsReauthentication, invalidateCopilotToken } from '../services/llm'
+import { generateImages } from '../services/image-generation'
 import {
   beginActiveTurn,
   applyTurnEvent,
@@ -1067,6 +1070,23 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.clipboardWriteText, (_event, text: string) => {
     clipboard.writeText(text)
   })
+  ipcMain.handle(CHANNELS.clipboardWriteImage, (_event, dataUrl: string) => {
+    const match = /^data:(image\/(?:png|jpe?g|webp|gif));base64,([\s\S]+)$/i.exec(dataUrl)
+    if (!match) {
+      throw new Error('Invalid image data URL.')
+    }
+    if (dataUrl.length > 40 * 1024 * 1024) throw new Error('Image is too large to copy.')
+    // `createFromDataURL` intermittently returns an empty image for large
+    // generated PNG data URLs on Windows. Decode the payload ourselves and use
+    // the buffer path, which goes through Electron's native image decoder
+    // without reparsing the whole URL. Strip whitespace because some compatible
+    // endpoints wrap long base64 output across lines.
+    const bytes = Buffer.from(match[2].replace(/\s/g, ''), 'base64')
+    if (bytes.length === 0) throw new Error('Image data is empty.')
+    const image = nativeImage.createFromBuffer(bytes)
+    if (image.isEmpty()) throw new Error('Image could not be decoded.')
+    clipboard.writeImage(image)
+  })
 
   // ---- auto-update (GitHub Releases) ----
   ipcMain.handle(CHANNELS.updateCheck, () => checkForUpdates())
@@ -1485,6 +1505,27 @@ export function registerIpc(): void {
     // by work that ISN'T the tracked turn (compaction, a loop tick), which would
     // otherwise keep running with nobody left to read its result.
     cancelToolCallsFor(sessionId)
+  })
+
+  ipcMain.handle(CHANNELS.imagesGenerate, async (_e, input: ImageGenerationInput) => {
+    emitTurnState(input.sessionId, 'thinking')
+    const controller = new AbortController()
+    const untrack = trackSession(input.sessionId, controller)
+    try {
+      return await generateImages(input, controller.signal)
+    } catch (error) {
+      return {
+        ok: false,
+        error: controller.signal.aborted
+          ? 'Stopped.'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+      }
+    } finally {
+      untrack()
+      emitTurnState(input.sessionId, 'idle')
+    }
   })
 
   // ---- background subagent tasks (Phase 11) ----

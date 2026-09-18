@@ -4946,7 +4946,8 @@ async function main(): Promise<void> {
     model: null,
     agentId: null,
     reasoningEffort: null,
-    contextLimit: null
+    contextLimit: null,
+    promptId: null
   }
 
   const inherited = resolveSessionConfig(bare, gSettings)

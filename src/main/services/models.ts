@@ -355,27 +355,46 @@ async function listOpenAiCompatibleModels(providerId: string): Promise<ModelInfo
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
 
-  try {
-    const res = await fetch(`${base}/models`, {
-      headers,
-      signal: AbortSignal.timeout(10_000)
-    })
-    if (!res.ok) return []
-    const body = (await res.json()) as { data?: unknown }
-    if (!Array.isArray(body.data)) return []
-
-    const ids = new Set<string>()
-    for (const entry of body.data) {
-      if (!entry || typeof entry !== 'object') continue
-      const id = 'id' in entry && typeof entry.id === 'string' ? entry.id.trim() : ''
-      if (id) ids.add(id)
+  const fetchIds = async (path: string): Promise<string[]> => {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        headers,
+        signal: AbortSignal.timeout(10_000)
+      })
+      if (!res.ok) return []
+      const body = (await res.json()) as { data?: unknown }
+      if (!Array.isArray(body.data)) return []
+      const ids = new Set<string>()
+      for (const entry of body.data) {
+        if (!entry || typeof entry !== 'object') continue
+        const id = 'id' in entry && typeof entry.id === 'string' ? entry.id.trim() : ''
+        if (id) ids.add(id)
+      }
+      return [...ids]
+    } catch {
+      return []
     }
-    return [...ids]
-      .map((id) => ({ id, name: id, reasoning: false, toolCall: true }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  } catch {
-    return []
   }
+
+  const [chatIds, imageIds] = await Promise.all([
+    fetchIds('/models'),
+    provider.discoverImageModels ? fetchIds('/models/image') : Promise.resolve([])
+  ])
+  const models = new Map<string, ModelInfo>()
+  for (const id of chatIds) {
+    models.set(id, { id, name: id, reasoning: false, toolCall: true })
+  }
+  for (const id of imageIds) {
+    const existing = models.get(id)
+    models.set(id, {
+      id,
+      name: id,
+      reasoning: existing?.reasoning ?? false,
+      toolCall: existing?.toolCall ?? false,
+      imageCapable: true
+    })
+  }
+  return [...models.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Map a models.dev `cost` block (per 1M tokens) to our ModelCost, dropping empties. */

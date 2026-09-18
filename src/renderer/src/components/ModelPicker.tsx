@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Brain, Check, ChevronsUpDown, Search, Wrench, X } from 'lucide-react'
+import { Brain, Check, ChevronsUpDown, Image, Search, Wrench, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { buildModelIndex, buildProviderModelRows, countMatchesByProvider } from '../lib/modelRows'
@@ -407,6 +407,11 @@ export function ModelPicker(): JSX.Element {
                       {row.info?.toolCall && (
                         <span title={t('models.tools')}>
                           <Wrench className="h-3 w-3 shrink-0 text-success" />
+                        </span>
+                      )}
+                      {row.info?.imageCapable && (
+                        <span title={t('models.imageGeneration')}>
+                          <Image className="h-3 w-3 shrink-0 text-accent" />
                         </span>
                       )}
                     </button>

@@ -353,10 +353,28 @@ async function run() {
     'composer copy is not hijacked',
     await evaluate(`window.__canvasTest.copied.length === ${copies}`)
   )
+  const imagePoint = await target(`r.action.type==='image'`)
+  await click(imagePoint.x, imagePoint.y, 'right')
+  check(
+    'embedded image context menu offers copy',
+    await evaluate(
+      `document.querySelector('[data-canvas-menu]').textContent.includes('Copy image')`
+    )
+  )
+  await menuAction('Copy image')
+  check(
+    'embedded image copies its data URL',
+    await evaluate(`window.__canvasTest.copiedImages.at(-1)?.startsWith('data:image/png;base64,')`)
+  )
   await activate(`r.action.type==='image'`)
   check(
     'image click opens an accessible preview',
     await evaluate('document.querySelector("dialog")?.open===true')
+  )
+  await clickDom('dialog button')
+  check(
+    'preview copy button copies the image',
+    await evaluate(`window.__canvasTest.copiedImages.length === 2`)
   )
   await key('Escape')
   check('Escape dismisses the image preview', await evaluate('!document.querySelector("dialog")'))

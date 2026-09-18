@@ -5,6 +5,7 @@ declare global {
     __canvasTest: {
       opened: string[]
       copied: string[]
+      copiedImages: string[]
       cancelled: string[]
       logoDecodes: number
       logoPaints: number
@@ -29,6 +30,7 @@ if (!new URLSearchParams(location.search).has('holdLogo')) releaseLogo()
 window.__canvasTest = {
   opened: [],
   copied: [],
+  copiedImages: [],
   cancelled: [],
   logoDecodes: 0,
   logoPaints: 0,
@@ -119,6 +121,9 @@ window.roxy = {
     exec: async () => {},
     writeText: async (text: string) => {
       window.__canvasTest.copied.push(text)
+    },
+    writeImage: async (dataUrl: string) => {
+      window.__canvasTest.copiedImages.push(dataUrl)
     }
   }
 } as unknown as typeof window.roxy

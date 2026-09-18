@@ -347,6 +347,31 @@ export async function openaiEndpoint(
   }
 }
 
+/** Resolve a custom OpenAI-compatible image-generation endpoint. */
+export async function openaiImageEndpoint(
+  providerId: string
+): Promise<{ url: string; headers: Record<string, string> }> {
+  if (providerId === 'github-copilot') {
+    throw new Error('GitHub Copilot does not support image generation.')
+  }
+  const provider = repo.listConnectedProviders().find((p) => p.id === providerId)
+  if (!provider) throw new Error(`Provider "${providerId}" is not connected.`)
+  if (provider.wire !== 'openai' && provider.wire !== 'openai-chat') {
+    throw new Error(`Provider "${provider.name}" is not OpenAI-compatible.`)
+  }
+  const key = isCliProxyProvider(providerId)
+    ? await cliProxyKey()
+    : repo.getProviderToken(providerId)
+  const base = await resolveBaseUrl(providerId, provider.baseURL)
+  return {
+    url: `${base}/images/generations`,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { Authorization: `Bearer ${key}` } : {})
+    }
+  }
+}
+
 /** Anthropic/Gemini thinking budget (tokens) per effort level. */
 const THINK_BUDGET: Record<ReasoningEffort, number> = {
   low: 2048,

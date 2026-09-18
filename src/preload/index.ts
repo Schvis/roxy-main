@@ -352,7 +352,8 @@ const roxy: RoxyApi = {
   clipboard: {
     hasContent: () => ipcRenderer.invoke(CHANNELS.clipboardHasContent),
     exec: (action, linkUrl) => ipcRenderer.invoke(CHANNELS.clipboardExec, action, linkUrl),
-    writeText: (text) => ipcRenderer.invoke(CHANNELS.clipboardWriteText, text)
+    writeText: (text) => ipcRenderer.invoke(CHANNELS.clipboardWriteText, text),
+    writeImage: (dataUrl) => ipcRenderer.invoke(CHANNELS.clipboardWriteImage, dataUrl)
   },
   updates: {
     check: () => ipcRenderer.invoke(CHANNELS.updateCheck),
@@ -465,6 +466,9 @@ const roxy: RoxyApi = {
       ipcRenderer.on(CHANNELS.llmDelta, handler)
       return () => ipcRenderer.removeListener(CHANNELS.llmDelta, handler)
     }
+  },
+  images: {
+    generate: (input) => ipcRenderer.invoke(CHANNELS.imagesGenerate, input)
   },
   tasks: {
     listRunning: (sessionId) => ipcRenderer.invoke(CHANNELS.tasksListRunning, sessionId),

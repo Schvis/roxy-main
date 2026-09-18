@@ -418,6 +418,23 @@ export interface LlmResult {
   error?: string
 }
 
+export interface ImageGenerationInput {
+  sessionId: string
+  providerId: string
+  model: string
+  prompt: string
+}
+
+export interface GeneratedImage {
+  dataUrl: string
+  mediaType: string
+  name?: string
+}
+
+export interface ImageGenerationResult extends LlmResult {
+  images?: GeneratedImage[]
+}
+
 /** One streamed step of an agent turn: prose text, or a tool call start/delta/end. */
 export type LlmEvent =
   | { type: 'text'; delta: string }
@@ -559,6 +576,8 @@ export interface ModelInfo {
   name: string
   reasoning: boolean
   toolCall: boolean
+  /** Advertised by an OpenAI-compatible `/models/image` endpoint. */
+  imageCapable?: boolean
   /**
    * The effort levels this model actually accepts, when the provider says so.
    * Undefined = unknown, so the full Low..Max ladder is offered and clamping
@@ -1194,6 +1213,8 @@ export interface RoxyApi {
      * bypassing web focus and permission requirements.
      */
     writeText(text: string): Promise<void>
+    /** Write a base64 data-URL image directly to the OS clipboard. */
+    writeImage(dataUrl: string): Promise<void>
   }
   updates: {
     /** Manually trigger an update check. */
@@ -1339,6 +1360,10 @@ export interface RoxyApi {
     onDelta(callback: (payload: LlmDelta) => void): () => void
     /** Live parts of an active session turn, for a window that opens mid-stream. */
     snapshot(sessionId: string): Promise<MessagePart[] | null>
+  }
+  images: {
+    /** Generate durable image data through an OpenAI-compatible endpoint. */
+    generate(input: ImageGenerationInput): Promise<ImageGenerationResult>
   }
   tasks: {
     /** The background subagent tasks still running for a session. */

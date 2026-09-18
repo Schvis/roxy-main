@@ -49,6 +49,7 @@ interface ProviderRow {
   auth: string
   base_url: string | null
   default_model: string | null
+  discover_image_models: number
   enabled: number
   sort_order: number
   created_at: number
@@ -242,8 +243,15 @@ export function getIdeWindowSize(): { width: number; height: number } | null {
 
 export function setIdeWindowSize(width: number, height: number): void {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return
-  setSetting('ide_window_w', String(Math.max(760, Math.round(width))))
-  setSetting('ide_window_h', String(Math.max(480, Math.round(height))))
+  const db = getDb()
+  const write = db.prepare(
+    `INSERT INTO settings(key, value) VALUES(?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  )
+  db.transaction(() => {
+    write.run('ide_window_w', String(Math.max(760, Math.round(width))))
+    write.run('ide_window_h', String(Math.max(480, Math.round(height))))
+  })()
 }
 
 // ---- Forge host overrides ----------------------------------------------
@@ -608,6 +616,7 @@ function rowToProvider(row: ProviderRow): ConnectedProvider {
     auth: row.auth as ProviderAuth,
     baseURL: row.base_url ?? undefined,
     defaultModel: row.default_model ?? undefined,
+    discoverImageModels: row.discover_image_models > 0,
     hasCredential: row.has_credential > 0,
     enabled: row.enabled > 0,
     sortOrder: row.sort_order,
@@ -653,18 +662,20 @@ export function connectProvider(input: ConnectProviderInput): ConnectedProvider 
   const now = Date.now()
   const baseURL = input.baseURL?.trim() || seed.baseURL || null
   const defaultModel = input.defaultModel?.trim() || null
+  const discoverImageModels = input.id === 'openai-compatible' && input.discoverImageModels === true
   const db = getDb()
 
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO providers(id, name, wire, auth, base_url, default_model, enabled, sort_order, created_at)
-       VALUES(@id, @name, @wire, @auth, @base_url, @default_model, 1, @sort_order, @created_at)
+      `INSERT INTO providers(id, name, wire, auth, base_url, default_model, discover_image_models, enabled, sort_order, created_at)
+       VALUES(@id, @name, @wire, @auth, @base_url, @default_model, @discover_image_models, 1, @sort_order, @created_at)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          wire = excluded.wire,
          auth = excluded.auth,
          base_url = excluded.base_url,
          default_model = excluded.default_model,
+         discover_image_models = excluded.discover_image_models,
          enabled = 1`
     ).run({
       id: seed.id,
@@ -673,6 +684,7 @@ export function connectProvider(input: ConnectProviderInput): ConnectedProvider 
       auth: seed.auth,
       base_url: baseURL,
       default_model: defaultModel,
+      discover_image_models: discoverImageModels ? 1 : 0,
       sort_order: -now,
       created_at: now
     })

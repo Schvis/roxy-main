@@ -512,6 +512,16 @@ export const MIGRATIONS: Migration[] = [
         created_at INTEGER NOT NULL
       );
     `)
+  },
+
+  // ---- v25: per-session output transport ----
+  (db) => {
+    addColumnIfMissing(db, 'chats', 'generation_mode', 'TEXT')
+  },
+
+  // ---- v26: optional image-model catalog discovery ----
+  (db) => {
+    addColumnIfMissing(db, 'providers', 'discover_image_models', 'INTEGER NOT NULL DEFAULT 0')
   }
 ]
 
@@ -550,6 +560,8 @@ export function repairSchema(db: Database): void {
   addColumnIfMissing(db, 'chats', 'agent_id', 'TEXT')
   addColumnIfMissing(db, 'chats', 'reasoning_effort', 'TEXT')
   addColumnIfMissing(db, 'chats', 'context_limit', 'INTEGER')
+  // v25's direct chat/image output transport.
+  addColumnIfMissing(db, 'chats', 'generation_mode', 'TEXT')
   // v24's custom prompts.
   addColumnIfMissing(db, 'chats', 'prompt_id', 'TEXT')
   db.exec(`
@@ -562,6 +574,7 @@ export function repairSchema(db: Database): void {
   `)
   // v19's provider order and recent-models table.
   addColumnIfMissing(db, 'providers', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing(db, 'providers', 'discover_image_models', 'INTEGER NOT NULL DEFAULT 0')
   db.exec(`
     CREATE TABLE IF NOT EXISTS recent_models (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -27,7 +27,7 @@ import { CanvasMenu, type CanvasMenuItem } from './CanvasMenu'
 import { openLink } from './links'
 import { diffPatch } from '../components/diff/model'
 import { prefersReducedMotion, subscribeMotion } from '../lib/motion'
-import { writeClipboardText } from '../lib/clipboard'
+import { writeClipboardImage, writeClipboardText } from '../lib/clipboard'
 import { PromptHistoryRail } from './PromptHistoryRail'
 import { activePrompt, PROMPT_OFFSET, type PromptAnchor, type PromptEntry } from './prompt-history'
 
@@ -526,6 +526,11 @@ export function CanvasSurface({
       setStatus(ok ? t('chat.copied') : t('transcript.copyFailed'))
     })
   }
+  const copyImage = (dataUrl: string): void => {
+    void writeClipboardImage(dataUrl).then((ok) => {
+      setStatus(ok ? t('transcript.imageCopied') : t('transcript.copyFailed'))
+    })
+  }
   const selectAll = (): void => {
     const rows = scene.current.blocks.flatMap((block) => block.selectable)
     if (!rows.length) return
@@ -892,6 +897,14 @@ export function CanvasSurface({
                 { label: t('remote.copyLink'), run: () => copy(href) }
               )
             }
+            if (hit?.action.type === 'image') {
+              const src = hit.action.src
+              items.push({
+                label: t('transcript.copyImage'),
+                run: () => copyImage(src),
+                disabled: !src.startsWith('data:image/')
+              })
+            }
             if (inner?.copyActions) {
               items.push(
                 ...inner.copyActions.map(({ label, text }) => ({ label, run: () => copy(text) }))
@@ -970,13 +983,23 @@ export function CanvasSurface({
             if (event.target === event.currentTarget) event.currentTarget.close()
           }}
         >
-          <button
-            type="button"
-            className="mb-2 ml-auto block rounded px-2 py-1 text-xs hover:bg-white/5"
-            onClick={() => imageDialog.current?.close()}
-          >
-            {t('common.close')}
-          </button>
+          <div className="mb-2 flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs hover:bg-white/5 disabled:opacity-40"
+              disabled={!image.startsWith('data:image/')}
+              onClick={() => copyImage(image)}
+            >
+              {t('transcript.copyImage')}
+            </button>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs hover:bg-white/5"
+              onClick={() => imageDialog.current?.close()}
+            >
+              {t('common.close')}
+            </button>
+          </div>
           <img
             src={image}
             alt={t('transcript.openImage')}

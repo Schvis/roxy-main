@@ -1899,6 +1899,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
 
   clearModelCache: (providerId) => {
+    modelCatalogInflight.delete(providerId)
     set((s) => {
       const next = { ...s.modelCatalog }
       delete next[providerId]
@@ -2440,6 +2441,45 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           return
         }
         const info = catalog.find((m) => m.id === model)
+        if (info?.imageCapable) {
+          if (images?.length) {
+            parts = [
+              {
+                type: 'text',
+                text: `_${i18n.t('images.attachmentsUnavailable')}_`
+              }
+            ]
+            setStreaming(parts)
+            await finishTurn()
+            return
+          }
+          const result = await api.images.generate({
+            sessionId: chatId,
+            providerId: provider.id,
+            model,
+            prompt: content
+          })
+          if (result.ok && result.images?.length) {
+            parts = result.images.map((image) => ({
+              type: 'image' as const,
+              dataUrl: image.dataUrl,
+              mediaType: image.mediaType,
+              name: image.name
+            }))
+          } else if (!stopped()) {
+            parts = [
+              {
+                type: 'text',
+                text: `_${i18n.t('images.failed', {
+                  error: result.error ?? i18n.t('common.unknown')
+                })}_`
+              }
+            ]
+          }
+          setStreaming(parts)
+          await finishTurn()
+          return
+        }
         const modelContext = info?.contextLimit ?? 128_000
         const contextBudget = contextBudgetFor(config.contextLimit, modelContext)
         const agentId = config.agentId

@@ -67,6 +67,8 @@ export interface ConnectedProvider {
   auth: ProviderAuth
   baseURL?: string
   defaultModel?: string
+  /** Also discover models from the optional `/models/image` endpoint. */
+  discoverImageModels: boolean
   hasCredential: boolean
   enabled: boolean
   /** User-defined provider order (higher = higher in Settings/model picker). */
@@ -79,6 +81,7 @@ export interface ConnectProviderInput {
   apiKey?: string
   baseURL?: string
   defaultModel?: string
+  discoverImageModels?: boolean
 }
 
 export interface DeviceFlowStart {

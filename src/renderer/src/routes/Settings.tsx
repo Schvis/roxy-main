@@ -112,6 +112,7 @@ export default function Settings(): JSX.Element {
   const resetVtuberPosition = useRoxyStore((s) => s.resetVtuberPosition)
   const setDiscordRpcEnabled = useRoxyStore((s) => s.setDiscordRpcEnabled)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
+  const ensureModels = useRoxyStore((s) => s.ensureModels)
   const [resetPositionSuccess, setResetPositionSuccess] = useState(false)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
@@ -146,6 +147,7 @@ export default function Settings(): JSX.Element {
   const [dragProviderId, setDragProviderId] = useState<string | null>(null)
   const [dragOverProviderId, setDragOverProviderId] = useState<string | null>(null)
   const [dropAfterProvider, setDropAfterProvider] = useState(false)
+  const [imageDiscoverySaving, setImageDiscoverySaving] = useState(false)
   const customPrompts = useRoxyStore((s) => s.customPrompts)
   const refreshCustomPrompts = useRoxyStore((s) => s.refreshCustomPrompts)
   const [promptDialogOpen, setPromptDialogOpen] = useState(false)
@@ -190,6 +192,27 @@ export default function Settings(): JSX.Element {
     if (!source || source === targetId) return
     const order = reorderWithinProviders(source, targetId, place)
     if (order) void reorderProviders(order)
+  }
+
+  const setImageDiscovery = async (
+    provider: ConnectedProvider,
+    enabled: boolean
+  ): Promise<void> => {
+    if (imageDiscoverySaving) return
+    setImageDiscoverySaving(true)
+    try {
+      await api.providers.connect({
+        id: provider.id,
+        baseURL: provider.baseURL,
+        defaultModel: provider.defaultModel,
+        discoverImageModels: enabled
+      })
+      clearModelCache(provider.id)
+      await refreshProviders()
+      await ensureModels(provider.id)
+    } finally {
+      setImageDiscoverySaving(false)
+    }
   }
 
   useEffect(() => {
@@ -949,6 +972,8 @@ export default function Settings(): JSX.Element {
                 draggable={providers.length > 1}
                 dragging={dragProviderId === p.id}
                 onDisconnect={() => disconnect(p.id)}
+                imageDiscoverySaving={imageDiscoverySaving}
+                onImageDiscoveryChange={(enabled) => void setImageDiscovery(p, enabled)}
               />
             </div>
           ))}
@@ -2346,13 +2371,17 @@ function ProviderRow({
   active,
   draggable,
   dragging,
-  onDisconnect
+  onDisconnect,
+  imageDiscoverySaving,
+  onImageDiscoveryChange
 }: {
   provider: ConnectedProvider
   active: boolean
   draggable: boolean
   dragging: boolean
   onDisconnect: () => void
+  imageDiscoverySaving: boolean
+  onImageDiscoveryChange: (enabled: boolean) => void
 }): JSX.Element {
   const { t } = useTranslation()
   return (
@@ -2395,6 +2424,23 @@ function ProviderRow({
             id is required: one sidecar holds every subscription's accounts, and
             a row must show only its own. */}
         {provider.auth === 'subscription' && <SubscriptionAccounts providerId={provider.id} />}
+        {provider.id === 'openai-compatible' && (
+          <div className="mt-2 flex items-center gap-2">
+            <Switch
+              checked={provider.discoverImageModels}
+              onChange={onImageDiscoveryChange}
+              disabled={imageDiscoverySaving}
+            />
+            <div>
+              <div className="text-xs font-medium text-text">
+                {t('settings.providers.discoverImageModels')}
+              </div>
+              <div className="text-[11px] text-text-subtle">
+                {t('settings.providers.discoverImageModelsBody')}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <Button size="sm" variant="ghost" onClick={onDisconnect}>
         {t('settings.providers.disconnect')}
