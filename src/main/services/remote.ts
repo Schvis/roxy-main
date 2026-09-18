@@ -16,7 +16,6 @@
  */
 import { randomUUID } from 'node:crypto'
 import { BrowserWindow } from 'electron'
-import { is } from '@electron-toolkit/utils'
 import WebSocket from 'ws'
 import { CHANNELS } from '../../shared/ipc'
 import type {
@@ -51,12 +50,9 @@ import {
   type RemoteSessionInfo
 } from './remote-protocol'
 /**
- * Relay base. Prod dials roxy.gg; a dev build defaults to the local roxy.gg
- * (localhost:3000). Override with `ROXY_REMOTE_BASE` (e.g. a staging URL).
+ * Relay base. Defaults to roxy.schvis.com. Override with `ROXY_REMOTE_BASE` (e.g. a local URL).
  */
-const HTTP_BASE = (
-  process.env.ROXY_REMOTE_BASE || (is.dev ? 'http://localhost:3000' : 'https://roxy.gg')
-).replace(/\/$/, '')
+const HTTP_BASE = (process.env.ROXY_REMOTE_BASE || 'https://roxy.schvis.com').replace(/\/$/, '')
 
 /** ws(s):// origin derived from the http(s):// base. */
 const WS_BASE = HTTP_BASE.replace(/^http/, 'ws')

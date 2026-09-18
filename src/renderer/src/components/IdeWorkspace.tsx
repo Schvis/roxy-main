@@ -17,9 +17,15 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import type { GitFileDiffResult, WorkspaceFileEntry, WorkspaceFileSearchMatch } from '@shared/api'
+import type {
+  GitChangedFile,
+  GitFileDiffResult,
+  WorkspaceFileEntry,
+  WorkspaceFileSearchMatch
+} from '@shared/api'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
+import { getFileIconDescriptor } from '../lib/file-icon'
 import { writeClipboardText } from '../lib/clipboard'
 import { useRoxyStore } from '../lib/store'
 import { subscribeFileReviews } from '../lib/agent-file-changes'
@@ -28,6 +34,8 @@ import {
   saveExpandedFolders,
   loadActiveFile,
   saveActiveFile,
+  loadSessionActiveFile,
+  saveSessionActiveFile,
   getAncestorPaths,
   migrateRenamedPath,
   pruneDeletedPath,
@@ -47,6 +55,16 @@ const MAX_PANEL_WIDTH = 800
 const DEFAULT_PANEL_WIDTH = 260
 const PANEL_WIDTH_KEY = 'roxy:ide-panel-width'
 
+function normalizePathKey(p: string): string {
+  if (!p) return ''
+  return p
+    .replace(/^"+|"+$/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/^\/+/, '')
+    .toLowerCase()
+}
+
 interface ExplorerActions {
   sessionId: string
   refreshNonce: number
@@ -64,6 +82,8 @@ interface ExplorerActions {
   toggleExpanded: (path: string) => void
   setExpanded: (path: string, expanded: boolean) => void
   renameEntry: (oldPath: string, newPath: string, isDirectory: boolean) => void
+  isGitRepo: boolean
+  getGitStatus: (itemPath: string, isDirectory: boolean) => GitChangedFile['status'] | null
 }
 
 const ExplorerContext = createContext<ExplorerActions | null>(null)
@@ -170,7 +190,12 @@ function Directory({ path }: { path: string }): JSX.Element {
           {creating?.isDirectory ? (
             <Folder className="h-4 w-4 shrink-0 text-accent/80" />
           ) : (
-            <FileText className="h-4 w-4 shrink-0 text-accent" />
+            (() => {
+              const { Icon: CreateIcon, color: createColor } = getFileIconDescriptor(
+                createName || 'file'
+              )
+              return <CreateIcon className={cn('h-4 w-4 shrink-0', createColor)} />
+            })()
           )}
           <input
             ref={createInputRef}
@@ -225,12 +250,16 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
     isExpanded,
     toggleExpanded,
     setExpanded,
-    renameEntry
+    renameEntry,
+    isGitRepo,
+    getGitStatus
   } = useExplorer()
   const expanded = entry.directory ? isExpanded(entry.path) : false
   const [renameName, setRenameName] = useState(entry.name)
   const renameInputRef = useRef<HTMLInputElement>(null)
-  const Icon = entry.directory ? (expanded ? FolderOpen : Folder) : FileText
+  const iconDesc = entry.directory ? null : getFileIconDescriptor(entry.name)
+  const Icon = entry.directory ? (expanded ? FolderOpen : Folder) : iconDesc!.Icon
+  const defaultFileIconColor = iconDesc?.color ?? 'text-accent/80'
 
   const isRenaming = renaming === entry.path
 
@@ -290,7 +319,10 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
           />
           <Icon
             aria-hidden
-            className={`h-4 w-4 shrink-0 ${entry.directory ? 'text-accent/80' : ''}`}
+            className={cn(
+              'h-4 w-4 shrink-0',
+              entry.directory ? 'text-accent/80' : defaultFileIconColor
+            )}
           />
           <input
             ref={renameInputRef}
@@ -321,6 +353,33 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
   }
 
   const isSelected = !entry.directory && selectedPath === entry.path
+  const isIgnored = Boolean(entry.ignored)
+  const gitStatus = isGitRepo ? getGitStatus(entry.path, entry.directory) : null
+
+  const isNewlyAdded = gitStatus === 'added' || gitStatus === 'untracked'
+  const isModified = gitStatus === 'modified' || gitStatus === 'renamed' || gitStatus === 'copied'
+  const isConflict = gitStatus === 'conflict'
+
+  const gitTextColor = isNewlyAdded
+    ? 'text-success'
+    : isModified
+      ? 'text-warning'
+      : isConflict
+        ? 'text-danger'
+        : null
+
+  const gitBadge =
+    !entry.directory && gitStatus
+      ? gitStatus === 'untracked'
+        ? 'U'
+        : gitStatus === 'added'
+          ? 'A'
+          : isModified
+            ? 'M'
+            : isConflict
+              ? '!'
+              : null
+      : null
 
   return (
     <li
@@ -336,18 +395,89 @@ function Entry({ entry }: { entry: WorkspaceFileEntry }): JSX.Element {
           aria-expanded={entry.directory ? expanded : undefined}
           aria-current={isSelected ? 'true' : undefined}
           title={entry.path}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${isSelected ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-2 hover:text-text'}`}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent pr-16',
+            isSelected
+              ? 'bg-accent/15 text-accent'
+              : gitTextColor && !entry.directory
+                ? `${gitTextColor} hover:bg-surface-2`
+                : isIgnored
+                  ? 'text-text-subtle/50 hover:bg-surface-2 hover:text-text-subtle'
+                  : 'text-text-muted hover:bg-surface-2 hover:text-text'
+          )}
           onClick={() => (entry.directory ? toggleExpanded(entry.path) : onSelect(entry))}
         >
           <ChevronRight
             aria-hidden
-            className={`h-3 w-3 shrink-0 transition-transform ${!entry.directory ? 'invisible' : expanded ? 'rotate-90' : ''}`}
+            className={cn(
+              'h-3 w-3 shrink-0 transition-transform',
+              !entry.directory ? 'invisible' : expanded ? 'rotate-90' : '',
+              isIgnored && 'opacity-40'
+            )}
           />
           <Icon
             aria-hidden
-            className={`h-4 w-4 shrink-0 ${entry.directory ? 'text-accent/80' : ''}`}
+            className={cn(
+              'h-4 w-4 shrink-0',
+              entry.directory
+                ? gitTextColor
+                  ? `${gitTextColor} opacity-90`
+                  : isIgnored
+                    ? 'text-text-subtle/40'
+                    : 'text-accent/80'
+                : gitTextColor
+                  ? gitTextColor
+                  : isIgnored
+                    ? 'text-text-subtle/40'
+                    : defaultFileIconColor
+            )}
           />
-          <span className="truncate pr-16">{entry.name}</span>
+          <span
+            className={cn(
+              'truncate',
+              gitTextColor && 'font-medium',
+              gitTextColor && isSelected ? gitTextColor : '',
+              isIgnored && !isSelected && !gitTextColor ? 'text-text-subtle/50' : ''
+            )}
+          >
+            {entry.name}
+          </span>
+          {gitBadge && (
+            <span
+              className={cn(
+                'ml-auto shrink-0 font-mono text-[10px] font-bold leading-none',
+                gitTextColor
+              )}
+              title={
+                isNewlyAdded
+                  ? t('chat.fileCreated')
+                  : isModified
+                    ? t('chat.fileModified')
+                    : isConflict
+                      ? t('git.status.conflict')
+                      : (gitStatus ?? undefined)
+              }
+            >
+              {gitBadge}
+            </span>
+          )}
+          {entry.directory && gitStatus && (
+            <span
+              className={cn(
+                'ml-auto h-1.5 w-1.5 shrink-0 rounded-full',
+                isConflict ? 'bg-danger' : isModified ? 'bg-warning' : 'bg-success'
+              )}
+              title={
+                isNewlyAdded
+                  ? t('chat.fileCreated')
+                  : isModified
+                    ? t('chat.fileModified')
+                    : isConflict
+                      ? t('git.status.conflict')
+                      : (gitStatus ?? undefined)
+              }
+            />
+          )}
         </button>
 
         {/* Hover action buttons */}
@@ -606,7 +736,10 @@ function GitDiffViewer({
       {/* Top File & Revision Header Bar */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-3">
         <div className="flex items-center gap-2 min-w-0">
-          <FileText className="h-4 w-4 text-accent shrink-0" />
+          {(() => {
+            const { Icon: DiffFileIcon, color } = getFileIconDescriptor(path)
+            return <DiffFileIcon className={cn('h-4 w-4 shrink-0', color)} />
+          })()}
           <span className="truncate font-mono text-xs font-semibold text-text" title={path}>
             {path}
           </span>
@@ -726,7 +859,7 @@ function WorkspaceContents({
 
   const [selected, setSelected] = useState<WorkspaceFileEntry | null>(() => {
     if (ideSelectedFile && selectionMatchesRoot) return ideSelectedFile
-    const saved = loadActiveFile(root)
+    const saved = (sessionId ? loadSessionActiveFile(sessionId) : null) ?? loadActiveFile(root)
     if (saved) {
       return {
         path: saved.path,
@@ -738,7 +871,7 @@ function WorkspaceContents({
   })
   const [selectedLine, setSelectedLine] = useState<number | undefined>(() => {
     if (ideSelectedFile && selectionMatchesRoot) return ideSelectedLine
-    const saved = loadActiveFile(root)
+    const saved = (sessionId ? loadSessionActiveFile(sessionId) : null) ?? loadActiveFile(root)
     return saved?.line
   })
   const [diffTarget, setDiffTarget] = useState<{
@@ -821,25 +954,133 @@ function WorkspaceContents({
     return () => clearInterval(timer)
   }, [])
 
+  const [isGitRepo, setIsGitRepo] = useState(false)
+  const [gitChangedFiles, setGitChangedFiles] = useState<Map<string, GitChangedFile['status']>>(
+    () => new Map()
+  )
+
+  useEffect(() => {
+    if (!root) {
+      setIsGitRepo(false)
+      setGitChangedFiles(new Map())
+      return
+    }
+
+    let active = true
+    const checkGit = async (): Promise<void> => {
+      try {
+        const st = await api.git.status(root)
+        if (!active) return
+        if (!st.isRepo) {
+          setIsGitRepo(false)
+          setGitChangedFiles(new Map())
+          return
+        }
+        setIsGitRepo(true)
+        const files = await api.git.changedFiles(root)
+        if (!active) return
+        const map = new Map<string, GitChangedFile['status']>()
+        for (const file of files) {
+          map.set(normalizePathKey(file.path), file.status)
+        }
+        setGitChangedFiles(map)
+      } catch {
+        if (active) {
+          setIsGitRepo(false)
+          setGitChangedFiles(new Map())
+        }
+      }
+    }
+
+    void checkGit()
+    return () => {
+      active = false
+    }
+  }, [root, refreshNonce])
+
+  const getGitStatus = useCallback(
+    (itemPath: string, isDirectory: boolean): GitChangedFile['status'] | null => {
+      if (!isGitRepo || gitChangedFiles.size === 0) return null
+      const key = normalizePathKey(itemPath)
+      if (!isDirectory) {
+        return gitChangedFiles.get(key) ?? null
+      }
+      const prefix = key ? `${key}/` : ''
+      let hasModified = false
+      let hasAdded = false
+      let hasConflict = false
+
+      for (const [p, st] of gitChangedFiles.entries()) {
+        if (p.startsWith(prefix) || p === key) {
+          if (st === 'conflict') hasConflict = true
+          else if (st === 'modified' || st === 'renamed' || st === 'copied') hasModified = true
+          else if (st === 'added' || st === 'untracked') hasAdded = true
+        }
+      }
+
+      if (hasConflict) return 'conflict'
+      if (hasModified) return 'modified'
+      if (hasAdded) return 'untracked'
+      return null
+    },
+    [isGitRepo, gitChangedFiles]
+  )
+
+  const expandAncestors = useCallback((filePath: string) => {
+    const ancestors = getAncestorPaths(filePath)
+    if (ancestors.length === 0) return
+    setExpandedFolders((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const a of ancestors) {
+        if (!next.has(a)) {
+          next.add(a)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
   // Handle root change if component is kept mounted across project switch
   const prevRootRef = useRef(root)
+  const prevSessionIdRef = useRef(sessionId)
   useEffect(() => {
-    if (prevRootRef.current !== root) {
+    if (prevRootRef.current !== root || prevSessionIdRef.current !== sessionId) {
       prevRootRef.current = root
+      prevSessionIdRef.current = sessionId
       setExpandedFolders(loadExpandedFolders(root))
-      const saved = loadActiveFile(root)
+
+      // If store already has a selection matching this root, keep it
+      if (ideSelectedFile && selectionMatchesRoot) {
+        setSelected(ideSelectedFile)
+        setSelectedLine(ideSelectedLine)
+        expandAncestors(ideSelectedFile.path)
+        return
+      }
+
+      const saved = (sessionId ? loadSessionActiveFile(sessionId) : null) ?? loadActiveFile(root)
       if (saved) {
         const entry = { path: saved.path, name: saved.name, directory: false }
         setSelected(entry)
         setSelectedLine(saved.line)
         setIdeSelectedFile(entry, saved.line, root)
+        expandAncestors(saved.path)
       } else {
         setSelected(null)
         setSelectedLine(undefined)
         setIdeSelectedFile(null, undefined, root)
       }
     }
-  }, [root, setIdeSelectedFile])
+  }, [
+    root,
+    sessionId,
+    ideSelectedFile,
+    selectionMatchesRoot,
+    setIdeSelectedFile,
+    expandAncestors,
+    ideSelectedLine
+  ])
 
   // Save expanded folders whenever they change
   useEffect(() => {
@@ -849,21 +1090,27 @@ function WorkspaceContents({
 
   // Save active file whenever selected or selectedLine changes
   useEffect(() => {
-    if (!root) return
-    if (selected) {
-      saveActiveFile(root, {
-        path: selected.path,
-        name: selected.name,
-        line: selectedLine
-      })
-    } else {
-      saveActiveFile(root, null)
+    if (!root && !sessionId) return
+    const fileToSave = selected
+      ? {
+          path: selected.path,
+          name: selected.name,
+          line: selectedLine
+        }
+      : null
+    if (root) {
+      saveActiveFile(root, fileToSave)
     }
-  }, [root, selected, selectedLine])
+    if (sessionId) {
+      saveSessionActiveFile(sessionId, fileToSave, root)
+    }
+  }, [root, sessionId, selected, selectedLine])
 
   // On initial mount, replace stale cross-workspace selection with restored local state.
   useEffect(() => {
-    setIdeSelectedFile(selected, selectedLine, root)
+    if (selected) {
+      setIdeSelectedFile(selected, selectedLine, root)
+    }
   }, [])
 
   const isExpanded = useCallback(
@@ -893,22 +1140,6 @@ function WorkspaceContents({
         next.delete(dirPath)
       }
       return next
-    })
-  }, [])
-
-  const expandAncestors = useCallback((filePath: string) => {
-    const ancestors = getAncestorPaths(filePath)
-    if (ancestors.length === 0) return
-    setExpandedFolders((prev) => {
-      let changed = false
-      const next = new Set(prev)
-      for (const a of ancestors) {
-        if (!next.has(a)) {
-          next.add(a)
-          changed = true
-        }
-      }
-      return changed ? next : prev
     })
   }, [])
 
@@ -1103,7 +1334,9 @@ function WorkspaceContents({
     isExpanded,
     toggleExpanded,
     setExpanded,
-    renameEntry: handleRenameEntry
+    renameEntry: handleRenameEntry,
+    isGitRepo,
+    getGitStatus
   }
 
   return (
@@ -1171,7 +1404,11 @@ function WorkspaceContents({
             role="tab"
             aria-selected={ideTab === 'git'}
             onClick={() => setIdeTab('git')}
-            title={t('ide.gitTab')}
+            title={
+              isGitRepo && gitChangedFiles.size > 0
+                ? `${t('ide.gitTab')} (${gitChangedFiles.size})`
+                : t('ide.gitTab')
+            }
             aria-label={t('ide.gitTab')}
             className={cn(
               'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
@@ -1184,6 +1421,11 @@ function WorkspaceContents({
               <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
             )}
             <GitBranch className="h-4 w-4" />
+            {isGitRepo && gitChangedFiles.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-white shadow-xs leading-none">
+                {gitChangedFiles.size > 99 ? '99+' : gitChangedFiles.size}
+              </span>
+            )}
           </button>
         </div>
 
@@ -1438,7 +1680,13 @@ function WorkspaceContents({
                                 !isCollapsed && 'rotate-90'
                               )}
                             />
-                            <FileText className="h-3.5 w-3.5 shrink-0 text-accent" />
+                            {(() => {
+                              const { Icon: SearchFileIcon, color } =
+                                getFileIconDescriptor(filePath)
+                              return (
+                                <SearchFileIcon className={cn('h-3.5 w-3.5 shrink-0', color)} />
+                              )
+                            })()}
                             <span className="truncate font-medium" title={filePath}>
                               {fileName}
                               {dirPath && (

@@ -6,7 +6,7 @@ out
 *.log.*
 .env
 .env.*
-
+remote-server
 # smoke-test build output
 test/.out/
 

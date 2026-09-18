@@ -778,6 +778,7 @@ export interface WorkspaceFileEntry {
   /** Session-root-relative path, using '/' separators. */
   path: string
   directory: boolean
+  ignored?: boolean
 }
 
 export interface WorkspaceFileRead {

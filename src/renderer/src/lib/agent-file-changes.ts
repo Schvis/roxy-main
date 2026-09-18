@@ -311,13 +311,13 @@ export async function undoFileChange(
   try {
     if (change.isCreated) {
       await api.files.delete(sessionId, change.path)
-      revertEditorDraft(sessionId, change.path, undefined)
+      revertEditorDraft(sessionId, change.path)
     } else {
       const readResult = await api.files.read(sessionId, change.path)
       if (readResult && readResult.revision !== null) {
         await api.files.write(sessionId, change.path, change.initialBefore, readResult.revision)
       }
-      revertEditorDraft(sessionId, change.path, change.initialBefore)
+      revertEditorDraft(sessionId, change.path)
     }
     setFileReviewStatus(sessionId, change.path, 'undone', change.latestAfter)
     onReverted?.()
@@ -330,7 +330,7 @@ export async function undoFileChange(
 
 export function keepFileChange(sessionId: string, path: string, latestAfter?: string): void {
   setFileReviewStatus(sessionId, path, 'kept', latestAfter)
-  revertEditorDraft(sessionId, path, latestAfter)
+  revertEditorDraft(sessionId, path)
 }
 
 export async function undoAllFileChanges(

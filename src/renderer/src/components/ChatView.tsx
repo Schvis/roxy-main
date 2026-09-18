@@ -800,9 +800,12 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
       {commandsOpen && !ideMode && activeChat && (
         <CommandsDialog
           chat={activeChat}
-          onClose={() => setCommandsOpen(false)}
+          onClose={() => {
+            setCommandsOpen(false)
+            setCommandsInitialTab(undefined)
+          }}
           onPopOut={openIndependentTerminal}
-          initialTab={commandsInitialTab ?? (runningCommand ? 'agent' : 'user')}
+          initialTab={commandsInitialTab}
         />
       )}
 

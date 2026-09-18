@@ -584,6 +584,17 @@ export function completeOnboarding(): AppSettings {
   return getSettings()
 }
 
+export function getLastActiveChatId(): string | null {
+  const row = getDb()
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('last_active_chat_id') as { value: string } | undefined
+  return row?.value ?? null
+}
+
+export function setLastActiveChatId(id: string | null): void {
+  setSetting('last_active_chat_id', id)
+}
+
 /** Factory reset — wipe all user data (providers, sessions, loops, settings). */
 export function resetAll(): void {
   const db = getDb()
@@ -1307,6 +1318,9 @@ export function renameChat(id: string, title: string): void {
 
 export function removeChat(id: string): void {
   const db = getDb()
+  if (getLastActiveChatId() === id) {
+    setLastActiveChatId(null)
+  }
   // The PROJECT folder (not sessionCwd): we're deciding whether the project row
   // still has sessions, which is about the folder the user opened.
   const workspace = getChatWorkspace(id)

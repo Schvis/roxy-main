@@ -1,10 +1,17 @@
 export const EXPANDED_FOLDERS_STORAGE_PREFIX = 'roxy.ide.expandedFolders.v1'
 export const ACTIVE_FILE_STORAGE_PREFIX = 'roxy.ide.activeFile.v1'
+export const SESSION_ACTIVE_FILE_STORAGE_PREFIX = 'roxy.ide.sessionActiveFile.v1'
+export const LAST_ACTIVE_FILE_STORAGE_KEY = 'roxy.ide.lastActiveFile.v1'
 
 export interface StoredActiveFile {
   path: string
   name: string
   line?: number
+}
+
+export interface PersistedActiveFile extends StoredActiveFile {
+  root?: string | null
+  sessionId?: string | null
 }
 
 export function normalizeRoot(root: string | null | undefined): string {
@@ -97,6 +104,98 @@ export function saveActiveFile(
       )
     }
   } catch {}
+}
+
+export function loadSessionActiveFile(
+  sessionId: string | null | undefined
+): (StoredActiveFile & { root?: string | null }) | null {
+  if (typeof localStorage === 'undefined' || !sessionId) return null
+  try {
+    const key = `${SESSION_ACTIVE_FILE_STORAGE_PREFIX}:${sessionId}`
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'path' in parsed &&
+      typeof (parsed as StoredActiveFile).path === 'string'
+    ) {
+      const p = parsed as StoredActiveFile & { root?: unknown }
+      return {
+        path: p.path,
+        name: typeof p.name === 'string' && p.name ? p.name : p.path.split('/').pop() || p.path,
+        line: typeof p.line === 'number' ? p.line : undefined,
+        root: typeof p.root === 'string' ? p.root : null
+      }
+    }
+  } catch {}
+  return null
+}
+
+export function saveSessionActiveFile(
+  sessionId: string | null | undefined,
+  file: StoredActiveFile | null,
+  root?: string | null
+): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    if (sessionId) {
+      const key = `${SESSION_ACTIVE_FILE_STORAGE_PREFIX}:${sessionId}`
+      if (!file) {
+        localStorage.removeItem(key)
+      } else {
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            path: file.path,
+            name: file.name,
+            line: file.line,
+            root: root ?? null
+          })
+        )
+      }
+    }
+    if (!file) {
+      localStorage.removeItem(LAST_ACTIVE_FILE_STORAGE_KEY)
+    } else {
+      localStorage.setItem(
+        LAST_ACTIVE_FILE_STORAGE_KEY,
+        JSON.stringify({
+          path: file.path,
+          name: file.name,
+          line: file.line,
+          root: root ?? null,
+          sessionId: sessionId ?? null
+        })
+      )
+    }
+  } catch {}
+}
+
+export function loadLastActiveFile(): PersistedActiveFile | null {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(LAST_ACTIVE_FILE_STORAGE_KEY)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'path' in parsed &&
+      typeof (parsed as StoredActiveFile).path === 'string'
+    ) {
+      const p = parsed as StoredActiveFile & { root?: unknown; sessionId?: unknown }
+      return {
+        path: p.path,
+        name: typeof p.name === 'string' && p.name ? p.name : p.path.split('/').pop() || p.path,
+        line: typeof p.line === 'number' ? p.line : undefined,
+        root: typeof p.root === 'string' ? p.root : null,
+        sessionId: typeof p.sessionId === 'string' ? p.sessionId : null
+      }
+    }
+  } catch {}
+  return null
 }
 
 export function migrateRenamedPath(

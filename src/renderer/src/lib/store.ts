@@ -67,6 +67,13 @@ import type {
 } from '@shared/api'
 import { aggregateLifecycle, aggregateRepoStatus, describeCompositeLifecycle } from '@shared/repos'
 import type { ForgeStatusView } from '@shared/forge'
+import {
+  loadActiveFile,
+  saveActiveFile,
+  loadSessionActiveFile,
+  saveSessionActiveFile,
+  loadLastActiveFile
+} from './ide-state'
 
 interface RoxyStore {
   ready: boolean
@@ -1002,6 +1009,18 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (autoIde) {
       void api.settings.setIdeMode(true)
     }
+    const currentChatId = state.activeChatId
+    const filePayload = entry
+      ? {
+          path: entry.path,
+          name: entry.name,
+          line
+        }
+      : null
+    saveSessionActiveFile(currentChatId, filePayload, root)
+    if (root) {
+      saveActiveFile(root, filePayload)
+    }
     set({
       ideSelectedFile: entry,
       ideSelectedLine: line,
@@ -1296,10 +1315,14 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       api.remote.onDelta((payload) => applyRemoteDelta(payload))
     }
 
-    const activeChatId = await api.chats.getActive()
-    const firstSession = chats.find((c) => c.kind === 'main')
-    if (!get().activeChatId && (activeChatId || firstSession)) {
-      await get().selectChat(activeChatId ?? firstSession!.id)
+    const lastActive = loadLastActiveFile()
+    const activeChatId = (await api.chats.getActive()) ?? lastActive?.sessionId ?? null
+    const validActive =
+      activeChatId && chats.some((c) => c.id === activeChatId) ? activeChatId : null
+    const firstSession = chats.find((c) => c.kind === 'main') ?? chats[0]
+    const targetSessionId = validActive ?? firstSession?.id
+    if (!get().activeChatId && targetSessionId) {
+      await get().selectChat(targetSessionId)
     }
   },
 
@@ -1952,6 +1975,36 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     // mode when you come back to it. The model/effort/context pickers read the
     // chat row directly via `resolveSessionConfig`, so they need no mirror here.
     const chat = get().chats.find((c) => c.id === id)
+    const parentChat = chat?.parentId ? get().chats.find((c) => c.id === chat.parentId) : undefined
+    const workspaceRoot =
+      chat?.worktreePath ??
+      chat?.workspacePath ??
+      parentChat?.worktreePath ??
+      parentChat?.workspacePath ??
+      null
+
+    const savedSessionFile = loadSessionActiveFile(id)
+    const savedRootFile = workspaceRoot ? loadActiveFile(workspaceRoot) : null
+    const savedFile = savedSessionFile ?? savedRootFile
+
+    let restoredEntry: WorkspaceFileEntry | null = null
+    let restoredLine: number | undefined = undefined
+    let restoredRoot: string | null = null
+
+    if (savedFile) {
+      restoredEntry = {
+        path: savedFile.path,
+        name: savedFile.name,
+        directory: false
+      }
+      restoredLine = savedFile.line
+      restoredRoot =
+        'root' in savedFile && typeof savedFile.root === 'string' ? savedFile.root : workspaceRoot
+      if (!get().settings?.ideMode) {
+        void api.settings.setIdeMode(true)
+      }
+    }
+
     set({
       activeChatId: id,
       messages: [],
@@ -1961,7 +2014,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       messagesChatId: null,
       messagesError: false,
       queue: [],
-      activeAgentId: chat?.agentId ?? DEFAULT_AGENT_ID
+      activeAgentId: chat?.agentId ?? DEFAULT_AGENT_ID,
+      ideSelectedFile: restoredEntry,
+      ideSelectedLine: restoredLine,
+      ideSelectedRoot: restoredRoot
     })
     const workspace = chat?.workspacePath
     if (workspace) void get().ensureProjectInstructions(workspace)

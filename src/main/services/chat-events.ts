@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { CHANNELS } from '../../shared/ipc'
 import type { MessagesUpdated } from '../../shared/api'
+import { getLastActiveChatId, setLastActiveChatId, getChat } from '../db/repo'
 
 let activeChatId: string | null = null
 
@@ -30,10 +31,13 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-export function setActiveChat(id: string): void {
+export function setActiveChat(id: string | null): void {
   if (activeChatId === id) return
   activeChatId = id
-  broadcast(CHANNELS.chatsActiveChanged, id)
+  setLastActiveChatId(id)
+  if (id) {
+    broadcast(CHANNELS.chatsActiveChanged, id)
+  }
   for (const cb of activeChatListeners) {
     try {
       cb(id)
@@ -44,6 +48,15 @@ export function setActiveChat(id: string): void {
 }
 
 export function getActiveChat(): string | null {
+  if (!activeChatId) {
+    const persisted = getLastActiveChatId()
+    if (persisted && getChat(persisted)) {
+      activeChatId = persisted
+    }
+  } else if (!getChat(activeChatId)) {
+    activeChatId = null
+    setLastActiveChatId(null)
+  }
   return activeChatId
 }
 

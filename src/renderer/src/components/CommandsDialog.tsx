@@ -139,21 +139,29 @@ export function CommandsPane({
   const cancelToolCall = useRoxyStore((s) => s.cancelToolCall)
 
   const agentCommands = extractAgentCommands(streaming, messages)
-  const runningAgentCommand = agentCommands.find((c) => c.state === 'running')
+  const runningAgentCommand =
+    agentCommands.find((c) => c.tool === 'bash' && c.state === 'running') ??
+    agentCommands.find((c) => c.state === 'running')
 
   const [activeTab, setActiveTab] = useState<'agent' | 'user'>(() => {
     if (initialTab) return initialTab
-    return runningAgentCommand ? 'agent' : 'user'
+    return runningAgentCommand || agentCommands.length > 0 ? 'agent' : 'user'
   })
 
+  const prevInitialTabRef = useRef(initialTab)
   useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab)
+    if (initialTab && initialTab !== prevInitialTabRef.current) {
+      prevInitialTabRef.current = initialTab
+      if (initialTab === 'agent' || activeTab !== 'agent') {
+        setActiveTab(initialTab)
+      }
     }
-  }, [initialTab])
+  }, [initialTab, activeTab])
 
   // Selected agent command to view
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    () => runningAgentCommand?.id ?? null
+  )
 
   // Auto-switch to agent tab and select running command as soon as it begins
   useEffect(() => {
@@ -517,10 +525,15 @@ export function CommandsPane({
             </>
           ) : (
             runningAgentCommand && (
-              <span className="flex items-center gap-1.5 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success shrink-0">
+              <button
+                type="button"
+                onClick={() => setSelectedAgentId(runningAgentCommand.id)}
+                className="flex items-center gap-1.5 rounded-full bg-success/15 hover:bg-success/25 px-2 py-0.5 text-[10px] font-medium text-success shrink-0 transition-colors"
+                title={t('commands.agentRunning')}
+              >
                 <span className="h-1.5 w-1.5 animate-ping rounded-full bg-success" />
                 {t('commands.agentRunning')}
-              </span>
+              </button>
             )
           )}
 

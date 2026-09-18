@@ -19,7 +19,6 @@ import {
   ChevronUp,
   Code,
   Eye,
-  FileText,
   Image as ImageIcon,
   Map as MapIcon,
   Replace,
@@ -44,7 +43,9 @@ import {
 import { useFileDiagnostics } from '../lib/useFileDiagnostics'
 import type { SyntaxToken } from './diff/model'
 import { cn } from '../lib/cn'
+import { getFileIconDescriptor } from '../lib/file-icon'
 import { CodePreviewRail } from './CodePreviewRail'
+import { AudioPreview } from './AudioPreview'
 import './FileEditor.css'
 
 export interface AlignedEditorLine {
@@ -55,9 +56,14 @@ export interface AlignedEditorLine {
 }
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif|apng|tiff?)$/i
+const AUDIO_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|opus|wma|weba)$/i
 
 export function isImageFile(path: string): boolean {
   return IMAGE_EXTENSIONS.test(path)
+}
+
+export function isAudioFile(path: string): boolean {
+  return AUDIO_EXTENSIONS.test(path)
 }
 
 export interface GroupedHunk {
@@ -288,6 +294,7 @@ type Draft = {
   crlf: boolean
   pending: boolean
   error: 'writeError' | 'conflict' | null
+  userEdited?: boolean
 }
 // Survives file/route/session switches and workspace refreshes. Never persist source to settings.
 const drafts = new Map<string, Draft>()
@@ -304,19 +311,12 @@ const subscribe = (listener: () => void): (() => void) => {
   }
 }
 
-export function revertDraft(sessionId?: string, path?: string, content?: string): void {
-  for (const [key, d] of drafts.entries()) {
+export function revertDraft(sessionId?: string, path?: string, _content?: string): void {
+  for (const [key] of drafts.entries()) {
     try {
       const [sId, , p] = JSON.parse(key)
       if ((!sessionId || sId === sessionId) && (!path || pathsMatch(p, path))) {
-        if (content !== undefined) {
-          d.text = content
-          d.saved = content
-          d.error = null
-          d.pending = false
-        } else {
-          drafts.delete(key)
-        }
+        drafts.delete(key)
       }
     } catch {
       // ignore
@@ -353,10 +353,28 @@ export function clearDraftsForRoot(root?: string): void {
   notify()
 }
 
+export function clearDraftsForSession(sessionId?: string): void {
+  for (const [key] of drafts.entries()) {
+    try {
+      const [sId] = JSON.parse(key)
+      if (!sessionId || sId === sessionId) {
+        drafts.delete(key)
+      }
+    } catch {
+      // ignore
+    }
+  }
+  notify()
+}
+
 registerDraftReverter(revertDraft)
 
 window.addEventListener('beforeunload', (event) => {
-  if ([...drafts.values()].some((draft) => draft.pending || draft.text !== draft.saved)) {
+  if (
+    [...drafts.values()].some(
+      (draft) => draft.pending || (Boolean(draft.userEdited) && draft.text !== draft.saved)
+    )
+  ) {
     event.preventDefault()
     event.returnValue = ''
   }
@@ -406,6 +424,7 @@ export function FileEditor({
   const replaceInputRef = useRef<HTMLInputElement>(null)
 
   const isImage = isImageFile(path)
+  const isAudio = isAudioFile(path)
   const isSvg = /\.svg$/i.test(path)
   const [viewMode, setViewMode] = useState<'image' | 'code'>(isImage ? 'image' : 'code')
   const [zoom, setZoom] = useState(1)
@@ -423,6 +442,11 @@ export function FileEditor({
     if (!isImage) return null
     return resolveImageSrc(path, root)
   }, [isImage, path, root])
+
+  const audioSrc = useMemo(() => {
+    if (!isAudio) return null
+    return resolveImageSrc(path, root)
+  }, [isAudio, path, root])
 
   const activeImageSrc = useMemo(() => {
     if (isSvg && draft?.text) {
@@ -543,6 +567,10 @@ export function FileEditor({
     } else if (!agentChange || reviewStatus !== 'pending') {
       setActiveAligned(null)
       lastChangeKeyRef.current = ''
+      if (draft && !draft.userEdited && draft.text !== draft.saved) {
+        draft.text = draft.saved
+        notify()
+      }
     }
   }, [agentChange, reviewStatus, draft, path])
 
@@ -759,6 +787,7 @@ export function FileEditor({
     setActiveAligned(nextAligned)
     const newText = nextAligned.map((l) => l.text).join('\n')
     draft.text = newText
+    draft.userEdited = true
     notify()
     void save()
 
@@ -788,6 +817,7 @@ export function FileEditor({
     setActiveAligned(nextAligned)
     const newText = nextAligned.map((l) => l.text).join('\n')
     draft.text = newText
+    draft.userEdited = true
     notify()
     void save()
 
@@ -882,6 +912,7 @@ export function FileEditor({
     const after = draft.text.slice(match.end)
     const newText = before + replaceQuery + after
     draft.text = newText
+    draft.userEdited = true
     notify()
     void save()
     setTimeout(() => {
@@ -902,6 +933,7 @@ export function FileEditor({
     const newText = draft.text.replace(regex, () => replaceQuery)
     if (newText !== draft.text) {
       draft.text = newText
+      draft.userEdited = true
       notify()
       void save()
     }
@@ -1003,7 +1035,8 @@ export function FileEditor({
             bom,
             crlf: content.includes('\r\n'),
             pending: false,
-            error: null
+            error: null,
+            userEdited: false
           })
         } else drafts.delete(key)
         notify()
@@ -1039,6 +1072,7 @@ export function FileEditor({
       const result = await api.files.write(sessionId, path, content, revision)
       if (result.status === 'saved') {
         draft.saved = draft.text
+        draft.userEdited = false
         draft.revision = result.revision
         refreshGitHead()
       } else draft.error = 'conflict'
@@ -1050,17 +1084,15 @@ export function FileEditor({
     }
   }
 
-  // When review status becomes kept (externally from popup or internally), auto-refresh file from disk and git diff
+  // When review status becomes kept or undone (externally from popup or internally), auto-refresh file from disk and git diff
   const prevReviewStatusRef = useRef(reviewStatus)
   useEffect(() => {
     const prev = prevReviewStatusRef.current
     prevReviewStatusRef.current = reviewStatus
-    if (prev === 'pending' && reviewStatus === 'kept') {
+    if (prev === 'pending' && (reviewStatus === 'kept' || reviewStatus === 'undone')) {
       setActiveAligned(null)
       if (agentChange && draft) {
-        draft.text = agentChange.latestAfter
-        draft.saved = agentChange.latestAfter
-        notify()
+        draft.userEdited = false
       }
       clearDraftForPath(path, root)
       setReloadNonce((n) => n + 1)
@@ -1093,7 +1125,10 @@ export function FileEditor({
         {isImage && viewMode === 'image' ? (
           <ImageIcon aria-hidden className="h-4 w-4 shrink-0 text-accent" />
         ) : (
-          <FileText aria-hidden className="h-4 w-4 shrink-0 text-accent" />
+          (() => {
+            const { Icon: FileIcon, color: fileColor } = getFileIconDescriptor(entry.name)
+            return <FileIcon aria-hidden className={cn('h-4 w-4 shrink-0', fileColor)} />
+          })()
         )}
         <span
           className="max-w-[40%] shrink-0 truncate text-xs font-medium text-text"
@@ -1139,7 +1174,13 @@ export function FileEditor({
           </div>
         )}
 
-        {isImage && viewMode === 'image' ? (
+        {isAudio ? (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-subtle font-mono uppercase">
+              {t('ide.audioPreview')}
+            </span>
+          </div>
+        ) : isImage && viewMode === 'image' ? (
           <div className="flex items-center gap-1.5 shrink-0">
             {imageDimensions && (
               <span className="font-mono text-[11px] text-text-subtle tabular-nums mr-1">
@@ -1542,7 +1583,7 @@ export function FileEditor({
           {t('ide.reload')}
         </button>
       )}
-      {loading && !isImage && (
+      {loading && !isImage && !isAudio && (
         <p role="status" className="p-3 text-xs">
           {t('ide.loading')}
         </p>
@@ -1596,6 +1637,8 @@ export function FileEditor({
             </div>
           )}
         </div>
+      ) : isAudio && audioSrc ? (
+        <AudioPreview src={audioSrc} name={entry.name} path={entry.path} />
       ) : draft ? (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <pre
@@ -1743,6 +1786,7 @@ export function FileEditor({
               onScroll={syncScroll}
               onChange={(event) => {
                 draft.text = event.target.value
+                draft.userEdited = true
                 notify()
               }}
               onKeyDown={(event) => {

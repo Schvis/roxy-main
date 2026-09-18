@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, session, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, session, protocol, net, dialog } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'node:url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -114,6 +114,19 @@ function createWindow(): BrowserWindow {
 
   mainWindow.webContents.on('render-process-gone', () => {
     flushAllActiveTurns('interrupted')
+  })
+
+  mainWindow.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['Close Without Saving', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: 'You have unsaved changes. Are you sure you want to close?'
+    })
+    if (choice === 0) {
+      event.preventDefault()
+    }
   })
 
   mainWindow.on('show', () => {

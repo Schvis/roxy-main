@@ -8,6 +8,9 @@ import {
   saveExpandedFolders,
   loadActiveFile,
   saveActiveFile,
+  loadSessionActiveFile,
+  saveSessionActiveFile,
+  loadLastActiveFile,
   migrateRenamedPath,
   pruneDeletedPath
 } from '../src/renderer/src/lib/ide-state'
@@ -87,6 +90,26 @@ function testActiveFilePersistence(): void {
   assert.equal(loadActiveFile(root), null)
 }
 
+function testSessionActiveFilePersistence(): void {
+  storage.clear()
+  const sessionId = 'session-123'
+  const root = 'd:/workspace/test'
+
+  assert.equal(loadSessionActiveFile(sessionId), null)
+  assert.equal(loadLastActiveFile(), null)
+
+  saveSessionActiveFile(sessionId, { path: 'src/app.tsx', name: 'app.tsx', line: 10 }, root)
+  const sessionFile = loadSessionActiveFile(sessionId)
+  assert.deepEqual(sessionFile, { path: 'src/app.tsx', name: 'app.tsx', line: 10, root })
+
+  const lastActive = loadLastActiveFile()
+  assert.deepEqual(lastActive, { path: 'src/app.tsx', name: 'app.tsx', line: 10, root, sessionId })
+
+  saveSessionActiveFile(sessionId, null)
+  assert.equal(loadSessionActiveFile(sessionId), null)
+  assert.equal(loadLastActiveFile(), null)
+}
+
 function testMigrateRenamedPath(): void {
   const folders = new Set(['src', 'src/components', 'src/components/diff', 'docs'])
   const migrated = migrateRenamedPath(folders, 'src/components', 'src/ui')
@@ -112,6 +135,7 @@ function run(): void {
   testGetAncestorPaths()
   testExpandedFoldersPersistence()
   testActiveFilePersistence()
+  testSessionActiveFilePersistence()
   testMigrateRenamedPath()
   testPruneDeletedPath()
   console.log('ide-state tests passed')

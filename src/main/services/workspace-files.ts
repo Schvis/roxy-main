@@ -16,6 +16,7 @@ import path from 'node:path'
 import { TextDecoder } from 'node:util'
 import ts from 'typescript'
 import { glob } from 'tinyglobby'
+import { getIgnoredPaths } from './git'
 import type {
   WorkspaceFileCreateResult,
   WorkspaceFileDiagnostic,
@@ -209,7 +210,7 @@ export async function listWorkspaceFiles(
 ): Promise<WorkspaceFileEntry[]> {
   const resolved = await resolveTarget(root, requested)
   const entries = await readdir(resolved.target, { withFileTypes: true })
-  return entries
+  const mapped: WorkspaceFileEntry[] = entries
     .filter((entry) => !entry.isSymbolicLink() && (entry.isDirectory() || entry.isFile()))
     .map((entry) => ({
       name: entry.name,
@@ -219,7 +220,28 @@ export async function listWorkspaceFiles(
         .join('/'),
       directory: entry.isDirectory()
     }))
-    .sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name))
+
+  try {
+    if (mapped.length > 0) {
+      const ignored = await getIgnoredPaths(resolved.root, mapped)
+      for (const item of mapped) {
+        if (item.name === '.git') {
+          item.ignored = true
+          continue
+        }
+        const key = item.path.replace(/\\/g, '/')
+        if (ignored.has(key) || ignored.has(key.toLowerCase())) {
+          item.ignored = true
+        }
+      }
+    }
+  } catch {
+    // Ignore git failure; fallback cleanly
+  }
+
+  return mapped.sort(
+    (a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)
+  )
 }
 
 export async function resolveWorkspaceDirectory(root: string, requested: string): Promise<string> {

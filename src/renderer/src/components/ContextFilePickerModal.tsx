@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
+import { getFileIconDescriptor } from '../lib/file-icon'
 import { createContextAttachment } from '@shared/context'
 import type { ChatContextAttachment } from '@shared/types'
 import type { WorkspaceFileEntry, WorkspaceFileSearchMatch } from '@shared/api'
@@ -430,7 +431,10 @@ export function ContextFilePickerModal({
                       {entry.directory ? (
                         <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
                       ) : (
-                        <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
+                        (() => {
+                          const { Icon: FileIcon, color } = getFileIconDescriptor(entry.name)
+                          return <FileIcon className={cn('h-3.5 w-3.5 shrink-0', color)} />
+                        })()
                       )}
 
                       <span className="truncate font-mono text-xs">{entry.name}</span>

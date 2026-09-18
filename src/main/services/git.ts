@@ -171,7 +171,12 @@ function serialize<T>(key: string, task: () => Promise<T>): Promise<T> {
  * Run one git command. Never throws — a missing binary, a non-zero exit and a
  * timeout all come back as `{ ok: false }` with whatever stderr git produced.
  */
-function execGit(args: string[], cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<GitResult> {
+function execGit(
+  args: string[],
+  cwd: string,
+  timeoutMs = GIT_TIMEOUT_MS,
+  stdinInput?: string
+): Promise<GitResult> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>
     try {
@@ -199,6 +204,15 @@ function execGit(args: string[], cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promi
         code: null
       })
       return
+    }
+
+    if (stdinInput !== undefined) {
+      try {
+        child.stdin?.write(stdinInput)
+        child.stdin?.end()
+      } catch {
+        /* already closed */
+      }
     }
 
     let stdout = ''
@@ -234,6 +248,44 @@ function execGit(args: string[], cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promi
 /** Run a git command serialized against everything else touching this repo. */
 function git(args: string[], cwd: string, timeoutMs?: number): Promise<GitResult> {
   return serialize(cwd, () => execGit(args, cwd, timeoutMs))
+}
+
+/**
+ * Check which paths are ignored by git in `cwd`.
+ * Returns a Set of normalized paths (forward slashes, no trailing slash).
+ */
+export async function getIgnoredPaths(
+  cwd: string,
+  entries: { path: string; directory: boolean }[]
+): Promise<Set<string>> {
+  if (!cwd || entries.length === 0) return new Set()
+  const root = await repoRoot(cwd)
+  if (!root) return new Set()
+
+  const lines = entries.map((e) => {
+    const p = e.path.replace(/\\/g, '/')
+    return e.directory ? (p.endsWith('/') ? p : `${p}/`) : p
+  })
+  const input = lines.join('\n')
+
+  const r = await execGit(['check-ignore', '--stdin'], cwd, 5000, input)
+  if ((r.code !== 0 && r.code !== 1) || !r.stdout.trim()) return new Set()
+
+  const set = new Set<string>()
+  for (const line of r.stdout.split(/\r?\n/)) {
+    const clean = line
+      .trim()
+      .replace(/^"+|"+$/g, '')
+      .replace(/\\\\/g, '/')
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
+      .trim()
+    if (clean) {
+      set.add(clean)
+      set.add(clean.toLowerCase())
+    }
+  }
+  return set
 }
 
 // ---------------------------------------------------------------------------
