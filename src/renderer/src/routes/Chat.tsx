@@ -8,6 +8,10 @@ import { useRoxyStore } from '../lib/store'
 
 const IDE_CHAT_SIZES_KEY = 'roxy.ide.chatSizes.v1'
 const DEFAULT_IDE_CHAT_SIZES = { left: 42, right: 42, bottom: 42 }
+const MIN_CHAT_WIDTH_PX = 380
+const MIN_CHAT_HEIGHT_PX = 300
+const MIN_IDE_WORKSPACE_WIDTH_PX = 380
+const MIN_IDE_WORKSPACE_HEIGHT_PX = 220
 
 function clampChatSize(value: number): number {
   return Math.max(20, Math.min(75, value))
@@ -42,8 +46,24 @@ function Chat(): JSX.Element {
   const dragging = useRef<number | null>(null)
   const bottom = dock === 'bottom'
   const size = sizes[dock]
-  const resize = (value: number): void => {
-    setSizes((current) => ({ ...current, [dock]: clampChatSize(value) }))
+  const resize = (value: number, rect?: DOMRect): void => {
+    let clamped = clampChatSize(value)
+    if (rect) {
+      if (bottom) {
+        const minPct = (MIN_CHAT_HEIGHT_PX / Math.max(rect.height, 1)) * 100
+        const maxPct = 100 - (MIN_IDE_WORKSPACE_HEIGHT_PX / Math.max(rect.height, 1)) * 100
+        if (maxPct >= minPct) {
+          clamped = Math.max(minPct, Math.min(maxPct, clamped))
+        }
+      } else {
+        const minPct = (MIN_CHAT_WIDTH_PX / Math.max(rect.width, 1)) * 100
+        const maxPct = 100 - (MIN_IDE_WORKSPACE_WIDTH_PX / Math.max(rect.width, 1)) * 100
+        if (maxPct >= minPct) {
+          clamped = Math.max(minPct, Math.min(maxPct, clamped))
+        }
+      }
+    }
+    setSizes((current) => ({ ...current, [dock]: Math.round(clamped * 10) / 10 }))
   }
   const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
@@ -67,7 +87,7 @@ function Chat(): JSX.Element {
         >
           {ideMode ? (
             <div
-              className={`flex min-h-0 min-w-0 flex-1 ${bottom ? 'w-full min-h-[220px]' : 'min-w-[420px]'}`}
+              className={`flex min-h-0 min-w-0 flex-1 ${bottom ? 'w-full min-h-[220px]' : 'min-w-[380px]'}`}
               style={{ order: dock === 'left' ? 2 : 0 }}
             >
               <IdeWorkspace
@@ -96,13 +116,12 @@ function Chat(): JSX.Element {
               onPointerMove={(event) => {
                 if (dragging.current !== event.pointerId || !pane.current) return
                 const rect = pane.current.getBoundingClientRect()
-                resize(
-                  bottom
-                    ? ((rect.bottom - event.clientY) / rect.height) * 100
-                    : dock === 'left'
-                      ? ((event.clientX - rect.left) / rect.width) * 100
-                      : ((rect.right - event.clientX) / rect.width) * 100
-                )
+                const raw = bottom
+                  ? ((rect.bottom - event.clientY) / rect.height) * 100
+                  : dock === 'left'
+                    ? ((event.clientX - rect.left) / rect.width) * 100
+                    : ((rect.right - event.clientX) / rect.width) * 100
+                resize(raw, rect)
               }}
               onPointerUp={(event) => {
                 dragging.current = null
@@ -120,14 +139,24 @@ function Chat(): JSX.Element {
                 const step = delta[event.key as keyof typeof delta]
                 if (step !== undefined || event.key === 'Home' || event.key === 'End') {
                   event.preventDefault()
-                  resize(event.key === 'Home' ? 20 : event.key === 'End' ? 75 : size + (step ?? 0))
+                  const rect = pane.current?.getBoundingClientRect()
+                  resize(
+                    event.key === 'Home' ? 20 : event.key === 'End' ? 75 : size + (step ?? 0),
+                    rect
+                  )
                 }
               }}
             />
           ) : null}
           {/* Fixed sibling slot and wrapper preserve transcript/composer state on toggles. */}
           <div
-            className={`flex min-h-0 min-w-0 ${ideMode ? (bottom ? 'w-full min-h-[200px]' : 'min-w-[340px]') : 'h-full flex-1'}`}
+            className={`flex min-h-0 min-w-0 ${
+              ideMode
+                ? bottom
+                  ? 'w-full min-h-[300px]'
+                  : 'min-w-[380px] min-h-[300px]'
+                : 'h-full flex-1 min-w-[380px] min-h-[300px]'
+            }`}
             style={ideMode ? { order: dock === 'left' ? 0 : 2, flex: `0 0 ${size}%` } : undefined}
           >
             <ChatView />

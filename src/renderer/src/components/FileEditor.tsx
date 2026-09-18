@@ -233,7 +233,7 @@ function useFileSyntaxTokens(path: string, text: string): SyntaxToken[][] | null
     tokens: SyntaxToken[][] | null
   } | null>(null)
   useEffect(() => {
-    if (text.length > 200_000 || text.split('\n').length > 5000) {
+    if (text.length > 800_000 || text.split('\n').length > 15_000) {
       setResult(null)
       return
     }
@@ -498,6 +498,58 @@ export function FileEditor({
 
   const text = draft?.text ?? (file?.binary ? '' : (file?.content.replace(/\r\n?/g, '\n') ?? ''))
   const lines = useMemo(() => text.split('\n'), [text])
+
+  const { indentLevels, tabSize } = useMemo(() => {
+    let count2 = 0
+    let count4 = 0
+    const sample = lines.slice(0, 150)
+    for (const line of sample) {
+      const spaces = line.match(/^( +)/)?.[1]?.length ?? 0
+      if (spaces > 0) {
+        if (spaces % 4 === 0) count4++
+        else if (spaces % 2 === 0) count2++
+      }
+    }
+    const detectedTabSize = count4 > count2 && count4 >= 3 ? 4 : 2
+
+    const rawLevels = lines.map((line) => {
+      if (!line.trim()) return -1
+      let cols = 0
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i]
+        if (ch === ' ') cols++
+        else if (ch === '\t') cols += detectedTabSize - (cols % detectedTabSize)
+        else break
+      }
+      return Math.floor(cols / detectedTabSize)
+    })
+
+    const levels: number[] = new Array(lines.length)
+    for (let i = 0; i < lines.length; i++) {
+      if (rawLevels[i] !== -1) {
+        levels[i] = rawLevels[i]
+      } else {
+        let prev = 0
+        for (let j = i - 1; j >= 0; j--) {
+          if (rawLevels[j] !== -1) {
+            prev = rawLevels[j]
+            break
+          }
+        }
+        let next = 0
+        for (let j = i + 1; j < lines.length; j++) {
+          if (rawLevels[j] !== -1) {
+            next = rawLevels[j]
+            break
+          }
+        }
+        levels[i] = Math.min(prev, next)
+      }
+    }
+
+    return { indentLevels: levels, tabSize: detectedTabSize }
+  }, [lines])
+
   const diagnostics = useFileDiagnostics(sessionId, path, text, !!draft && !loading)
   const errorLines = useMemo(
     () => new Set(diagnostics.issues.map((issue) => issue.line)),
@@ -1724,19 +1776,35 @@ export function FileEditor({
               ref={overlay}
               aria-hidden="true"
               className="file-editor-code pointer-events-none absolute inset-0 select-none overflow-hidden text-text"
-              style={{ visibility: 'visible' }}
+              style={
+                {
+                  visibility: 'visible',
+                  tabSize,
+                  '--editor-tab-size': tabSize
+                } as CSSProperties
+              }
             >
               {lines.map((lineText, index) => {
                 const info = lineInfos[index]
                 const isDeleted = info?.kind === 'deleted'
                 const lineTokens = fitSyntaxTokensToLine(syntaxTokens?.[index], lineText)
+                const level = indentLevels[index] ?? 0
 
                 return (
                   <div
                     key={index}
                     style={{ height: '20px', lineHeight: '20px' }}
-                    className="w-full whitespace-pre overflow-hidden min-w-full w-max"
+                    className="w-full whitespace-pre overflow-hidden min-w-full w-max relative"
                   >
+                    {level > 0 &&
+                      Array.from({ length: level }).map((_, k) => (
+                        <span
+                          key={k}
+                          aria-hidden="true"
+                          className="file-editor-indent-guide"
+                          style={{ left: `${k * tabSize}ch` }}
+                        />
+                      ))}
                     {isDeleted ? (
                       <span
                         className="file-editor-deleted-text text-rose-400 font-mono line-through opacity-85 select-none italic"
@@ -1777,6 +1845,7 @@ export function FileEditor({
               autoComplete="off"
               wrap="off"
               disabled={loading}
+              style={{ tabSize, '--editor-tab-size': tabSize } as CSSProperties}
               className={cn(
                 'file-editor-code file-editor-input relative block h-full w-full resize-none overflow-auto bg-transparent text-text focus-visible:outline-none',
                 showCodePreview && 'editor-hide-v-scrollbar'
@@ -1804,6 +1873,137 @@ export function FileEditor({
                   event.preventDefault()
                   event.stopPropagation()
                   openFind(true)
+                }
+                if (event.key === 'Tab') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  const input = textarea.current
+                  if (!input) return
+                  const start = input.selectionStart
+                  const end = input.selectionEnd
+                  const val = input.value
+                  const tabStr = ' '.repeat(tabSize)
+
+                  if (event.shiftKey) {
+                    // Outdent (Shift+Tab)
+                    const lineStart = val.lastIndexOf('\n', start - 1) + 1
+                    let lineEnd = val.indexOf('\n', end)
+                    if (lineEnd === -1) lineEnd = val.length
+                    const block = val.slice(lineStart, lineEnd)
+                    const blockLines = block.split('\n')
+                    let firstLineRemoved = 0
+                    let totalRemoved = 0
+                    const unindented = blockLines
+                      .map((l, i) => {
+                        let removeCount = 0
+                        if (l.startsWith(tabStr)) {
+                          removeCount = tabStr.length
+                        } else if (l.startsWith('\t')) {
+                          removeCount = 1
+                        } else {
+                          const m = l.match(/^ +/)
+                          if (m) removeCount = Math.min(m[0].length, tabSize)
+                        }
+                        if (i === 0) firstLineRemoved = removeCount
+                        totalRemoved += removeCount
+                        return l.slice(removeCount)
+                      })
+                      .join('\n')
+
+                    input.setSelectionRange(lineStart, lineEnd)
+                    if (!document.execCommand('insertText', false, unindented)) {
+                      draft.text = val.slice(0, lineStart) + unindented + val.slice(lineEnd)
+                      draft.userEdited = true
+                      notify()
+                    }
+                    const newStart = Math.max(lineStart, start - firstLineRemoved)
+                    const newEnd = Math.max(newStart, end - totalRemoved)
+                    requestAnimationFrame(() => {
+                      if (textarea.current) {
+                        textarea.current.setSelectionRange(newStart, newEnd)
+                      }
+                    })
+                  } else if (start !== end && val.slice(start, end).includes('\n')) {
+                    // Multi-line indent (Tab)
+                    const lineStart = val.lastIndexOf('\n', start - 1) + 1
+                    let lineEnd = val.indexOf('\n', end)
+                    if (lineEnd === -1) lineEnd = val.length
+                    const block = val.slice(lineStart, lineEnd)
+                    const blockLines = block.split('\n')
+                    const indented = blockLines.map((l) => tabStr + l).join('\n')
+
+                    input.setSelectionRange(lineStart, lineEnd)
+                    if (!document.execCommand('insertText', false, indented)) {
+                      draft.text = val.slice(0, lineStart) + indented + val.slice(lineEnd)
+                      draft.userEdited = true
+                      notify()
+                    }
+                    const newStart = start + tabStr.length
+                    const newEnd = end + tabStr.length * blockLines.length
+                    requestAnimationFrame(() => {
+                      if (textarea.current) {
+                        textarea.current.setSelectionRange(newStart, newEnd)
+                      }
+                    })
+                  } else {
+                    // Single cursor or inline selection: insert indentation spaces
+                    if (!document.execCommand('insertText', false, tabStr)) {
+                      const next = val.slice(0, start) + tabStr + val.slice(end)
+                      draft.text = next
+                      draft.userEdited = true
+                      notify()
+                      const pos = start + tabStr.length
+                      requestAnimationFrame(() => {
+                        if (textarea.current) {
+                          textarea.current.setSelectionRange(pos, pos)
+                        }
+                      })
+                    }
+                  }
+                  return
+                }
+                if (
+                  event.key === 'Enter' &&
+                  !event.shiftKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.altKey
+                ) {
+                  const input = textarea.current
+                  if (input) {
+                    const start = input.selectionStart
+                    const val = input.value
+                    const lineStart = val.lastIndexOf('\n', start - 1) + 1
+                    const curLine = val.slice(lineStart, start)
+                    const leading = curLine.match(/^[ \t]+/)?.[0] ?? ''
+                    const trimmed = curLine.trim()
+                    const extra =
+                      trimmed.endsWith('{') ||
+                      trimmed.endsWith(':') ||
+                      trimmed.endsWith('[') ||
+                      trimmed.endsWith('(')
+                        ? ' '.repeat(tabSize)
+                        : ''
+                    const toInsert = '\n' + leading + extra
+                    if (toInsert !== '\n') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      if (!document.execCommand('insertText', false, toInsert)) {
+                        const end = input.selectionEnd
+                        const next = val.slice(0, start) + toInsert + val.slice(end)
+                        draft.text = next
+                        draft.userEdited = true
+                        notify()
+                        const pos = start + toInsert.length
+                        requestAnimationFrame(() => {
+                          if (textarea.current) {
+                            textarea.current.setSelectionRange(pos, pos)
+                          }
+                        })
+                      }
+                      return
+                    }
+                  }
                 }
               }}
             />
@@ -1962,6 +2162,12 @@ export function FileEditor({
                   <pre
                     ref={readOnlyCode}
                     tabIndex={0}
+                    style={
+                      {
+                        tabSize,
+                        '--editor-tab-size': tabSize
+                      } as CSSProperties
+                    }
                     onScroll={(event) => {
                       if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop
                       if (lineHighlightLayer.current)
@@ -1976,13 +2182,23 @@ export function FileEditor({
                       const info = lineInfos[index]
                       const isDeleted = info?.kind === 'deleted' && !lineText
                       const lineTokens = fitSyntaxTokensToLine(syntaxTokens?.[index], lineText)
+                      const level = indentLevels[index] ?? 0
 
                       return (
                         <div
                           key={index}
                           style={{ height: '20px', lineHeight: '20px' }}
-                          className="w-full whitespace-pre overflow-hidden min-w-full w-max"
+                          className="w-full whitespace-pre overflow-hidden min-w-full w-max relative"
                         >
+                          {level > 0 &&
+                            Array.from({ length: level }).map((_, k) => (
+                              <span
+                                key={k}
+                                aria-hidden="true"
+                                className="file-editor-indent-guide"
+                                style={{ left: `${k * tabSize}ch` }}
+                              />
+                            ))}
                           {isDeleted ? (
                             <span
                               className="file-editor-deleted-text text-rose-400 font-mono line-through opacity-85 select-none italic"

@@ -113,6 +113,9 @@ import { randomSlug, uniqueSlug, slugToBranchSegment, isGeneratedSlug } from '..
 import { formatInterval } from '../src/shared/format'
 import {
   selectPromptName,
+  matchPromptName,
+  isPromptName,
+  PROMPT_FAMILIES,
   buildEnvironment,
   assembleSystemPrompt,
   ROXY_COAUTHOR_TRAILER,
@@ -2735,6 +2738,15 @@ check(
 check('prompt select: gpt-4 → beast', selectPromptName('gpt-4o') === 'beast')
 check('prompt select: claude → anthropic', selectPromptName('claude-sonnet-4') === 'anthropic')
 check('prompt select: unknown → default', selectPromptName('some-random-model') === 'default')
+check('prompt match: gpt-4 → beast', matchPromptName('gpt-4o') === 'beast')
+check('prompt match: claude → anthropic', matchPromptName('claude-sonnet-4') === 'anthropic')
+check('prompt match: unknown → null', matchPromptName('deepseek-chat') === null)
+check('prompt isPromptName: anthropic', isPromptName('anthropic') === true)
+check('prompt isPromptName: unknown', isPromptName('deepseek-chat') === false)
+check(
+  'prompt families: includes anthropic and beast',
+  PROMPT_FAMILIES.some((f) => f.id === 'anthropic') && PROMPT_FAMILIES.some((f) => f.id === 'beast')
+)
 
 // ---- Remote Workspace IPC parity (Part 6) ----
 // The remote:* channels span four files that must agree: the channel catalog

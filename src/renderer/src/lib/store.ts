@@ -31,7 +31,8 @@ import {
   selectPromptName,
   buildEnvironment,
   assembleSystemPrompt,
-  FISH_AUDIO_EMOTION_PROMPT
+  FISH_AUDIO_EMOTION_PROMPT,
+  type PromptName
 } from '@shared/prompt'
 import { PROMPT_TEXT, AGENT_PROMPT_TEXT } from '@shared/prompt-text'
 import { reconstructTurn, REPLAY_OUTPUT_CAP } from '@shared/tool-history'
@@ -668,6 +669,9 @@ async function persistGlobalConfig(patch: SessionConfigPatch): Promise<AppSettin
     }
     if ('contextLimit' in patch) {
       latest = await api.settings.setContextLimit(patch.contextLimit ?? null)
+    }
+    if ('promptId' in patch) {
+      latest = await api.settings.setActivePromptId(patch.promptId ?? null)
     }
   } catch {
     // The session keeps its own copy either way; only the inherited default
@@ -1777,8 +1781,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
 
   setActivePromptId: async (id) => {
-    const settings = await api.settings.setActivePromptId(id)
-    set({ settings })
+    await get().setSessionConfig({ promptId: id })
   },
 
   setTtsEnabled: async (enabled) => {
@@ -2895,7 +2898,19 @@ export function buildSystemPrompt(
   modelId?: string,
   agentId?: string
 ): string {
-  const base = PROMPT_TEXT[selectPromptName(modelId)] ?? PROMPT_TEXT.default
+  const promptId = chat?.promptId ?? useRoxyStore.getState().settings?.activePromptId
+  let base: string | undefined
+  if (promptId) {
+    if (promptId in PROMPT_TEXT) {
+      base = PROMPT_TEXT[promptId as PromptName]
+    } else {
+      const custom = useRoxyStore.getState().customPrompts.find((p) => p.id === promptId)
+      if (custom) base = custom.content
+    }
+  }
+  if (!base) {
+    base = PROMPT_TEXT[selectPromptName(modelId)] ?? PROMPT_TEXT.default
+  }
   const environment = buildEnvironment({
     cwd: chat?.workspacePath || undefined,
     modelId,

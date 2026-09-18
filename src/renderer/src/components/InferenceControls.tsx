@@ -5,6 +5,7 @@ import type { MessagePart, ReasoningEffort } from '@shared/types'
 import type { ModelInfo } from '@shared/api'
 import { resolveProviderModel } from '@shared/models'
 import { PRIMARY_AGENTS, getAgent, DEFAULT_AGENT_ID } from '@shared/agents'
+import { PROMPT_FAMILIES, matchPromptName } from '@shared/prompt'
 import { buildSystemPrompt, useRoxyStore } from '../lib/store'
 import {
   clampReasoningEffort,
@@ -294,70 +295,135 @@ function contextOptions(max: number): number[] {
 }
 
 export function PromptPicker(): JSX.Element {
+  const { t } = useTranslation()
   const config = useSessionConfig()
   const customPrompts = useRoxyStore((s) => s.customPrompts)
   const setActivePromptId = useRoxyStore((s) => s.setActivePromptId)
   const { open, setOpen, ref, anchor } = usePopover(POPOVER_W)
 
   const current = config.promptId
-  const activePrompt = customPrompts.find((p) => p.id === current)
+  const custom = customPrompts.find((p) => p.id === current)
+  const builtin = PROMPT_FAMILIES.find((f) => f.id === current)
+  const matched = matchPromptName(config.model ?? undefined)
+  const matchedFamily = matched ? PROMPT_FAMILIES.find((f) => f.id === matched) : null
+
+  let label: string
+  let isUnsetUnmatched = false
+
+  if (custom) {
+    label = custom.name
+  } else if (builtin) {
+    label = builtin.name.split(' (')[0]
+  } else if (matchedFamily) {
+    label = `${matchedFamily.name.split(' (')[0]} (Auto)`
+  } else {
+    label = t('inference.selectPrompt')
+    isUnsetUnmatched = true
+  }
 
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={triggerClass}
-        title="System Prompt"
+        className={cn(
+          triggerClass,
+          isUnsetUnmatched &&
+            'border-amber-500/50 bg-amber-500/10 text-amber-300 hover:border-amber-400'
+        )}
+        title={t('inference.systemPrompt')}
       >
-        <span className="truncate max-w-[100px]">
-          {activePrompt ? activePrompt.name : 'Default Prompt'}
-        </span>
+        {isUnsetUnmatched && (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+        )}
+        <span className="truncate max-w-[120px]">{label}</span>
       </button>
       {open && (
         <div className={popoverClass} style={anchor}>
           <div className="shrink-0 border-b border-border px-3 py-2 text-[11px] font-medium text-text-subtle">
-            System Prompt
+            {t('inference.systemPrompt')}
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
-            <button
-              type="button"
-              onClick={() => {
-                void setActivePromptId(null)
-                setOpen(false)
-              }}
-              className={cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left transition',
-                !current ? 'bg-accent/15' : 'hover:bg-white/5'
-              )}
-            >
-              <Check
-                className={cn('h-3.5 w-3.5 shrink-0', !current ? 'text-accent' : 'opacity-0')}
-              />
-              <span className="text-xs font-medium text-text">Default Prompt</span>
-            </button>
-            {customPrompts.map((p) => {
-              const selected = p.id === current
+            {matchedFamily && (
+              <button
+                type="button"
+                onClick={() => {
+                  void setActivePromptId(null)
+                  setOpen(false)
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-1.5 text-left transition',
+                  !current ? 'bg-accent/15' : 'hover:bg-white/5'
+                )}
+              >
+                <Check
+                  className={cn('h-3.5 w-3.5 shrink-0', !current ? 'text-accent' : 'opacity-0')}
+                />
+                <span className="text-xs font-medium text-text">
+                  {t('inference.promptAuto', { name: matchedFamily.name })}
+                </span>
+              </button>
+            )}
+
+            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              {t('inference.builtinPrompts')}
+            </div>
+            {PROMPT_FAMILIES.map((family) => {
+              const selected = current === family.id
               return (
                 <button
-                  key={p.id}
+                  key={family.id}
                   type="button"
                   onClick={() => {
-                    void setActivePromptId(p.id)
+                    void setActivePromptId(family.id)
                     setOpen(false)
                   }}
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left transition',
                     selected ? 'bg-accent/15' : 'hover:bg-white/5'
                   )}
+                  title={family.description}
                 >
                   <Check
                     className={cn('h-3.5 w-3.5 shrink-0', selected ? 'text-accent' : 'opacity-0')}
                   />
-                  <span className="truncate text-xs font-medium text-text">{p.name}</span>
+                  <span className="truncate text-xs font-medium text-text">{family.name}</span>
                 </button>
               )
             })}
+
+            {customPrompts.length > 0 && (
+              <>
+                <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  {t('inference.customPrompts')}
+                </div>
+                {customPrompts.map((p) => {
+                  const selected = p.id === current
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        void setActivePromptId(p.id)
+                        setOpen(false)
+                      }}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-3 py-1.5 text-left transition',
+                        selected ? 'bg-accent/15' : 'hover:bg-white/5'
+                      )}
+                    >
+                      <Check
+                        className={cn(
+                          'h-3.5 w-3.5 shrink-0',
+                          selected ? 'text-accent' : 'opacity-0'
+                        )}
+                      />
+                      <span className="truncate text-xs font-medium text-text">{p.name}</span>
+                    </button>
+                  )
+                })}
+              </>
+            )}
           </div>
         </div>
       )}

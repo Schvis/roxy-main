@@ -53,7 +53,7 @@ export async function highlightSource(
       .pop()
       ?.toLowerCase() ?? ''
   const lang = aliases[ext] ?? (ext in languages ? (ext as keyof typeof languages) : undefined)
-  if (!lang || source.length > 400_000) return null
+  if (!lang || source.length > 1_000_000) return null
   engine ??= createHighlighterCore({
     themes: [import('shiki/themes/github-dark.mjs'), import('shiki/themes/github-light.mjs')],
     langs: [],
@@ -65,7 +65,7 @@ export async function highlightSource(
     .codeToTokensWithThemes(source, {
       lang,
       themes: { dark: 'github-dark', light: 'github-light' },
-      tokenizeMaxLineLength: 2000
+      tokenizeMaxLineLength: 4000
     })
     .map((line) =>
       line.map((token) => ({
@@ -81,7 +81,7 @@ export async function highlightDiff(document: DiffDocument): Promise<DiffSyntax>
     before: document.beforeLines.map((line) => [{ text: line.text }]),
     after: document.afterLines.map((line) => [{ text: line.text }])
   })
-  if (document.before.length + document.after.length > 400_000) return plain()
+  if (document.before.length + document.after.length > 1_000_000) return plain()
   const before = await highlightSource(document.path, document.before)
   const after = await highlightSource(document.path, document.after)
   return before && after ? { before, after } : plain()

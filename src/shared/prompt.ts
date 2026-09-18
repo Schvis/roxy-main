@@ -20,13 +20,74 @@ export type PromptName =
   | 'trinity'
   | 'default'
 
+export const PROMPT_NAMES: readonly PromptName[] = [
+  'anthropic',
+  'beast',
+  'codex',
+  'gpt',
+  'gemini',
+  'kimi',
+  'trinity',
+  'default'
+] as const
+
+export function isPromptName(value: unknown): value is PromptName {
+  return typeof value === 'string' && (PROMPT_NAMES as readonly string[]).includes(value)
+}
+
+export interface PromptFamilyDef {
+  id: PromptName
+  name: string
+  description: string
+}
+
+export const PROMPT_FAMILIES: readonly PromptFamilyDef[] = [
+  {
+    id: 'anthropic',
+    name: 'Anthropic (Claude)',
+    description: 'Tuned for Claude Sonnet, Opus, and Haiku'
+  },
+  {
+    id: 'beast',
+    name: 'OpenAI Beast (o1/o3/GPT-4)',
+    description: 'Tuned for OpenAI reasoning and GPT-4'
+  },
+  {
+    id: 'gemini',
+    name: 'Gemini',
+    description: 'Tuned for Google Gemini models'
+  },
+  {
+    id: 'gpt',
+    name: 'GPT',
+    description: 'Tuned for general OpenAI GPT models'
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    description: 'Tuned for OpenAI Codex code models'
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi',
+    description: 'Tuned for Moonshot Kimi models'
+  },
+  {
+    id: 'trinity',
+    name: 'Trinity',
+    description: 'Tuned for Trinity models'
+  },
+  {
+    id: 'default',
+    name: 'Default',
+    description: 'Standard general-purpose fallback prompt'
+  }
+] as const
+
 /**
- * Pick the tuned system prompt for a model id, mirroring opencode's `provider()`
- * selector: gpt-4/o1/o3 get the "beast" prompt; other gpt (codex vs plain),
- * gemini, claude, trinity, and kimi models get their family prompt; everything
- * else falls back to the default prompt.
+ * Match a model id to a tuned prompt family, or null if it matches none.
  */
-export function selectPromptName(modelId: string | undefined): PromptName {
+export function matchPromptName(modelId: string | undefined): PromptName | null {
   const id = (modelId ?? '').toLowerCase()
   if (id.includes('gpt-4') || id.includes('o1') || id.includes('o3')) return 'beast'
   if (id.includes('gpt')) return id.includes('codex') ? 'codex' : 'gpt'
@@ -34,7 +95,17 @@ export function selectPromptName(modelId: string | undefined): PromptName {
   if (id.includes('claude')) return 'anthropic'
   if (id.includes('trinity')) return 'trinity'
   if (id.includes('kimi')) return 'kimi'
-  return 'default'
+  return null
+}
+
+/**
+ * Pick the tuned system prompt for a model id, mirroring opencode's `provider()`
+ * selector: gpt-4/o1/o3 get the "beast" prompt; other gpt (codex vs plain),
+ * gemini, claude, trinity, and kimi models get their family prompt; everything
+ * else falls back to the default prompt.
+ */
+export function selectPromptName(modelId: string | undefined): PromptName {
+  return matchPromptName(modelId) ?? 'default'
 }
 
 /** Facts about the machine/session the model is running in (for the `<env>` block). */

@@ -8,11 +8,26 @@
   font-weight: 400;
   line-height: 20px;
   letter-spacing: normal;
-  tab-size: 4;
+  tab-size: var(--editor-tab-size, 2);
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
   font-variant-ligatures: none;
+}
+
+.file-editor-indent-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: var(--color-border-strong, #303035);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+:root[data-appearance='light'] .file-editor-indent-guide {
+  background-color: rgba(0, 0, 0, 0.14);
+  opacity: 0.7;
 }
 
 .file-editor-code span {

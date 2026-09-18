@@ -4,10 +4,12 @@ import { useNavigate } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { buildModelIndex, buildProviderModelRows, countMatchesByProvider } from '../lib/modelRows'
 import { modelLabel, resolveProviderModel } from '@shared/models'
+import { matchPromptName, isPromptName } from '@shared/prompt'
 import { useRoxyStore } from '../lib/store'
 import { resolveSessionConfig } from '@shared/session-config'
 import { ProviderLogo } from '../lib/providerLogos'
 import { triggerClass } from './InferenceControls'
+import { PromptSelectModal } from './PromptSelectModal'
 import { useMenuAnchor } from '../lib/useMenuAnchor'
 import { rowOffsets, visibleRange } from '../lib/windowing'
 import { cn } from '../lib/cn'
@@ -95,6 +97,7 @@ export function ModelPicker(): JSX.Element {
   // the open menu on every sidebar tick and every streamed title update.
   const activeChat = useRoxyStore((s) => s.chats.find((c) => c.id === s.activeChatId))
   const selectModel = useRoxyStore((s) => s.selectModel)
+  const setActivePromptId = useRoxyStore((s) => s.setActivePromptId)
   const models = useRoxyStore((s) => s.modelCatalog)
   const modelsTried = useRoxyStore((s) => s.modelsTried)
   const ensureModels = useRoxyStore((s) => s.ensureModels)
@@ -103,6 +106,10 @@ export function ModelPicker(): JSX.Element {
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [promptModalTarget, setPromptModalTarget] = useState<{
+    modelId: string
+    modelName: string
+  } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const carouselRef = useRef<HTMLDivElement>(null)
@@ -263,8 +270,14 @@ export function ModelPicker(): JSX.Element {
       setOpen(false)
       setQuery('')
       await selectModel(providerId, modelId)
+      if (matchPromptName(modelId) === null && !config.promptId) {
+        const name = index.get(`${providerId}:${modelId}`)?.info.name || modelId
+        setPromptModalTarget({ modelId, modelName: name })
+      } else if (matchPromptName(modelId) !== null && isPromptName(config.promptId)) {
+        void setActivePromptId(null)
+      }
     },
-    [selectModel]
+    [selectModel, config.promptId, index, setActivePromptId]
   )
 
   if (providers.length === 0) {
@@ -277,7 +290,7 @@ export function ModelPicker(): JSX.Element {
         {activeProvider && (
           <ProviderLogo id={activeProvider.id} name={activeProvider.name} size={14} />
         )}
-        <span className="max-w-[200px] truncate">{triggerLabel}</span>
+        <span className="max-w-[130px] sm:max-w-[200px] truncate">{triggerLabel}</span>
         <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-60" />
       </button>
 
@@ -493,6 +506,18 @@ export function ModelPicker(): JSX.Element {
             )}
           </div>
         </div>
+      )}
+
+      {promptModalTarget && (
+        <PromptSelectModal
+          modelName={promptModalTarget.modelName}
+          currentPromptId={config.promptId}
+          onClose={() => setPromptModalTarget(null)}
+          onSelect={(promptId) => {
+            void setActivePromptId(promptId)
+            setPromptModalTarget(null)
+          }}
+        />
       )}
     </div>
   )

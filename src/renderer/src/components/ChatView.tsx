@@ -339,7 +339,12 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   // No workspace open — prompt to open a folder to start a session.
   if (!activeChat) {
     return (
-      <div className="flex h-full min-w-0 flex-1 flex-col bg-bg">
+      <div
+        className={cn(
+          'flex h-full flex-1 flex-col bg-bg',
+          isOverlay ? 'min-w-[300px] min-h-[320px]' : 'min-w-[380px] min-h-[300px]'
+        )}
+      >
         <header
           className={cn(
             'flex h-12 shrink-0 items-center justify-between px-4',
@@ -376,8 +381,18 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-row bg-bg overflow-hidden">
-      <div className="relative flex h-full min-w-0 flex-1 flex-col">
+    <div
+      className={cn(
+        'relative flex h-full flex-1 flex-row bg-bg overflow-hidden',
+        isOverlay ? 'min-w-[300px] min-h-[320px]' : 'min-w-[380px] min-h-[300px]'
+      )}
+    >
+      <div
+        className={cn(
+          'relative flex h-full flex-1 flex-col min-w-0',
+          isOverlay ? 'min-w-[300px] min-h-[320px]' : 'min-w-[380px] min-h-[300px]'
+        )}
+      >
         <header
           className={cn(
             'flex h-12 shrink-0 items-center justify-between gap-3 px-4',
@@ -400,7 +415,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
               ) : (
                 <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
               )}
-              <span className="shrink-0 max-w-[180px] truncate text-sm font-medium">
+              <span className="min-w-0 max-w-[140px] sm:max-w-[180px] truncate text-sm font-medium">
                 {activeChat.title}
               </span>
               {/* A delegate's session is only legible in context — who sent it, and

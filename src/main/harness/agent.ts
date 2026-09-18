@@ -468,13 +468,20 @@ function buildSystemMessage(
   skillInfo?: string,
   promptId?: string | null
 ): string {
-  let base = promptText[selectPromptName(model)] || promptText.default || FALLBACK_PROMPT
+  let base: string | undefined
   if (promptId) {
-    const customPrompts = repo.listCustomPrompts()
-    const custom = customPrompts.find((p) => p.id === promptId)
-    if (custom) {
-      base = custom.content
+    if (promptId in promptText) {
+      base = promptText[promptId]
+    } else {
+      const customPrompts = repo.listCustomPrompts()
+      const custom = customPrompts.find((p) => p.id === promptId)
+      if (custom) {
+        base = custom.content
+      }
     }
+  }
+  if (!base) {
+    base = promptText[selectPromptName(model)] || promptText.default || FALLBACK_PROMPT
   }
   const gitRoot = cwd ? findGitRoot(cwd) : undefined
   const environment = buildEnvironment({

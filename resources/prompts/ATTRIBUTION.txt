@@ -1,10 +1,12 @@
-Roxy is a fork of opencode (https://github.com/sst/opencode), created and
-maintained by Roxy, and used under the MIT License:
+This project is a fork of Roxy (https://github.com/roxy-gg/roxy), which is based
+on opencode (https://github.com/sst/opencode), used under the MIT License:
 
-    Copyright (c) 2025 opencode
+    Copyright (c) 2026 Roxy (https://github.com/roxy-gg/roxy)
+    Copyright (c) 2025 opencode (https://github.com/sst/opencode)
 
-Roxy builds on opencode's foundation — including its agent + subagent system and
-its model-specific prompt selection — and layers Roxy's own modifications on top.
+This project builds on the foundation of Roxy and opencode — including their agent
+and subagent systems, prompt selection, and tools — layering additional modifications
+on top.
 
-The system/agent prompts in this folder are opencode's prompts, rebranded and
-modified for Roxy. See the opencode repository for the full MIT License text.
+The system/agent prompts in this folder originate from opencode and Roxy, modified
+for this fork. See the upstream repositories for full MIT License text and history.

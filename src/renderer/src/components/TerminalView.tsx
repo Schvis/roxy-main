@@ -64,7 +64,8 @@ export function TerminalView({
       theme: TERMINAL_THEME,
       allowTransparency: true,
       convertEol: true,
-      scrollback: 10000
+      scrollback: 10000,
+      rightClickSelectsWord: false
     })
 
     const fitAddon = new FitAddon()
@@ -87,27 +88,58 @@ export function TerminalView({
       }
     }
 
-    // Custom key shortcuts (copy/paste/clear)
+    // Custom key shortcuts (copy selection on Ctrl+C; Ctrl+Shift+V terminal paste)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown') {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === 'c'
+        ) {
           if (term.hasSelection()) {
             const sel = term.getSelection()
             void writeClipboardText(sel)
             return false
           }
         }
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+        if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'v') {
+          event.preventDefault()
           void navigator.clipboard.readText().then((clip) => {
             if (clip && !disposed) {
-              void api.shell.write(sessionId, clip)
+              term.paste(clip)
             }
           })
           return false
         }
       }
+      // Standard Ctrl+V / Cmd+V is passed through to browser DOM paste event on xterm textarea (prevents duplicate pastes)
       return true
     })
+
+    // Normal command line right-click behavior: copy if selection, paste if no selection
+    const onContextMenu = (e: MouseEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      term.focus()
+
+      if (term.hasSelection()) {
+        const sel = term.getSelection()
+        if (sel) {
+          void writeClipboardText(sel)
+          term.clearSelection()
+          return
+        }
+      }
+
+      void navigator.clipboard.readText().then((clip) => {
+        if (clip && !disposed) {
+          term.paste(clip)
+        }
+      })
+    }
+
+    const container = containerRef.current
+    container.addEventListener('contextmenu', onContextMenu)
 
     // User typing sends raw data straight to the PTY
     const onDataDisp = term.onData((data) => {
@@ -161,6 +193,7 @@ export function TerminalView({
 
     return () => {
       disposed = true
+      container.removeEventListener('contextmenu', onContextMenu)
       ro.disconnect()
       onDataDisp.dispose()
       unsubOutput()
