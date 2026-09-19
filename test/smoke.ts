@@ -1681,6 +1681,16 @@ async function main(): Promise<void> {
       check('git.status: an untracked file is dirty', st2?.dirty === true && st2.changed === 1)
       await fs.rm(path.join(gitRepo, 'dirty.txt'))
 
+      await fs.mkdir(path.join(gitRepo, 'untracked-dir'), { recursive: true })
+      await fs.writeFile(path.join(gitRepo, 'untracked-dir', 'file.txt'), 'x')
+      const changedFiles = await git.getChangedFiles(gitRepo)
+      check(
+        'getChangedFiles lists nested files in untracked directories',
+        changedFiles.some((f) => f.path === 'untracked-dir/file.txt' && f.status === 'untracked'),
+        JSON.stringify(changedFiles)
+      )
+      await fs.rm(path.join(gitRepo, 'untracked-dir'), { recursive: true })
+
       // The main working tree is always listed, and flagged as main.
       const wt0 = await git.listWorktrees(root!)
       check('git.listWorktrees lists the main tree', wt0.length === 1 && wt0[0].isMain === true)

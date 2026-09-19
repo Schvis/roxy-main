@@ -37,7 +37,7 @@ import {
   type SessionConfigPatch
 } from '../../shared/session-config'
 import { localDay } from '../../shared/cost'
-import { getDb } from './database'
+import { getDb, prepareCached } from './database'
 import { decryptSecret, encryptSecret } from '../services/secure'
 
 // ---- Row shapes --------------------------------------------------------------
@@ -101,7 +101,7 @@ interface IntegrationRow {
 // ---- Settings ----------------------------------------------------------------
 
 export function getSettings(): AppSettings {
-  const rows = getDb().prepare('SELECT key, value FROM settings').all() as {
+  const rows = prepareCached('SELECT key, value FROM settings').all() as {
     key: string
     value: string
   }[]
@@ -1024,14 +1024,14 @@ function rowToChat(row: ChatRow): Chat {
 }
 
 export function listChats(): Chat[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM chats ORDER BY sort_order DESC, updated_at DESC')
-    .all() as ChatRow[]
+  const rows = prepareCached(
+    'SELECT * FROM chats ORDER BY sort_order DESC, updated_at DESC'
+  ).all() as ChatRow[]
   return rows.map(rowToChat)
 }
 
 export function getChat(id: string): Chat | undefined {
-  const row = getDb().prepare('SELECT * FROM chats WHERE id = ?').get(id) as ChatRow | undefined
+  const row = prepareCached('SELECT * FROM chats WHERE id = ?').get(id) as ChatRow | undefined
   return row ? rowToChat(row) : undefined
 }
 
@@ -1044,7 +1044,7 @@ export function getChat(id: string): Chat | undefined {
  * anything that touches the filesystem.
  */
 export function getChatWorkspace(chatId: string): string | null {
-  const row = getDb().prepare('SELECT workspace_path FROM chats WHERE id = ?').get(chatId) as
+  const row = prepareCached('SELECT workspace_path FROM chats WHERE id = ?').get(chatId) as
     | { workspace_path: string | null }
     | undefined
   return row?.workspace_path ?? null
@@ -1626,9 +1626,9 @@ function rowToMessage(row: MessageRow): Message {
 }
 
 export function listMessages(chatId: string): Message[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC')
-    .all(chatId) as MessageRow[]
+  const rows = prepareCached(
+    'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC'
+  ).all(chatId) as MessageRow[]
   return rows.map(rowToMessage)
 }
 
@@ -1639,10 +1639,10 @@ export function addMessage(input: AddMessageInput): Message {
   const partsJson = JSON.stringify(parts)
   const db = getDb()
   const tx = db.transaction(() => {
-    db.prepare(
+    prepareCached(
       'INSERT INTO messages(id, chat_id, role, content, parts, created_at) VALUES(?, ?, ?, ?, ?, ?)'
     ).run(id, input.chatId, input.role, input.content, partsJson, now)
-    db.prepare('UPDATE chats SET updated_at = ? WHERE id = ?').run(now, input.chatId)
+    prepareCached('UPDATE chats SET updated_at = ? WHERE id = ?').run(now, input.chatId)
     // One assistant message = one agent turn. Credited to the durable ledger in
     // the SAME transaction as the message, so the graph can never disagree with
     // what was actually persisted - and, unlike the message, the credit stays
@@ -2005,26 +2005,24 @@ export function recordUsage(input: {
   const id = randomUUID()
   const now = Date.now()
   const u = input.usage
-  getDb()
-    .prepare(
-      `INSERT INTO usage
-         (id, chat_id, provider_id, model, input, output, cache_read, cache_write, reasoning, cost, estimated, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      id,
-      input.chatId,
-      input.providerId,
-      input.model,
-      Math.max(0, Math.round(u.input)),
-      Math.max(0, Math.round(u.output)),
-      Math.max(0, Math.round(u.cacheRead)),
-      Math.max(0, Math.round(u.cacheWrite)),
-      Math.max(0, Math.round(u.reasoning)),
-      input.cost,
-      u.estimated ? 1 : 0,
-      now
-    )
+  prepareCached(
+    `INSERT INTO usage
+       (id, chat_id, provider_id, model, input, output, cache_read, cache_write, reasoning, cost, estimated, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    input.chatId,
+    input.providerId,
+    input.model,
+    Math.max(0, Math.round(u.input)),
+    Math.max(0, Math.round(u.output)),
+    Math.max(0, Math.round(u.cacheRead)),
+    Math.max(0, Math.round(u.cacheWrite)),
+    Math.max(0, Math.round(u.reasoning)),
+    input.cost,
+    u.estimated ? 1 : 0,
+    now
+  )
   return toUsageRecord({
     id,
     chat_id: input.chatId,
@@ -2121,12 +2119,10 @@ export function insertBackfilledUsage(input: {
  */
 export function recordActivityTurn(day: string, turns = 1): void {
   if (!day || turns <= 0) return
-  getDb()
-    .prepare(
-      `INSERT INTO activity(day, turns) VALUES(?, ?)
-       ON CONFLICT(day) DO UPDATE SET turns = turns + excluded.turns`
-    )
-    .run(day, Math.floor(turns))
+  prepareCached(
+    `INSERT INTO activity(day, turns) VALUES(?, ?)
+     ON CONFLICT(day) DO UPDATE SET turns = turns + excluded.turns`
+  ).run(day, Math.floor(turns))
 }
 
 /** Per-day turn counts from `fromDay` (inclusive, local YYYY-MM-DD) onward. */

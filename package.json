@@ -53,6 +53,10 @@
     "smoke:canvas": "electron test/canvas/smoke.cjs",
     "smoke:animation": "electron test/canvas/animation.cjs",
     "perf:canvas": "electron test/canvas/performance.cjs",
+    "perf:db": "esbuild script/perf/db.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/perf-db.cjs && electron test/.out/perf-db.cjs",
+    "perf:hot": "node script/perf/hot.mjs",
+    "perf:index": "esbuild script/perf/indexab.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/perf-index.cjs && electron test/.out/perf-index.cjs",
+    "perf:sync": "esbuild script/perf/sync.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/perf-sync.cjs && electron test/.out/perf-sync.cjs",
     "smoke:diff": "esbuild test/canvas/diff.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/diff.cjs && node test/.out/diff.cjs"
   },
   "dependencies": {

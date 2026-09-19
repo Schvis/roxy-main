@@ -268,12 +268,28 @@ export async function getIgnoredPaths(
   })
   const input = lines.join('\n')
 
-  const r = await execGit(['check-ignore', '--stdin'], cwd, 5000, input)
+  const r = await execGit(['check-ignore', '-v', '--stdin'], cwd, 5000, input)
   if ((r.code !== 0 && r.code !== 1) || !r.stdout.trim()) return new Set()
 
   const set = new Set<string>()
   for (const line of r.stdout.split(/\r?\n/)) {
-    const clean = line
+    const tabIdx = line.indexOf('\t')
+    let rawPath = line
+    if (tabIdx !== -1) {
+      const meta = line.slice(0, tabIdx)
+      rawPath = line.slice(tabIdx + 1)
+      const match = meta.match(/^(?:.*):(\d+):(.*)$/)
+      if (match) {
+        const pattern = match[2]
+        // Git for Windows CRLF bug: blank lines (\r\n) in .gitignore are
+        // parsed as empty pattern rules that match every directory path ending in '/'.
+        // Also skip negation patterns (!pattern means un-ignored).
+        if (!pattern || !pattern.trim() || pattern === '/' || pattern.startsWith('!')) {
+          continue
+        }
+      }
+    }
+    const clean = rawPath
       .trim()
       .replace(/^"+|"+$/g, '')
       .replace(/\\\\/g, '/')
@@ -1360,7 +1376,7 @@ export async function getCommitFiles(cwd: string, sha: string): Promise<GitChang
 /** Get list of uncommitted changed files in `cwd`. */
 export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
   if (!cwd) return []
-  const r = await git(['status', '--porcelain=v1'], cwd)
+  const r = await git(['status', '--porcelain=v1', '-uall'], cwd)
   if (!r.ok || !r.stdout.trim()) return []
 
   const list: GitChangedFile[] = []
@@ -1369,7 +1385,14 @@ export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
     if (line.length < 3) continue
     const x = line[0]
     const y = line[1]
-    const filePath = line.slice(3).trim()
+    let filePath = line.slice(3).trim()
+    if (filePath.includes(' -> ')) {
+      const parts = filePath.split(' -> ')
+      filePath = parts[parts.length - 1].trim()
+    }
+    if (filePath.startsWith('"') && filePath.endsWith('"')) {
+      filePath = filePath.slice(1, -1)
+    }
     let status: GitChangedFile['status'] = 'modified'
     if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
       status = 'conflict'

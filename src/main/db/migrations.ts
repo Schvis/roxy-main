@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3'
+import { createPerfIndexes } from './perf-indexes'
 
 /**
  * A migration is either raw SQL or a function, for steps that must INSPECT the
@@ -522,7 +523,26 @@ export const MIGRATIONS: Migration[] = [
   // ---- v26: optional image-model catalog discovery ----
   (db) => {
     addColumnIfMissing(db, 'providers', 'discover_image_models', 'INTEGER NOT NULL DEFAULT 0')
-  }
+  },
+
+  // ---- v27: indexes for the hot read predicates ----
+  // Every query below ran a full table scan; on a database with a few thousand
+  // sessions and messages that is real per-frame / per-poll work. Indexes are
+  // cheap here because these tables are tiny next to `messages` — the write
+  // amplification of six small indexes on `chats` is nothing beside a message
+  // insert — while the reads they speed up run constantly:
+  //   idx_chats_parent        — subagent lookup (listSubagentSessions) + cascade
+  //                             delete, run per parent session render.
+  //   idx_chats_workspace_kind— the sidebar's kind='main' AND workspace_path IS ?
+  //                             listing, run on every refreshChats.
+  //   idx_chats_worktree      — worktree reuse/lookup, run when a session starts.
+  //   idx_chats_sort_order    — listChats' ORDER BY sort_order DESC, updated_at
+  //                             DESC, the app's most-called list query.
+  //   idx_loops_due           — the scheduler's enabled = 1 AND next_run_at <= ?
+  //                             poll, run every minute forever.
+  //   idx_usage_chat          — per-session spend roll-ups on the usage view.
+  // All CREATE INDEX IF NOT EXISTS, so re-running is a no-op.
+  (db) => createPerfIndexes(db)
 ]
 
 /**
@@ -548,6 +568,9 @@ export const MIGRATIONS: Migration[] = [
  */
 export function repairSchema(db: Database): void {
   db.exec(REPAIR_SCHEMA_SQL)
+  // NOTE: the perf indexes are created at the END of this function, after the
+  // addColumnIfMissing calls below — some of them index columns that only those
+  // calls introduce, so creating them up here would fail on an old database.
   // Columns added by later migrations: CREATE TABLE IF NOT EXISTS won't add
   // them to a table that already exists.
   addColumnIfMissing(db, 'chats', 'worktree_path', 'TEXT')
@@ -619,4 +642,7 @@ export function repairSchema(db: Database): void {
         GROUP BY day;
     `)
   }
+  // Now that every column the perf indexes reference is guaranteed present,
+  // (re)create them. Idempotent and defensive — see perf-indexes.ts.
+  createPerfIndexes(db)
 }

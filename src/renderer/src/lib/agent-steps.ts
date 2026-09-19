@@ -590,21 +590,68 @@ export function stopTasks(tasks: SessionTask[]): SessionTask[] {
   return tasks.map((t) => (t.status === 'in_progress' ? { ...t, status: 'pending' as const } : t))
 }
 
-function extractPlanFromMessage(msg: Message): {
+/**
+ * Per-message memo for `extractPlanFromMessage`.
+ *
+ * That function is pure but expensive: it rebuilds the joined prose/reasoning
+ * strings and runs ~8 regexes over the WHOLE message body. `extractAgentSteps`
+ * calls it for every assistant message in the history, and the steps popup
+ * re-runs `extractAgentSteps` on every animation frame while a turn streams —
+ * so a long session paid the full-history regex cost ~60x/second even though the
+ * persisted messages never change.
+ *
+ * A persisted `Message` is immutable and referentially stable between frames
+ * (the store replaces the array only on a `messages:updated` reload), so a
+ * WeakMap keyed on the message object turns that O(history) per-frame work into
+ * O(new messages) once. Eviction is automatic — the entry dies with the message.
+ *
+ * The cached value is safe to share: every consumer either reads the task fields
+ * or copies them (`applyCompletionSignals` / `correlateStepStatuses` map to fresh
+ * objects); none mutate the returned tasks in place.
+ */
+type PlanInfo = {
   tasks: SessionTask[]
   isChecklist: boolean
   hasSummaryAtEnd: boolean
   isStopped: boolean
-} | null {
-  if (msg.role !== 'assistant') return null
+}
 
-  const prose =
+const planCache = new WeakMap<Message, PlanInfo | null>()
+
+/**
+ * Memoized "visible assistant text" for a message: the joined text parts, or
+ * the plain content column as a fallback. `extractPlanFromMessage` builds this
+ * for prose AND reasoning, and `extractAgentSteps` builds it again for prior /
+ * post-plan messages — the same work, several times per frame, over the whole
+ * history. Same immutability argument as `planCache`: memoize per message.
+ */
+const textCache = new WeakMap<Message, string>()
+function assistantTextOf(msg: Message): string {
+  const cached = textCache.get(msg)
+  if (cached !== undefined) return cached
+  const text =
     msg.parts
       ?.filter((p) => p.type === 'text')
       .map((p) => p.text)
       .join('\n') ||
     msg.content ||
     ''
+  textCache.set(msg, text)
+  return text
+}
+
+function extractPlanFromMessage(msg: Message): PlanInfo | null {
+  const cached = planCache.get(msg)
+  if (cached !== undefined) return cached
+  const result = computePlanFromMessage(msg)
+  planCache.set(msg, result)
+  return result
+}
+
+function computePlanFromMessage(msg: Message): PlanInfo | null {
+  if (msg.role !== 'assistant') return null
+
+  const prose = assistantTextOf(msg)
   const isStopped = prose.includes('_[stopped]_') || prose.includes('[stopped]')
 
   if (msg.parts && msg.parts.length > 0) {
@@ -752,16 +799,7 @@ export function extractAgentSteps(
     }
 
     if (extracted.length > 0) {
-      const priorTexts = messages.map((m) =>
-        m.role === 'assistant'
-          ? m.parts
-              ?.filter((p) => p.type === 'text')
-              .map((p) => p.text)
-              .join('\n') ||
-            m.content ||
-            ''
-          : ''
-      )
+      const priorTexts = messages.map((m) => (m.role === 'assistant' ? assistantTextOf(m) : ''))
       const withSignals = applyCompletionSignals(extracted, [...priorTexts, prose, reasoning])
 
       const toolParts = streaming.filter(
@@ -806,16 +844,9 @@ export function extractAgentSteps(
         merged = mergeResumedSteps(merged, earlierTasks)
       }
 
-      const postPlanTexts = messages.slice(i).map((m) =>
-        m.role === 'assistant'
-          ? m.parts
-              ?.filter((p) => p.type === 'text')
-              .map((p) => p.text)
-              .join('\n') ||
-            m.content ||
-            ''
-          : ''
-      )
+      const postPlanTexts = messages
+        .slice(i)
+        .map((m) => (m.role === 'assistant' ? assistantTextOf(m) : ''))
       const withSignals = applyCompletionSignals(merged, postPlanTexts)
 
       const msgToolParts =

@@ -450,6 +450,18 @@ let remoteDeltaSubscribed = false
 let subagentDeltaSubscribed = false
 let chatsUpdatedSubscribed = false
 let messagesUpdatedSubscribed = false
+/**
+ * Chats with a transcript reload already in flight for a `messages:updated`
+ * burst. See the handler in `bootstrap` — writes arrive in quick succession
+ * (the user message, then the assistant message once the turn lands; or a burst
+ * of subagent/loop writes into the same chat), and each used to trigger its own
+ * full `api.messages.list` of the WHOLE transcript. Coalescing an in-flight
+ * burst into the reload already running makes the last event win, exactly as
+ * before, but pays the O(history) read + IPC serialization once instead of N
+ * times. The trailing reload is guaranteed: `finally` re-runs if another event
+ * landed while we were away. */
+const messagesReloading = new Set<string>()
+const messagesReloadAgain = new Set<string>()
 let activeChatSubscribed = false
 let promptSubmitSubscribed = false
 let settingsSubscribed = false
@@ -1197,14 +1209,29 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           publishStream(chatId, null)
         }
         if (get().activeChatId !== chatId) return
-        void api.messages
-          .list(chatId)
-          .then((messages) => {
-            if (get().activeChatId === chatId) set({ messages, messagesChatId: chatId })
-          })
-          .catch(() => {
-            // Existing transcript remains visible; selection retry handles a later reload.
-          })
+        // Coalesce: if a reload for this chat is already running, just remember
+        // that more changes arrived and let the in-flight one re-run when it
+        // finishes. One reload absorbs the whole burst.
+        if (messagesReloading.has(chatId)) {
+          messagesReloadAgain.add(chatId)
+          return
+        }
+        messagesReloading.add(chatId)
+        const reload = (): void => {
+          void api.messages
+            .list(chatId)
+            .then((messages) => {
+              if (get().activeChatId === chatId) set({ messages, messagesChatId: chatId })
+            })
+            .catch(() => {
+              // Existing transcript remains visible; selection retry handles a later reload.
+            })
+            .finally(() => {
+              if (messagesReloadAgain.delete(chatId)) reload()
+              else messagesReloading.delete(chatId)
+            })
+        }
+        reload()
       })
     }
 

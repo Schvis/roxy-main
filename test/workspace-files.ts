@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import {
   mkdtemp,
   mkdir,
@@ -23,6 +24,7 @@ import {
   writeWorkspaceFile,
   MAX_FILE_BYTES
 } from '../src/main/services/workspace-files'
+import { isGitAvailable } from '../src/main/services/git'
 
 async function main(): Promise<void> {
   const temp = await mkdtemp(path.join(os.tmpdir(), 'roxy-files-'))
@@ -249,6 +251,51 @@ async function main(): Promise<void> {
     await assert.rejects(stat(path.join(root, 'renamed-dir')))
 
     await assert.rejects(deleteWorkspaceFile(root, ''))
+
+    // Test git ignored paths handling (including Git on Windows CRLF blank line bug and negation rules)
+    const gitOk = await isGitAvailable()
+    if (gitOk) {
+      const gitRoot = path.join(temp, 'git-repo')
+      await mkdir(gitRoot)
+      await writeFile(
+        path.join(gitRoot, '.gitignore'),
+        'ignored-dir/\r\n\r\n*.log\r\n!kept.log\r\n'
+      )
+      await mkdir(path.join(gitRoot, 'ignored-dir'))
+      await mkdir(path.join(gitRoot, 'normal-dir'))
+      await writeFile(path.join(gitRoot, 'ignored-dir/nested.txt'), 'nested')
+      await writeFile(path.join(gitRoot, 'normal-dir/nested.txt'), 'nested')
+      await writeFile(path.join(gitRoot, 'app.log'), 'log')
+      await writeFile(path.join(gitRoot, 'kept.log'), 'kept')
+      await writeFile(path.join(gitRoot, 'normal.txt'), 'normal')
+
+      await new Promise<void>((resolve, reject) => {
+        const cp = spawn('git', ['init', '--initial-branch=main'], {
+          cwd: gitRoot,
+          stdio: 'ignore'
+        })
+        cp.on('exit', (code) =>
+          code === 0 ? resolve() : reject(new Error(`git init exited with ${code}`))
+        )
+      })
+
+      const gitEntries = await listWorkspaceFiles(gitRoot, '')
+      const entryMap = new Map(gitEntries.map((e) => [e.name, e]))
+
+      assert.equal(entryMap.get('ignored-dir')?.ignored, true, 'ignored-dir should be ignored')
+      assert.equal(
+        entryMap.get('normal-dir')?.ignored,
+        undefined,
+        'normal-dir should NOT be ignored'
+      )
+      assert.equal(entryMap.get('app.log')?.ignored, true, 'app.log should be ignored')
+      assert.equal(entryMap.get('kept.log')?.ignored, undefined, 'kept.log should NOT be ignored')
+      assert.equal(
+        entryMap.get('normal.txt')?.ignored,
+        undefined,
+        'normal.txt should NOT be ignored'
+      )
+    }
 
     console.log('workspace-files: passed')
   } finally {
