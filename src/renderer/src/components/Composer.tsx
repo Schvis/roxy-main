@@ -121,37 +121,46 @@ export function Composer({
     parentChat?.worktreePath ??
     parentChat?.workspacePath ??
     null
+  const effectiveRoot = ideSelectedRoot || workspaceRoot
 
   const currentFile = useMemo(() => {
     if (!ideMode) return null
+    const root = effectiveRoot
+    const normRoot = root ? root.replace(/\\/g, '/').replace(/\/+$/, '') : ''
     if (
       ideSelectedFile &&
       !ideSelectedFile.directory &&
-      ideSelectedRoot &&
-      normalizeRoot(ideSelectedRoot) === normalizeRoot(workspaceRoot)
+      (!ideSelectedRoot || !root || normalizeRoot(ideSelectedRoot) === normalizeRoot(root))
     ) {
+      const normPath = ideSelectedFile.path.replace(/\\/g, '/').replace(/^\/+/, '')
+      const fullPath = normRoot ? `${normRoot}/${normPath}` : normPath
       return {
         path: ideSelectedFile.path,
+        fullPath,
         name: ideSelectedFile.name || ideSelectedFile.path.split('/').pop() || ideSelectedFile.path,
         line: ideSelectedLine
       }
     }
-    const saved = loadActiveFile(workspaceRoot)
+    const saved = loadActiveFile(root)
     if (saved) {
+      const normPath = saved.path.replace(/\\/g, '/').replace(/^\/+/, '')
+      const fullPath = normRoot ? `${normRoot}/${normPath}` : normPath
       return {
         path: saved.path,
+        fullPath,
         name: saved.name || saved.path.split('/').pop() || saved.path,
         line: saved.line
       }
     }
     return null
-  }, [ideMode, ideSelectedFile, ideSelectedLine, ideSelectedRoot, workspaceRoot])
+  }, [ideMode, ideSelectedFile, ideSelectedLine, ideSelectedRoot, effectiveRoot])
 
   const isCurrentFileAttached = Boolean(
     currentFile &&
     contextAttachments.some(
       (a) =>
         a.path === currentFile.path ||
+        (a.fullPath && currentFile.fullPath && a.fullPath === currentFile.fullPath) ||
         (a.fullPath && currentFile.path && a.fullPath.endsWith(currentFile.path))
     )
   )
@@ -228,9 +237,10 @@ export function Composer({
   const handleAttachCurrentFile = (): void => {
     setContextMenuOpen(false)
     if (activeChatId && currentFile) {
+      const target = currentFile.fullPath || currentFile.path
       addPendingContextAttachment(
         activeChatId,
-        createContextAttachment('file', currentFile.path, workspaceRoot, currentFile.line)
+        createContextAttachment('file', target, effectiveRoot, currentFile.line)
       )
     }
   }
@@ -315,7 +325,7 @@ export function Composer({
         const diskPath = (f as { path?: string }).path || f.name
         addPendingContextAttachment(
           activeChatId,
-          createContextAttachment('file', diskPath, workspaceRoot)
+          createContextAttachment('file', diskPath, effectiveRoot)
         )
       }
     }
@@ -587,7 +597,9 @@ export function Composer({
                 type="button"
                 onClick={handleAttachCurrentFile}
                 className="press-scale inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20 transition-colors shadow-xs"
-                title={t('composer.attachCurrentFile', { path: currentFile.name })}
+                title={t('composer.attachCurrentFile', {
+                  path: currentFile.fullPath || currentFile.path
+                })}
               >
                 <Plus className="h-3 w-3 shrink-0" />
                 <FileCode className="h-3.5 w-3.5 shrink-0" />
@@ -597,33 +609,43 @@ export function Composer({
                 </span>
               </button>
             )}
-            {contextAttachments.map((item) => (
-              <span
-                key={item.id}
-                className="group inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text shadow-xs"
-                title={item.fullPath ?? item.path}
-              >
-                {item.type === 'folder' ? (
-                  <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
-                ) : (
-                  <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
-                )}
-                <span className="max-w-[180px] truncate font-mono text-[11px]">
-                  {item.path}
-                  {item.line ? `:${item.line}` : ''}
-                </span>
-                {activeChatId && (
-                  <button
-                    type="button"
-                    onClick={() => removePendingContextAttachment(activeChatId, item.id)}
-                    title={t('composer.removeContext')}
-                    className="press-scale -mr-0.5 ml-0.5 rounded p-0.5 text-text-subtle hover:bg-white/10 hover:text-text"
+            {contextAttachments.map((item) => {
+              const fullPathToDisplay = item.fullPath || item.path
+              const displayName = item.name || item.path.split('/').pop() || item.path
+              return (
+                <span
+                  key={item.id}
+                  className="group inline-flex items-center gap-1.5 rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-xs text-text shadow-xs"
+                  title={fullPathToDisplay}
+                >
+                  {item.type === 'folder' ? (
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  ) : (
+                    <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  )}
+                  <span className="rounded bg-accent/20 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent shrink-0">
+                    {t('chat.contextAttached')}
+                  </span>
+                  <span
+                    className="max-w-[220px] truncate font-mono text-[11px]"
+                    title={fullPathToDisplay}
                   >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </span>
-            ))}
+                    {displayName}
+                    {item.line ? `:${item.line}` : ''}
+                  </span>
+                  {activeChatId && (
+                    <button
+                      type="button"
+                      onClick={() => removePendingContextAttachment(activeChatId, item.id)}
+                      title={t('composer.removeContext')}
+                      className="press-scale -mr-0.5 ml-0.5 rounded p-0.5 text-text-subtle hover:bg-white/10 hover:text-text shrink-0"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
             {images.map((img) => (
               <ImagePreview
                 key={img.id}
@@ -718,13 +740,17 @@ export function Composer({
                                 ? 'opacity-50 cursor-not-allowed text-text-subtle'
                                 : 'text-text hover:bg-white/5'
                             )}
-                            title={t('composer.attachCurrentFile', { path: currentFile.name })}
+                            title={t('composer.attachCurrentFile', {
+                              path: currentFile.fullPath || currentFile.path
+                            })}
                           >
                             <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
                             <div className="flex flex-col min-w-0 flex-1">
-                              <span className="truncate font-medium">{currentFile.name}</span>
+                              <span className="truncate font-mono text-xs font-medium">
+                                {currentFile.fullPath || currentFile.path}
+                              </span>
                               <span className="truncate text-[10px] text-text-subtle">
-                                {currentFile.path}
+                                {currentFile.name}
                                 {currentFile.line ? `:${currentFile.line}` : ''}
                               </span>
                             </div>

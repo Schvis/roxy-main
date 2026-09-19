@@ -437,7 +437,16 @@ export function ContextFilePickerModal({
                         })()
                       )}
 
-                      <span className="truncate font-mono text-xs">{entry.name}</span>
+                      <span
+                        className="truncate font-mono text-xs"
+                        title={
+                          workspaceRoot
+                            ? `${workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '')}/${entry.path.replace(/^\/+/, '')}`
+                            : entry.path
+                        }
+                      >
+                        {entry.name}
+                      </span>
                     </div>
 
                     {entry.directory && (

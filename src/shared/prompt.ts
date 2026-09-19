@@ -18,6 +18,7 @@ export type PromptName =
   | 'gemini'
   | 'kimi'
   | 'trinity'
+  | 'roleplay'
   | 'default'
 
 export const PROMPT_NAMES: readonly PromptName[] = [
@@ -28,6 +29,7 @@ export const PROMPT_NAMES: readonly PromptName[] = [
   'gemini',
   'kimi',
   'trinity',
+  'roleplay',
   'default'
 ] as const
 
@@ -78,6 +80,11 @@ export const PROMPT_FAMILIES: readonly PromptFamilyDef[] = [
     description: 'Tuned for Trinity models'
   },
   {
+    id: 'roleplay',
+    name: 'Roleplay (Chatbot)',
+    description: 'Tuned for conversational roleplay and immersive character interactions'
+  },
+  {
     id: 'default',
     name: 'Default',
     description: 'Standard general-purpose fallback prompt'
@@ -95,6 +102,7 @@ export function matchPromptName(modelId: string | undefined): PromptName | null 
   if (id.includes('claude')) return 'anthropic'
   if (id.includes('trinity')) return 'trinity'
   if (id.includes('kimi')) return 'kimi'
+  if (id.includes('roleplay')) return 'roleplay'
   return null
 }
 

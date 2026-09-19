@@ -320,6 +320,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
     ? chats.find((c) => c.id === activeChat.parentId)
     : undefined
   const addPendingContextAttachment = useRoxyStore((s) => s.addPendingContextAttachment)
+  const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
 
   const workspaceRoot =
     activeChat?.worktreePath ??
@@ -327,6 +328,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
     parentChat?.worktreePath ??
     parentChat?.workspacePath ??
     null
+  const effectiveWorkspaceRoot = workspaceRoot || (ideMode ? ideSelectedRoot : null)
 
   const activeLoop = loops.find((l) => l.chatId === activeChatId)
   const sessionTasks = activeChat?.tasks ?? []
@@ -827,7 +829,7 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
       {contextPickerOpen && activeChatId && (
         <ContextFilePickerModal
           sessionId={activeChatId}
-          workspaceRoot={workspaceRoot}
+          workspaceRoot={effectiveWorkspaceRoot}
           onClose={() => setContextPickerOpen(false)}
           onAttach={(attachments) => {
             for (const item of attachments) {

@@ -166,6 +166,7 @@ export interface CodePreviewRailProps {
   lineInfos: EditorLineInfo[]
   hunks: GroupedHunk[]
   errorLines?: Set<number>
+  highlightLines?: Set<number>
   syntaxTokens?: SyntaxToken[][] | null
   scrollContainerRef: React.RefObject<HTMLElement | null>
   onScrollToLine: (lineIdx: number) => void
@@ -177,6 +178,7 @@ export function CodePreviewRail({
   lineInfos,
   hunks,
   errorLines,
+  highlightLines,
   syntaxTokens,
   scrollContainerRef,
   onScrollToLine,
@@ -208,6 +210,7 @@ export function CodePreviewRail({
     text: string
     kind: 'context' | 'added' | 'deleted'
     hasError: boolean
+    hasHighlight?: boolean
     hasDeletion?: boolean
   } | null>(null)
 
@@ -342,6 +345,14 @@ export function CodePreviewRail({
         ctx.fillRect(0, y, 3, lineH)
       }
 
+      // Highlight match background on minimap line
+      if (highlightLines?.has(i + 1)) {
+        ctx.fillStyle = 'rgba(77, 141, 255, 0.35)'
+        ctx.fillRect(0, y, width, lineH)
+        ctx.fillStyle = '#4d8dff'
+        ctx.fillRect(0, y, 2.5, lineH)
+      }
+
       // Red horizontal line indicator where lines were removed
       if (info?.gitDeletedCount) {
         ctx.fillStyle = '#f43f5e'
@@ -408,7 +419,7 @@ export function CodePreviewRail({
         }
       }
     }
-  }, [lines, lineInfos, errorLines, syntaxTokens, mode, totalContentHeight])
+  }, [lines, lineInfos, errorLines, highlightLines, syntaxTokens, mode, totalContentHeight])
 
   // Mouse wheel over minimap scrolls the master editor
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
@@ -511,6 +522,7 @@ export function CodePreviewRail({
       text: lineText.trim() || `(empty line ${lineIdx + 1})`,
       kind: info?.kind ?? 'context',
       hasError: Boolean(errorLines?.has(lineIdx + 1)),
+      hasHighlight: Boolean(highlightLines?.has(lineIdx + 1)),
       hasDeletion: Boolean(info?.gitDeletedCount || info?.gitDeletedTrailing)
     })
   }
@@ -692,6 +704,8 @@ export function CodePreviewRail({
                     <span className="font-semibold text-rose-400">- Removed</span>
                   ) : hoveredLine.hasError ? (
                     <span className="font-semibold text-danger">! Error</span>
+                  ) : hoveredLine.hasHighlight ? (
+                    <span className="font-semibold text-accent">• Match</span>
                   ) : null}
                 </div>
                 <div className="truncate font-mono text-[11px] text-text">{hoveredLine.text}</div>
@@ -770,6 +784,16 @@ export function CodePreviewRail({
                 key={lineNum}
                 style={{ top: `${((lineNum - 1) / totalLines) * 100}%` }}
                 className="absolute inset-x-0 h-1 bg-danger pointer-events-none z-10"
+              />
+            ))}
+
+          {/* Highlight match ticks */}
+          {highlightLines &&
+            Array.from(highlightLines).map((lineNum) => (
+              <div
+                key={`hl-${lineNum}`}
+                style={{ top: `${((lineNum - 1) / totalLines) * 100}%` }}
+                className="absolute inset-x-0.5 h-1 rounded-[1px] bg-accent pointer-events-none z-10 opacity-95 shadow-[0_0_3px_rgba(77,141,255,0.7)]"
               />
             ))}
 

@@ -46,6 +46,7 @@ import type {
   QueueImage,
   ReasoningEffort
 } from '../../shared/types'
+import { partsToContent } from '../../shared/parts'
 import * as repo from '../db/repo'
 import {
   updateOverlayShortcut,
@@ -53,6 +54,8 @@ import {
   isOverlayWindow,
   isFloatingIconWindow,
   isVtuberWindow,
+  isOverlayOpenState,
+  getOverlayWindow,
   openVtuberWindow,
   closeVtuberWindow,
   resetVtuberPosition,
@@ -829,14 +832,26 @@ export function registerIpc(): void {
   ipcMain.handle(
     CHANNELS.chatsSubmitPrompt,
     (_e, payload: { text: string; images?: unknown[] }) => {
-      let forwarded = false
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed() && !isOverlayWindow(win)) {
-          win.webContents.send(CHANNELS.chatsSubmitPrompt, payload)
-          forwarded = true
+      let target: BrowserWindow | null = null
+      if (isOverlayOpenState()) {
+        const overlay = getOverlayWindow()
+        if (overlay && !overlay.isDestroyed() && overlay.isVisible()) {
+          target = overlay
         }
       }
-      return forwarded
+      if (!target) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed() && !isOverlayWindow(win)) {
+            target = win
+            break
+          }
+        }
+      }
+      if (target) {
+        target.webContents.send(CHANNELS.chatsSubmitPrompt, payload)
+        return true
+      }
+      return false
     }
   )
 
@@ -851,6 +866,16 @@ export function registerIpc(): void {
       const existing = repo.listMessages(input.chatId)
       const last = existing[existing.length - 1]
       if (last && last.role === 'assistant') return last
+    }
+    // If the renderer is persisting an empty/blank assistant reply, but the main
+    // process actively accumulated parts for this turn, recover those parts so the
+    // response isn't wiped out or saved as blank.
+    if ((!input.parts || input.parts.length === 0) && !input.content?.trim()) {
+      const activeParts = getActiveTurnParts(input.chatId)
+      if (activeParts && activeParts.length > 0) {
+        input.parts = activeParts
+        input.content = partsToContent(activeParts)
+      }
     }
     markTurnPersisted(input.chatId)
     return null
@@ -1349,7 +1374,7 @@ export function registerIpc(): void {
         const onChunk = callId
           ? (chunk: string): void => {
               for (const win of BrowserWindow.getAllWindows()) {
-                if (!win.isDestroyed() && !isOverlayWindow(win)) {
+                if (!win.isDestroyed() && !isFloatingIconWindow(win) && !isVtuberWindow(win)) {
                   win.webContents.send(CHANNELS.toolsChunk, { callId, chunk })
                 }
               }
@@ -1447,7 +1472,7 @@ export function registerIpc(): void {
     const settings = repo.getSettings()
     const broadcastLlmDelta = (llmEvent: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed() && !isOverlayWindow(win)) {
+        if (!win.isDestroyed() && !isFloatingIconWindow(win) && !isVtuberWindow(win)) {
           win.webContents.send(CHANNELS.llmDelta, {
             requestId: input.requestId,
             sessionId: input.sessionId,

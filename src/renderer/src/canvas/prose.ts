@@ -15,6 +15,7 @@ import { highlight, tokenColors, familyFor } from './highlight'
 import { alpha, mix } from './theme'
 import { linkUrl } from './links'
 import { resolveImageSrc } from '../../../shared/images'
+import { detectFilePath, splitTextWithFilePaths } from '@shared/context'
 
 /** Gap after each block kind — the prose rhythm. */
 const BLOCK_GAP = 10
@@ -48,14 +49,18 @@ export function toSpans(
   return inlines.map((frag) => {
     const href = frag.href ? (linkUrl(frag.href) ?? undefined) : undefined
     if (frag.code) {
+      const fileMatch = detectFilePath(frag.text)
       return {
         text: frag.text,
         // Mono runs a touch smaller than the prose around them: at equal size a
         // monospace face reads noticeably larger, which makes inline code shove
         // its line apart.
-        font: font(Math.max(10, base.size - 1), 400, 'mono'),
-        color: mix(style.color, palette.accent, 0.35),
-        chipColor: alpha(palette.white, builder.theme.appearance === 'light' ? 0.06 : 0.07),
+        font: font(Math.max(10, base.size - 1), 500, 'mono'),
+        color: fileMatch ? palette.accent : mix(style.color, palette.accent, 0.35),
+        chipColor: fileMatch
+          ? alpha(palette.accent, 0.14)
+          : alpha(palette.white, builder.theme.appearance === 'light' ? 0.06 : 0.07),
+        file: fileMatch ? { path: fileMatch.path, line: fileMatch.line } : undefined,
         href,
         underline: Boolean(href),
         offset: frag.offset
@@ -406,8 +411,29 @@ export function layoutPlainText(
   style: ProseStyle,
   family: 'sans' | 'mono' = 'sans'
 ): number {
+  const palette = builder.palette
   const f = font(style.size, 400, family, style.italic ? 'italic' : 'normal')
-  return builder.paragraph([{ text, font: f, color: style.color, offset: 0 }], x, y, width)
+  const monoFont = font(Math.max(10, style.size - 1), 500, 'mono')
+  const pieces = splitTextWithFilePaths(text)
+  const spans: InlineSpan[] = pieces.map((piece, i) => {
+    if (piece.file) {
+      return {
+        text: piece.text,
+        font: monoFont,
+        color: palette.accent,
+        chipColor: alpha(palette.accent, 0.14),
+        file: piece.file,
+        offset: i
+      }
+    }
+    return {
+      text: piece.text,
+      font: f,
+      color: style.color,
+      offset: i
+    }
+  })
+  return builder.paragraph(spans, x, y, width)
 }
 
 /** Language family, exported so a `read` card can pick one from a file name. */

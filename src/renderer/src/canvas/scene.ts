@@ -39,6 +39,7 @@ export interface Rect {
 export type HitAction =
   | { type: 'toggle'; id: string }
   | { type: 'link'; href: string }
+  | { type: 'file'; path: string; line?: number }
   | { type: 'cancel'; id: string }
   | { type: 'copy'; text: string }
   | { type: 'image'; src: string }

@@ -41,9 +41,13 @@ function revision(root: string, target: string, bytes: Buffer): string {
 
 const writes = new Map<string, Promise<unknown>>()
 
-function assertContained(root: string, target: string): void {
+function isContained(root: string, target: string): boolean {
   const relative = path.relative(root, target)
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+function assertContained(root: string, target: string): void {
+  if (!isContained(root, target)) {
     throw new Error('Path outside workspace')
   }
 }
@@ -530,10 +534,14 @@ export async function getWorkspaceFileDiagnostics(
   const targetAbs = resolved.target
   const dir = path.dirname(targetAbs)
 
-  let configPath = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.web.json')
-  if (!configPath || !configPath.toLowerCase().startsWith(resolved.realRoot.toLowerCase())) {
-    configPath = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.json')
+  const findConfig = (name: string): string | undefined => {
+    const found = ts.findConfigFile(dir, ts.sys.fileExists, name)
+    if (!found) return undefined
+    const resolvedPath = path.resolve(found)
+    return isContained(resolved.realRoot, resolvedPath) ? resolvedPath : undefined
   }
+
+  const configPath = findConfig('tsconfig.web.json') ?? findConfig('tsconfig.json')
 
   let compilerOptions: ts.CompilerOptions = {
     allowJs: true,
@@ -547,7 +555,7 @@ export async function getWorkspaceFileDiagnostics(
     allowSyntheticDefaultImports: true
   }
 
-  if (configPath && configPath.toLowerCase().startsWith(resolved.realRoot.toLowerCase())) {
+  if (configPath) {
     try {
       const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
       const parsed = ts.parseJsonConfigFileContent(

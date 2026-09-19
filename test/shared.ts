@@ -199,6 +199,7 @@ import {
   workstreamStripView,
   statusKeyForSession,
   shouldAutoWorkstream,
+  type StripGitStatus,
   type StripSession
 } from '../src/shared/workstream'
 import {
@@ -237,7 +238,10 @@ import {
   KEEP_RECENT_TOKENS,
   TOOL_OUTPUT_MAX_CHARS,
   createContextAttachment,
-  formatMessageWithContext
+  formatMessageWithContext,
+  parseAttachedContext,
+  detectFilePath,
+  splitTextWithFilePaths
 } from '../src/shared/context'
 import {
   MAX_PARALLEL_SUBAGENTS,
@@ -328,6 +332,8 @@ import {
   CHROME_H,
   MIN_MENU_H,
   MAX_MENU_H,
+  type MenuAlign,
+  type MenuSide,
   type Rect
 } from '../src/renderer/src/lib/anchor'
 import { rowOffsets, visibleRange, OVERSCAN } from '../src/renderer/src/lib/windowing'
@@ -1567,18 +1573,93 @@ check(
   formatMessageWithContext('hello', []) === 'hello'
 )
 const formatted = formatMessageWithContext('Explain this', [relFile, folderAtt])
-check('formatMessageWithContext prepends Context:', formatted.startsWith('Context:'))
-check('formatMessageWithContext lists file with line', formatted.includes('- File: src/app.ts:42'))
+check('formatMessageWithContext prepends Attached:', formatted.startsWith('Attached:'))
 check(
-  'formatMessageWithContext lists folder with trailing slash',
-  formatted.includes('- Folder: src/components/')
+  'formatMessageWithContext lists file with full path and line',
+  formatted.includes('- File: /workspace/src/app.ts:42')
+)
+check(
+  'formatMessageWithContext lists folder with full path and trailing slash',
+  formatted.includes('- Folder: /workspace/src/components/')
 )
 check('formatMessageWithContext appends prompt text', formatted.endsWith('Explain this'))
 
 const noTextFormatted = formatMessageWithContext('', [relFile])
 check(
   'formatMessageWithContext empty text returns context block only',
-  noTextFormatted === 'Context:\n- File: src/app.ts:42'
+  noTextFormatted === 'Attached:\n- File: /workspace/src/app.ts:42'
+)
+
+// parseAttachedContext
+const parsedFromFormatted = parseAttachedContext(formatted)
+check('parseAttachedContext parses formatted message', !!parsedFromFormatted)
+check('parseAttachedContext item count matches', parsedFromFormatted?.items.length === 2)
+check(
+  'parseAttachedContext file displayName has line',
+  parsedFromFormatted?.items[0].displayName === 'app.ts:42'
+)
+check(
+  'parseAttachedContext folder displayName has trailing slash',
+  parsedFromFormatted?.items[1].displayName === 'components/'
+)
+check(
+  'parseAttachedContext remaining contains prompt',
+  parsedFromFormatted?.remaining === 'Explain this'
+)
+
+const ninymErrorPrompt = `Attached:\n- File: D:/so/Ninym/src/app/checkout/v3/webhook/route.ts:3:43\n\nError at line 3, column 43:\nCannot find module`
+const parsedNinym = parseAttachedContext(ninymErrorPrompt)
+check('parseAttachedContext parses ninym prompt', !!parsedNinym)
+check('parseAttachedContext ninym item type is file', parsedNinym?.items[0].type === 'file')
+check(
+  'parseAttachedContext ninym item full path matches',
+  parsedNinym?.items[0].full === 'D:/so/Ninym/src/app/checkout/v3/webhook/route.ts:3:43'
+)
+check(
+  'parseAttachedContext ninym item path is clean without line',
+  parsedNinym?.items[0].path === 'D:/so/Ninym/src/app/checkout/v3/webhook/route.ts'
+)
+check('parseAttachedContext ninym item line is 3', parsedNinym?.items[0].line === 3)
+check('parseAttachedContext ninym item column is 43', parsedNinym?.items[0].column === 43)
+check(
+  'parseAttachedContext ninym displayName is route.ts:3:43',
+  parsedNinym?.items[0].displayName === 'route.ts:3:43'
+)
+check(
+  'parseAttachedContext ninym remaining is error body',
+  parsedNinym?.remaining === 'Error at line 3, column 43:\nCannot find module'
+)
+
+const parsedNoText = parseAttachedContext(noTextFormatted)
+check('parseAttachedContext parses empty prompt text', parsedNoText?.remaining === '')
+
+check(
+  'parseAttachedContext ignores normal message without header',
+  parseAttachedContext('Attached is the requested data') === null
+)
+
+// detectFilePath
+const detectedWin = detectFilePath('D:/so/Ninym/src/app/checkout/v3/webhook/route.ts:3:43')
+check(
+  'detectFilePath windows path with line:col',
+  detectedWin?.path === 'D:/so/Ninym/src/app/checkout/v3/webhook/route.ts' &&
+    detectedWin.line === 3 &&
+    detectedWin.column === 43
+)
+const detectedRel = detectFilePath('src/app/checkout/v3/webhook/route.ts')
+check('detectFilePath relative path', detectedRel?.path === 'src/app/checkout/v3/webhook/route.ts')
+check('detectFilePath url returns null', detectFilePath('https://example.com/route.ts') === null)
+check('detectFilePath non-file returns null', detectFilePath('hello.world') === null)
+
+// splitTextWithFilePaths
+const splitPieces = splitTextWithFilePaths(
+  'read\nD:\\so\\Ninym\\src\\app\\checkout\\v3\\webhook\\route.ts\nimport axios'
+)
+check(
+  'splitTextWithFilePaths finds file path token',
+  splitPieces.some(
+    (p) => p.file?.path === 'D:\\so\\Ninym\\src\\app\\checkout\\v3\\webhook\\route.ts'
+  )
 )
 
 // cross-turn replay now previews (head + tail) instead of a head-only slice
@@ -2740,12 +2821,16 @@ check('prompt select: claude → anthropic', selectPromptName('claude-sonnet-4')
 check('prompt select: unknown → default', selectPromptName('some-random-model') === 'default')
 check('prompt match: gpt-4 → beast', matchPromptName('gpt-4o') === 'beast')
 check('prompt match: claude → anthropic', matchPromptName('claude-sonnet-4') === 'anthropic')
+check('prompt match: roleplay → roleplay', matchPromptName('my-roleplay-model') === 'roleplay')
 check('prompt match: unknown → null', matchPromptName('deepseek-chat') === null)
 check('prompt isPromptName: anthropic', isPromptName('anthropic') === true)
+check('prompt isPromptName: roleplay', isPromptName('roleplay') === true)
 check('prompt isPromptName: unknown', isPromptName('deepseek-chat') === false)
 check(
-  'prompt families: includes anthropic and beast',
-  PROMPT_FAMILIES.some((f) => f.id === 'anthropic') && PROMPT_FAMILIES.some((f) => f.id === 'beast')
+  'prompt families: includes anthropic, beast, and roleplay',
+  PROMPT_FAMILIES.some((f) => f.id === 'anthropic') &&
+    PROMPT_FAMILIES.some((f) => f.id === 'beast') &&
+    PROMPT_FAMILIES.some((f) => f.id === 'roleplay')
 )
 
 // ---- Remote Workspace IPC parity (Part 6) ----
@@ -3233,11 +3318,11 @@ async function main(): Promise<void> {
       branch: null,
       ...over
     })
-    const repoStatus = { isRepo: true, branch: 'main', dirty: false, changed: 0 }
+    const repoStatus: StripGitStatus = { isRepo: true, branch: 'main', dirty: false, changed: 0 }
     const NO_STATUS = 'none' as const
     const view = (
       chat: StripSession | null,
-      status: typeof repoStatus | typeof NO_STATUS = repoStatus,
+      status: StripGitStatus | typeof NO_STATUS = repoStatus,
       gitAvailable: boolean | null = true,
       all: StripSession[] = []
     ) =>
@@ -4951,7 +5036,8 @@ async function main(): Promise<void> {
     activeModel: 'claude-opus-5',
     activeAgentId: 'plan',
     reasoningEffort: 'max' as const,
-    contextLimit: 1_000_000
+    contextLimit: 1_000_000,
+    activePromptId: null
   }
   const bare = {
     providerId: null,
@@ -5264,7 +5350,7 @@ async function main(): Promise<void> {
   for (const vw of [760, 900, 1100, 1440, 1920]) {
     for (const w of [224, 256, 288, 320, 416]) {
       for (let x = 0; x <= vw - 40; x += 17) {
-        for (const align of ['start', 'end']) {
+        for (const align of ['start', 'end'] as MenuAlign[]) {
           const tw = 90
           const left = x + alignMenu(x, tw, w, vw, align)
           // Never past a margin, unless the menu simply cannot fit — in which
@@ -5312,7 +5398,7 @@ async function main(): Promise<void> {
   let badCap = 0
   for (const vh of [480, 600, 780, 1080]) {
     for (let y = 0; y < vh - 24; y += 13) {
-      for (const side of ['top', 'bottom']) {
+      for (const side of ['top', 'bottom'] as MenuSide[]) {
         const cap = menuMaxHeight(y, y + 24, vh, side)
         if (!Number.isFinite(cap) || cap < MIN_MENU_H) badCap++
       }
@@ -5827,10 +5913,11 @@ async function main(): Promise<void> {
     rCalls[0]?.id === 'c1' && rCalls[0]?.name === 'bash' && rCalls[0]?.args === '{"cmd":"ls"}',
     JSON.stringify(rCalls[0])
   )
+  const finalUsage = rUsage as { input: number; cacheRead: number; output: number } | null
   check(
     'responses: usage excludes cached from input',
-    rUsage?.input === 70 && rUsage?.cacheRead === 30 && rUsage?.output === 20,
-    JSON.stringify(rUsage)
+    finalUsage?.input === 70 && finalUsage?.cacheRead === 30 && finalUsage?.output === 20,
+    JSON.stringify(finalUsage)
   )
   check('responses: response.completed terminates the stream', terminated)
   check(

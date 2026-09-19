@@ -514,6 +514,8 @@ export function extractAgentFileChanges(
     const stats = getLineStats(group.path, initialBefore, latestAfter)
     const changedLines = stats.added + stats.removed
 
+    if (initialBefore === latestAfter) continue
+
     // If previously kept and net change since kept is zero, retain kept status
     if (
       reviewStatus === 'pending' &&

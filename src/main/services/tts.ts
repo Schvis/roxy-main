@@ -13,6 +13,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { getSettings } from '../db/repo'
 import { resolvePython } from './stt'
+import { isFloatingIconWindow } from './overlay'
 
 const TTS_URL = process.env.ROXY_TTS_URL ?? 'http://127.0.0.1:5050'
 const TTS_LANG = process.env.ROXY_TTS_LANG // e.g. 'ja', 'es', 'zh', 'fr'
@@ -689,7 +690,11 @@ export async function playAudioBufferInRenderer(
     return { duration: fallbackDuration, serverOk: false }
   }
 
-  const targetWin = windows.find((w) => w.isVisible() && !w.isMinimized()) || windows[0]
+  const targetWin =
+    windows.find((w) => w.isFocused() && !w.isDestroyed() && !isFloatingIconWindow(w)) ||
+    windows.find((w) => w.isVisible() && !w.isMinimized() && !isFloatingIconWindow(w)) ||
+    windows.find((w) => w.isVisible() && !w.isMinimized()) ||
+    windows[0]
 
   return new Promise<{ duration: number; serverOk: boolean }>((resolve) => {
     let resolved = false

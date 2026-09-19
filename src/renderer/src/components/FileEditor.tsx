@@ -21,6 +21,7 @@ import {
   Eye,
   Image as ImageIcon,
   Map as MapIcon,
+  MessageSquare,
   Replace,
   RotateCcw,
   Search,
@@ -277,6 +278,211 @@ function fitSyntaxTokensToLine(
   return fitted
 }
 
+export interface LineDiagnosticRange {
+  start: number
+  end: number
+  line: number
+  column: number
+  code?: number
+  message: string
+}
+
+export interface LineHighlightRange {
+  start: number
+  end: number
+}
+
+function renderEditorLineContent(
+  lineText: string,
+  lineTokens: SyntaxToken[] | null,
+  lineErrors: LineDiagnosticRange[] | undefined,
+  lineHighlights?: LineHighlightRange[]
+): JSX.Element {
+  const hasErrors = Boolean(lineErrors && lineErrors.length > 0)
+  const hasHighlights = Boolean(lineHighlights && lineHighlights.length > 0)
+
+  if (!hasErrors && !hasHighlights) {
+    if (lineTokens && lineTokens.length > 0) {
+      return (
+        <>
+          {lineTokens.map((token, i) => (
+            <span
+              key={i}
+              style={
+                token.dark || token.light
+                  ? ({
+                      '--syntax-dark': token.dark,
+                      '--syntax-light': token.light
+                    } as CSSProperties)
+                  : undefined
+              }
+            >
+              {token.text}
+            </span>
+          ))}
+        </>
+      )
+    }
+    return <span>{lineText || '\u200b'}</span>
+  }
+
+  if (lineText.length === 0) {
+    if (hasErrors && lineErrors) {
+      return (
+        <span
+          className="file-editor-error-underline file-editor-error-underline-empty"
+          data-error-message={lineErrors[0].message}
+          data-error-line={lineErrors[0].line}
+          data-error-column={lineErrors[0].column}
+          data-error-code={lineErrors[0].code ?? ''}
+          title={lineErrors[0].message}
+        >
+          {'\u00A0'}
+        </span>
+      )
+    }
+    return <span>{'\u200b'}</span>
+  }
+
+  if (lineTokens && lineTokens.length > 0) {
+    let currentOffset = 0
+    return (
+      <>
+        {lineTokens.map((token, tokIdx) => {
+          const tokStart = currentOffset
+          const tokEnd = currentOffset + token.text.length
+          currentOffset = tokEnd
+
+          const tokenStyle =
+            token.dark || token.light
+              ? ({
+                  '--syntax-dark': token.dark,
+                  '--syntax-light': token.light
+                } as CSSProperties)
+              : undefined
+
+          const intersectingErrors =
+            lineErrors?.filter((err) => err.start < tokEnd && err.end > tokStart) ?? []
+
+          const intersectingHighlights =
+            lineHighlights?.filter((hl) => hl.start < tokEnd && hl.end > tokStart) ?? []
+
+          if (intersectingErrors.length === 0 && intersectingHighlights.length === 0) {
+            return (
+              <span key={tokIdx} style={tokenStyle}>
+                {token.text}
+              </span>
+            )
+          }
+
+          const cuts = new Set<number>([tokStart, tokEnd])
+          for (const err of intersectingErrors) {
+            if (err.start > tokStart && err.start < tokEnd) cuts.add(err.start)
+            if (err.end > tokStart && err.end < tokEnd) cuts.add(err.end)
+          }
+          for (const hl of intersectingHighlights) {
+            if (hl.start > tokStart && hl.start < tokEnd) cuts.add(hl.start)
+            if (hl.end > tokStart && hl.end < tokEnd) cuts.add(hl.end)
+          }
+          const sortedCuts = Array.from(cuts).sort((a, b) => a - b)
+          const segments: JSX.Element[] = []
+
+          for (let s = 0; s < sortedCuts.length - 1; s++) {
+            const p1 = sortedCuts[s]
+            const p2 = sortedCuts[s + 1]
+            const segText = token.text.slice(p1 - tokStart, p2 - tokStart)
+            if (!segText) continue
+
+            const matchError = lineErrors?.find((err) => p1 >= err.start && p2 <= err.end)
+            const matchHighlight = lineHighlights?.some((hl) => p1 >= hl.start && p2 <= hl.end)
+
+            const className = cn(
+              matchError && 'file-editor-error-underline',
+              matchHighlight && 'file-editor-match-highlight'
+            )
+
+            if (className) {
+              segments.push(
+                <span
+                  key={`${tokIdx}-${s}`}
+                  className={className}
+                  data-error-message={matchError?.message}
+                  data-error-line={matchError?.line}
+                  data-error-column={matchError?.column}
+                  data-error-code={matchError?.code ?? ''}
+                  title={matchError?.message}
+                  style={tokenStyle}
+                >
+                  {segText}
+                </span>
+              )
+            } else {
+              segments.push(
+                <span key={`${tokIdx}-${s}`} style={tokenStyle}>
+                  {segText}
+                </span>
+              )
+            }
+          }
+
+          return <span key={tokIdx}>{segments}</span>
+        })}
+      </>
+    )
+  }
+
+  const cuts = new Set<number>([0, lineText.length])
+  if (lineErrors) {
+    for (const err of lineErrors) {
+      if (err.start > 0 && err.start < lineText.length) cuts.add(err.start)
+      if (err.end > 0 && err.end < lineText.length) cuts.add(err.end)
+    }
+  }
+  if (lineHighlights) {
+    for (const hl of lineHighlights) {
+      if (hl.start > 0 && hl.start < lineText.length) cuts.add(hl.start)
+      if (hl.end > 0 && hl.end < lineText.length) cuts.add(hl.end)
+    }
+  }
+  const sortedCuts = Array.from(cuts).sort((a, b) => a - b)
+  const segments: JSX.Element[] = []
+
+  for (let s = 0; s < sortedCuts.length - 1; s++) {
+    const p1 = sortedCuts[s]
+    const p2 = sortedCuts[s + 1]
+    const segText = lineText.slice(p1, p2)
+    if (!segText) continue
+
+    const matchError = lineErrors?.find((err) => p1 >= err.start && p2 <= err.end)
+    const matchHighlight = lineHighlights?.some((hl) => p1 >= hl.start && p2 <= hl.end)
+
+    const className = cn(
+      matchError && 'file-editor-error-underline',
+      matchHighlight && 'file-editor-match-highlight'
+    )
+
+    if (className) {
+      segments.push(
+        <span
+          key={s}
+          className={className}
+          data-error-message={matchError?.message}
+          data-error-line={matchError?.line}
+          data-error-column={matchError?.column}
+          data-error-code={matchError?.code ?? ''}
+          title={matchError?.message}
+        >
+          {segText}
+        </span>
+      )
+    } else {
+      segments.push(<span key={s}>{segText}</span>)
+    }
+  }
+
+  return <>{segments}</>
+}
+
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value)
   useEffect(() => {
@@ -380,6 +586,15 @@ window.addEventListener('beforeunload', (event) => {
   }
 })
 
+export interface HoveredErrorInfo {
+  message: string
+  line: number
+  column: number
+  code?: number
+  x: number
+  y: number
+}
+
 export function FileEditor({
   sessionId,
   root,
@@ -420,9 +635,62 @@ export function FileEditor({
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0)
+  const [selectedText, setSelectedText] = useState('')
   const findInputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const justSavedTimeRef = useRef<number>(0)
+
+  const updateSelectionFromInput = useCallback(() => {
+    const input = textarea.current
+    if (input) {
+      const start = input.selectionStart
+      const end = input.selectionEnd
+      if (start !== end) {
+        const sel = input.value.slice(start, end)
+        if (!sel.includes('\n') && sel.trim().length > 0 && sel.length <= 150) {
+          setSelectedText(sel)
+          return
+        }
+      } else if (document.activeElement === input) {
+        setSelectedText('')
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleSelectionChange = (): void => {
+      const active = document.activeElement
+      const input = textarea.current
+      if (input && (active === input || input.contains(active))) {
+        const start = input.selectionStart
+        const end = input.selectionEnd
+        if (start !== end) {
+          const sel = input.value.slice(start, end)
+          if (!sel.includes('\n') && sel.trim().length > 0 && sel.length <= 150) {
+            setSelectedText(sel)
+            return
+          }
+        } else if (active === input) {
+          setSelectedText('')
+        }
+        return
+      }
+
+      const readOnly = readOnlyCode.current
+      if (readOnly && (active === readOnly || readOnly.contains(active))) {
+        const sel = window.getSelection()?.toString() ?? ''
+        if (sel && !sel.includes('\n') && sel.trim().length > 0 && sel.length <= 150) {
+          setSelectedText(sel)
+          return
+        } else if (active === readOnly) {
+          setSelectedText('')
+        }
+      }
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [])
 
   const isImage = isImageFile(path)
   const isAudio = isAudioFile(path)
@@ -556,6 +824,93 @@ export function FileEditor({
     () => new Set(diagnostics.issues.map((issue) => issue.line)),
     [diagnostics.issues]
   )
+  const lineErrorsMap = useMemo(() => {
+    if (!diagnostics.issues.length || !lines.length) {
+      return new Map<number, LineDiagnosticRange[]>()
+    }
+
+    const lineStarts = new Array<number>(lines.length)
+    let offset = 0
+    for (let i = 0; i < lines.length; i++) {
+      lineStarts[i] = offset
+      offset += lines[i].length + 1
+    }
+
+    const map = new Map<number, LineDiagnosticRange[]>()
+
+    for (const issue of diagnostics.issues) {
+      const issueStart = issue.start
+      const issueLen = Math.max(1, issue.length)
+      const issueEnd = issueStart + issueLen
+
+      const startLineIdx = Math.max(0, Math.min(lines.length - 1, (issue.line || 1) - 1))
+      for (let l = startLineIdx; l < lines.length && lineStarts[l] <= issueEnd; l++) {
+        const lineStart = lineStarts[l]
+        const lineLen = lines[l].length
+        const lineEnd = lineStart + lineLen
+
+        if (lineLen === 0) {
+          if (l === startLineIdx) {
+            const list = map.get(l) ?? []
+            list.push({
+              start: 0,
+              end: 0,
+              line: issue.line,
+              column: issue.column,
+              code: issue.code,
+              message: issue.message
+            })
+            map.set(l, list)
+          }
+          continue
+        }
+
+        if (issueStart <= lineEnd && issueEnd >= lineStart) {
+          let colStart: number
+          let colEnd: number
+
+          if (issueStart >= lineEnd) {
+            colStart = Math.max(0, lineLen - 1)
+            colEnd = lineLen
+          } else {
+            colStart = Math.max(0, issueStart - lineStart)
+            colEnd = Math.min(lineLen, Math.max(colStart + 1, issueEnd - lineStart))
+          }
+
+          const list = map.get(l) ?? []
+          list.push({
+            start: colStart,
+            end: colEnd,
+            line: issue.line,
+            column: issue.column,
+            code: issue.code,
+            message: issue.message
+          })
+          map.set(l, list)
+        }
+      }
+    }
+
+    for (const [lineIdx, ranges] of map.entries()) {
+      if (ranges.length <= 1) continue
+      ranges.sort((a, b) => a.start - b.start)
+      const merged: LineDiagnosticRange[] = []
+      for (const r of ranges) {
+        const last = merged[merged.length - 1]
+        if (last && r.start <= last.end) {
+          last.end = Math.max(last.end, r.end)
+          if (!last.message.includes(r.message)) {
+            last.message = `${last.message}\n${r.message}`
+          }
+        } else {
+          merged.push({ ...r })
+        }
+      }
+      map.set(lineIdx, merged)
+    }
+
+    return map
+  }, [diagnostics.issues, lines])
   const focusIssue = (issue: WorkspaceFileDiagnostic): void => {
     const input = textarea.current
     if (!input) return
@@ -962,6 +1317,77 @@ export function FileEditor({
   const nextMatch = (): void => jumpToMatch(currentMatchIndex + 1)
   const prevMatch = (): void => jumpToMatch(currentMatchIndex - 1)
 
+  const activeHighlightText = selectedText || (showFind && findQuery ? findQuery : '')
+
+  const highlightMatches = useMemo(() => {
+    if (!activeHighlightText || !text) return []
+    if (activeHighlightText.length > 200 || text.length > 1_000_000) return []
+
+    const isSelection = Boolean(selectedText)
+    const isWord = /^[a-zA-Z0-9_$]+$/.test(activeHighlightText)
+    if (isSelection && !isWord && activeHighlightText.trim().length < 2) return []
+
+    const useCase = isSelection ? true : caseSensitive
+    const useWord = isSelection ? isWord : wholeWord
+
+    const escaped = activeHighlightText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = useWord ? `\\b${escaped}\\b` : escaped
+    let regex: RegExp
+    try {
+      regex = new RegExp(pattern, useCase ? 'g' : 'gi')
+    } catch {
+      return []
+    }
+
+    const matches: Array<{
+      line: number
+      startCol: number
+      endCol: number
+      startOffset: number
+      endOffset: number
+    }> = []
+    const lines = text.split('\n')
+    let charOffset = 0
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      regex.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = regex.exec(line)) !== null) {
+        matches.push({
+          line: i + 1,
+          startCol: m.index,
+          endCol: m.index + m[0].length,
+          startOffset: charOffset + m.index,
+          endOffset: charOffset + m.index + m[0].length
+        })
+        if (m[0].length === 0) break
+        if (matches.length >= 2000) break
+      }
+      if (matches.length >= 2000) break
+      charOffset += line.length + 1
+    }
+    return matches
+  }, [activeHighlightText, text, selectedText, caseSensitive, wholeWord])
+
+  const highlightLines = useMemo(() => {
+    if (!highlightMatches.length) return new Set<number>()
+    return new Set<number>(highlightMatches.map((m) => m.line))
+  }, [highlightMatches])
+
+  const lineHighlightsMap = useMemo(() => {
+    if (!highlightMatches.length) return new Map<number, LineHighlightRange[]>()
+    const map = new Map<number, LineHighlightRange[]>()
+    for (const m of highlightMatches) {
+      const lineIdx = m.line - 1
+      const list = map.get(lineIdx) ?? []
+      list.push({ start: m.startCol, end: m.endCol })
+      map.set(lineIdx, list)
+    }
+    return map
+  }, [highlightMatches])
+
+  const previewHighlightLines = useDebouncedValue(highlightLines, 60)
+
   const openFind = (withReplace = false): void => {
     setShowFind(true)
     if (withReplace) {
@@ -1038,7 +1464,84 @@ export function FileEditor({
     input.scrollTop = Math.max(0, (initialLine - 1) * 20 - input.clientHeight / 2 + 16)
     syncScroll()
   }, [initialLine, text])
+  const [hoveredError, setHoveredError] = useState<HoveredErrorInfo | null>(null)
+  const isHoveringTooltipRef = useRef<boolean>(false)
+  const closeTimerRef = useRef<number | null>(null)
+  const switchTimerRef = useRef<number | null>(null)
+  const candidateErrorRef = useRef<HoveredErrorInfo | null>(null)
+
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
+  const clearSwitchTimer = useCallback(() => {
+    if (switchTimerRef.current) {
+      window.clearTimeout(switchTimerRef.current)
+      switchTimerRef.current = null
+    }
+    candidateErrorRef.current = null
+  }, [])
+
+  const dismissHoveredError = useCallback(() => {
+    clearCloseTimer()
+    clearSwitchTimer()
+    isHoveringTooltipRef.current = false
+    setHoveredError(null)
+  }, [clearCloseTimer, clearSwitchTimer])
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) {
+        window.clearTimeout(closeTimerRef.current)
+        closeTimerRef.current = null
+      }
+      if (switchTimerRef.current) {
+        window.clearTimeout(switchTimerRef.current)
+        switchTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const handleSendErrorToChat = useCallback(
+    async (error: HoveredErrorInfo): Promise<void> => {
+      dismissHoveredError()
+      const normRoot = root ? root.replace(/\\/g, '/').replace(/\/+$/, '') : ''
+      const normPath = path.replace(/\\/g, '/').replace(/^\/+/, '')
+      const fullFilePath = normRoot ? `${normRoot}/${normPath}` : normPath
+      const location = `:${error.line}${error.column ? `:${error.column}` : ''}`
+      const codeStr = error.code ? ` (TS ${error.code})` : ''
+
+      const prompt = `Attached:
+- File: ${fullFilePath}${location}
+
+Error at line ${error.line}, column ${error.column}:
+${error.message}${codeStr}
+
+Please check and fix this error.`
+
+      try {
+        const store = useRoxyStore.getState()
+        let targetChatId = sessionId || store.activeChatId
+        if (!targetChatId && root) {
+          await store.newSessionInProject(root)
+          targetChatId = useRoxyStore.getState().activeChatId
+        }
+        if (targetChatId && store.activeChatId !== targetChatId) {
+          await store.selectChat(targetChatId)
+        }
+        await useRoxyStore.getState().submit(prompt)
+      } catch (err) {
+        console.error('[FileEditor] Failed to send error to chat:', err)
+      }
+    },
+    [root, path, sessionId, dismissHoveredError]
+  )
+
   const syncScroll = (): void => {
+    dismissHoveredError()
     const input = textarea.current
     if (!input) return
     if (gutter.current) gutter.current.scrollTop = input.scrollTop
@@ -1056,6 +1559,126 @@ export function FileEditor({
       hunkActionsLayer.current.scrollTop = input.scrollTop
     }
   }
+
+  const handleEditorMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLTextAreaElement>) => {
+      if (isHoveringTooltipRef.current) return
+      if (!diagnostics.issues.length || !overlay.current || !textarea.current) {
+        clearSwitchTimer()
+        if (hoveredError && !closeTimerRef.current) {
+          closeTimerRef.current = window.setTimeout(() => {
+            if (!isHoveringTooltipRef.current) setHoveredError(null)
+            closeTimerRef.current = null
+          }, 250)
+        }
+        return
+      }
+      const rect = textarea.current.getBoundingClientRect()
+      const clientX = e.clientX
+      const clientY = e.clientY
+
+      const lineIdx = Math.floor((clientY - rect.top + textarea.current.scrollTop - 16) / 20)
+      if (lineIdx < 0 || lineIdx >= lines.length) {
+        clearSwitchTimer()
+        if (hoveredError && !closeTimerRef.current) {
+          closeTimerRef.current = window.setTimeout(() => {
+            if (!isHoveringTooltipRef.current) setHoveredError(null)
+            closeTimerRef.current = null
+          }, 250)
+        }
+        return
+      }
+
+      const lineDiv = overlay.current.children[lineIdx] as HTMLElement | undefined
+      if (!lineDiv) {
+        clearSwitchTimer()
+        if (hoveredError && !closeTimerRef.current) {
+          closeTimerRef.current = window.setTimeout(() => {
+            if (!isHoveringTooltipRef.current) setHoveredError(null)
+            closeTimerRef.current = null
+          }, 250)
+        }
+        return
+      }
+
+      const errorSpans = lineDiv.querySelectorAll<HTMLElement>('.file-editor-error-underline')
+      if (!errorSpans.length) {
+        clearSwitchTimer()
+        if (hoveredError && !closeTimerRef.current) {
+          closeTimerRef.current = window.setTimeout(() => {
+            if (!isHoveringTooltipRef.current) setHoveredError(null)
+            closeTimerRef.current = null
+          }, 250)
+        }
+        return
+      }
+
+      let found: HoveredErrorInfo | null = null
+      for (let i = 0; i < errorSpans.length; i++) {
+        const span = errorSpans[i]
+        const r = span.getBoundingClientRect()
+        if (
+          clientX >= r.left - 2 &&
+          clientX <= r.right + 2 &&
+          clientY >= r.top - 2 &&
+          clientY <= r.bottom + 2
+        ) {
+          const msg = span.getAttribute('data-error-message') || span.title
+          const line = Number(span.getAttribute('data-error-line')) || lineIdx + 1
+          const column = Number(span.getAttribute('data-error-column')) || 1
+          const codeAttr = span.getAttribute('data-error-code')
+          const code = codeAttr ? Number(codeAttr) : undefined
+          if (msg) {
+            const tooltipX = Math.max(
+              16,
+              Math.min(Math.min(r.left, clientX), window.innerWidth - 380)
+            )
+            const isAbove = r.bottom + 120 > window.innerHeight
+            const tooltipY = isAbove ? Math.max(16, r.top - 100) : r.bottom + 4
+            found = { message: msg, line, column, code, x: tooltipX, y: tooltipY }
+            break
+          }
+        }
+      }
+
+      if (found) {
+        clearCloseTimer()
+        if (
+          hoveredError &&
+          hoveredError.line === found.line &&
+          hoveredError.column === found.column
+        ) {
+          clearSwitchTimer()
+          return
+        }
+
+        if (hoveredError) {
+          candidateErrorRef.current = found
+          if (!switchTimerRef.current) {
+            switchTimerRef.current = window.setTimeout(() => {
+              if (candidateErrorRef.current && !isHoveringTooltipRef.current) {
+                setHoveredError(candidateErrorRef.current)
+              }
+              switchTimerRef.current = null
+              candidateErrorRef.current = null
+            }, 300)
+          }
+        } else {
+          clearSwitchTimer()
+          setHoveredError(found)
+        }
+      } else {
+        clearSwitchTimer()
+        if (hoveredError && !closeTimerRef.current) {
+          closeTimerRef.current = window.setTimeout(() => {
+            if (!isHoveringTooltipRef.current) setHoveredError(null)
+            closeTimerRef.current = null
+          }, 250)
+        }
+      }
+    },
+    [diagnostics.issues.length, lines.length, hoveredError, clearCloseTimer, clearSwitchTimer]
+  )
 
   const scrollToLine = (lineIdx: number): void => {
     const el = textarea.current || readOnlyCode.current
@@ -1391,10 +2014,13 @@ export function FileEditor({
                     {diagnostics.issues.length > 0 ? (
                       <ul className="divide-y divide-border/50 py-0.5">
                         {diagnostics.issues.map((issue, index) => (
-                          <li key={index}>
+                          <li
+                            key={index}
+                            className="flex items-center justify-between gap-1 p-1 hover:bg-surface-2 rounded transition-colors group/err"
+                          >
                             <button
                               type="button"
-                              className="block w-full rounded p-2 text-left text-danger hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                              className="block flex-1 min-w-0 rounded p-1 text-left text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                               onClick={() => {
                                 focusIssue(issue)
                                 setShowErrors(false)
@@ -1406,6 +2032,26 @@ export function FileEditor({
                                 code: issue.code,
                                 message: issue.message
                               })}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void handleSendErrorToChat({
+                                  line: issue.line,
+                                  column: issue.column,
+                                  code: issue.code,
+                                  message: issue.message,
+                                  x: 0,
+                                  y: 0
+                                })
+                                setShowErrors(false)
+                              }}
+                              className="press-scale shrink-0 rounded p-1.5 text-text-subtle hover:text-accent hover:bg-accent/15 transition-colors"
+                              title={t('ide.sendErrorToChat')}
+                              aria-label={t('ide.sendErrorToChat')}
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
                             </button>
                           </li>
                         ))}
@@ -1849,24 +2495,13 @@ export function FileEditor({
                       >
                         {info?.deletedText || '\u200b'}
                       </span>
-                    ) : lineTokens && lineTokens.length > 0 ? (
-                      lineTokens.map((token, i) => (
-                        <span
-                          key={i}
-                          style={
-                            token.dark || token.light
-                              ? ({
-                                  '--syntax-dark': token.dark,
-                                  '--syntax-light': token.light
-                                } as CSSProperties)
-                              : undefined
-                          }
-                        >
-                          {token.text}
-                        </span>
-                      ))
                     ) : (
-                      <span>{lineText || '\u200b'}</span>
+                      renderEditorLineContent(
+                        lineText,
+                        lineTokens,
+                        lineErrorsMap.get(index),
+                        lineHighlightsMap.get(index)
+                      )
                     )}
                   </div>
                 )
@@ -1890,12 +2525,30 @@ export function FileEditor({
               data-highlighted={!!syntaxTokens}
               value={draft.text}
               onScroll={syncScroll}
+              onMouseMove={handleEditorMouseMove}
+              onMouseLeave={() => {
+                clearSwitchTimer()
+                if (!isHoveringTooltipRef.current && !closeTimerRef.current) {
+                  closeTimerRef.current = window.setTimeout(() => {
+                    if (!isHoveringTooltipRef.current) setHoveredError(null)
+                    closeTimerRef.current = null
+                  }, 250)
+                }
+              }}
+              onBlur={() => {
+                if (!isHoveringTooltipRef.current) dismissHoveredError()
+              }}
+              onSelect={updateSelectionFromInput}
+              onKeyUp={updateSelectionFromInput}
+              onMouseUp={updateSelectionFromInput}
               onChange={(event) => {
+                dismissHoveredError()
                 draft.text = event.target.value
                 draft.userEdited = true
                 notify()
               }}
               onKeyDown={(event) => {
+                dismissHoveredError()
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
                   event.preventDefault()
                   event.stopPropagation()
@@ -2110,6 +2763,7 @@ export function FileEditor({
               lineInfos={previewLineInfos}
               hunks={hunks}
               errorLines={previewErrorLines}
+              highlightLines={previewHighlightLines}
               syntaxTokens={syntaxTokens}
               scrollContainerRef={textarea}
               onScrollToLine={scrollToLine}
@@ -2243,24 +2897,13 @@ export function FileEditor({
                             >
                               {info.deletedText}
                             </span>
-                          ) : lineTokens && lineTokens.length > 0 ? (
-                            lineTokens.map((token, i) => (
-                              <span
-                                key={i}
-                                style={
-                                  token.dark || token.light
-                                    ? ({
-                                        '--syntax-dark': token.dark,
-                                        '--syntax-light': token.light
-                                      } as CSSProperties)
-                                    : undefined
-                                }
-                              >
-                                {token.text}
-                              </span>
-                            ))
                           ) : (
-                            <span>{lineText || '\u200b'}</span>
+                            renderEditorLineContent(
+                              lineText,
+                              lineTokens,
+                              lineErrorsMap.get(index),
+                              lineHighlightsMap.get(index)
+                            )
                           )}
                         </div>
                       )
@@ -2274,6 +2917,7 @@ export function FileEditor({
                     lineInfos={lineInfos}
                     hunks={hunks}
                     errorLines={errorLines}
+                    highlightLines={highlightLines}
                     syntaxTokens={syntaxTokens}
                     scrollContainerRef={readOnlyCode}
                     onScrollToLine={scrollToLine}
@@ -2283,6 +2927,61 @@ export function FileEditor({
             )}
           </>
         )
+      )}
+      {hoveredError && (
+        <div
+          role="tooltip"
+          onMouseEnter={() => {
+            isHoveringTooltipRef.current = true
+            clearCloseTimer()
+            clearSwitchTimer()
+          }}
+          onMouseLeave={() => {
+            isHoveringTooltipRef.current = false
+            if (!closeTimerRef.current) {
+              closeTimerRef.current = window.setTimeout(() => {
+                if (!isHoveringTooltipRef.current) setHoveredError(null)
+                closeTimerRef.current = null
+              }, 200)
+            }
+          }}
+          className="pointer-events-auto fixed z-50 flex flex-col gap-2 rounded-lg border border-border/80 bg-surface/95 p-2.5 shadow-2xl backdrop-blur-md text-xs text-text max-w-sm select-text"
+          style={{ left: hoveredError.x, top: hoveredError.y }}
+        >
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-danger mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="leading-snug font-medium text-danger break-words">
+                {hoveredError.message}
+              </div>
+              <div className="mt-1 flex items-center gap-2 text-[11px] text-text-subtle">
+                <span>
+                  {hoveredError.line}:{hoveredError.column}
+                </span>
+                {hoveredError.code ? (
+                  <span className="font-mono rounded bg-surface-2 px-1 py-0.5 text-text-muted">
+                    {hoveredError.code}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-end border-t border-border/50 pt-1.5">
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleSendErrorToChat(hoveredError)
+              }}
+              className="press-scale relative z-10 cursor-pointer flex items-center gap-1.5 rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/25 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              title={t('ide.sendErrorToChat')}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{t('ide.sendErrorToChat')}</span>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

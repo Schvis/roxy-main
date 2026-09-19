@@ -257,16 +257,19 @@ export function createContextAttachment(
 ): ChatContextAttachment {
   const normPath = targetPath.replace(/\\/g, '/').replace(/\/+$/, '')
   const normRoot = root ? root.replace(/\\/g, '/').replace(/\/+$/, '') : null
-  let displayPath = normPath
-  if (normRoot && (normPath === normRoot || normPath.startsWith(`${normRoot}/`))) {
-    displayPath = normPath.slice(normRoot.length).replace(/^\/+/, '') || normPath
+  const isAbsolute = normPath.startsWith('/') || /^[a-zA-Z]:\//.test(normPath)
+  const fullPath =
+    !isAbsolute && normRoot ? `${normRoot}/${normPath.replace(/^\/+/, '')}` : normPath
+  let displayPath = fullPath
+  if (normRoot && (fullPath === normRoot || fullPath.startsWith(`${normRoot}/`))) {
+    displayPath = fullPath.slice(normRoot.length).replace(/^\/+/, '') || fullPath
   }
   const name = displayPath.split('/').pop() || displayPath
   return {
-    id: `${type}:${normPath}${line ? `:${line}` : ''}`,
+    id: `${type}:${fullPath}${line ? `:${line}` : ''}`,
     type,
     path: displayPath,
-    fullPath: normPath,
+    fullPath,
     name,
     line
   }
@@ -278,13 +281,14 @@ export function formatMessageWithContext(
   contextItems?: ChatContextAttachment[]
 ): string {
   if (!contextItems || contextItems.length === 0) return text
-  const lines = ['Context:']
+  const lines = ['Attached:']
   for (const item of contextItems) {
+    const full = item.fullPath || item.path
     const lineSuffix = item.line ? `:${item.line}` : ''
     if (item.type === 'folder') {
-      lines.push(`- Folder: ${item.path}/`)
+      lines.push(`- Folder: ${full}/`)
     } else {
-      lines.push(`- File: ${item.path}${lineSuffix}`)
+      lines.push(`- File: ${full}${lineSuffix}`)
     }
   }
   const trimmed = text.trim()
@@ -292,4 +296,148 @@ export function formatMessageWithContext(
     return lines.join('\n')
   }
   return `${lines.join('\n')}\n\n${trimmed}`
+}
+
+export interface AttachedContextBadge {
+  type: 'file' | 'folder'
+  full: string
+  displayName: string
+  path: string
+  line?: number
+  column?: number
+}
+
+export interface ParsedAttachedContext {
+  items: AttachedContextBadge[]
+  remaining: string
+}
+
+export const COMMON_FILE_EXTENSIONS = new Set([
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'mts',
+  'cts',
+  'json',
+  'css',
+  'scss',
+  'html',
+  'md',
+  'txt',
+  'py',
+  'go',
+  'rs',
+  'sh',
+  'bat',
+  'cmd',
+  'yml',
+  'yaml',
+  'toml',
+  'sql',
+  'c',
+  'cpp',
+  'h',
+  'hpp',
+  'java',
+  'kt',
+  'rb',
+  'php',
+  'xml',
+  'svg',
+  'env'
+])
+
+export interface DetectedFilePath {
+  raw: string
+  path: string
+  line?: number
+  column?: number
+}
+
+/** Detect if a word or token is a file path with a recognized extension. */
+export function detectFilePath(token: string): DetectedFilePath | null {
+  if (!token || token.startsWith('http://') || token.startsWith('https://')) return null
+  const trimmed = token.replace(/^[("'`,<[\]]+|[)"'`,.;>[\]]+$/g, '')
+  const match = trimmed.match(
+    /^(?:([a-zA-Z]:[/\\][^\s*?"<>|]+)|(\/[^\s*?"<>|]+)|((?:\.{1,2}[/\\]|[a-zA-Z0-9_.-]+[/\\])[^\s*?"<>|]+)|([a-zA-Z0-9_.-]+\.[a-zA-Z0-9_-]+(?::\d+(?::\d+)?)?))$/
+  )
+  if (!match) return null
+  const full = match[1] || match[2] || match[3] || match[4]
+  const suffMatch = full.match(/^(.*?)(?::(\d+)(?::(\d+))?)?$/)
+  if (!suffMatch) return null
+  const rawPath = suffMatch[1]
+  const line = suffMatch[2] ? parseInt(suffMatch[2], 10) : undefined
+  const column = suffMatch[3] ? parseInt(suffMatch[3], 10) : undefined
+  const dot = rawPath.lastIndexOf('.')
+  if (dot === -1) return null
+  const ext = rawPath.slice(dot + 1).toLowerCase()
+  if (!COMMON_FILE_EXTENSIONS.has(ext)) return null
+  return { raw: trimmed, path: rawPath, line, column }
+}
+
+/** Split a plain text block into runs of plain text and detected file paths. */
+export function splitTextWithFilePaths(text: string): {
+  text: string
+  file?: { path: string; line?: number }
+}[] {
+  if (!text) return []
+  const tokenRegex = /\S+/g
+  const result: { text: string; file?: { path: string; line?: number } }[] = []
+  let lastIndex = 0
+  let m: RegExpExecArray | null
+
+  while ((m = tokenRegex.exec(text)) !== null) {
+    const token = m[0]
+    const detected = detectFilePath(token)
+    if (detected) {
+      const tokenStart = m.index
+      const matchInToken = token.indexOf(detected.raw)
+      const fileStart = tokenStart + matchInToken
+      const fileEnd = fileStart + detected.raw.length
+
+      if (fileStart > lastIndex) {
+        result.push({ text: text.slice(lastIndex, fileStart) })
+      }
+      result.push({
+        text: detected.raw,
+        file: { path: detected.path, line: detected.line }
+      })
+      lastIndex = fileEnd
+    }
+  }
+
+  if (lastIndex < text.length) {
+    result.push({ text: text.slice(lastIndex) })
+  }
+  return result.length > 0 ? result : [{ text }]
+}
+
+/** Parse `Attached:\n- File: ...` context header out of message text. */
+export function parseAttachedContext(text: string): ParsedAttachedContext | null {
+  const headerMatch = text.match(
+    /^Attached:\r?\n((?:[ \t]*- (?:File|Folder):[^\r\n]+(?:\r?\n|$))+)(?:\r?\n)*/i
+  )
+  if (!headerMatch) return null
+  const itemsBlock = headerMatch[1]
+  const remaining = text.slice(headerMatch[0].length)
+  const itemRe = /^[ \t]*- (File|Folder):[ \t]*(.+)$/gim
+  const items: AttachedContextBadge[] = []
+  let m: RegExpExecArray | null
+  while ((m = itemRe.exec(itemsBlock)) !== null) {
+    const type = m[1].toLowerCase() === 'folder' ? 'folder' : 'file'
+    const full = m[2].trim()
+    const suffMatch = full.match(/^(.*?)(?::(\d+)(?::(\d+))?)?$/)
+    const basePath = suffMatch && suffMatch[1] ? suffMatch[1] : full
+    const line = suffMatch && suffMatch[2] ? parseInt(suffMatch[2], 10) : undefined
+    const column = suffMatch && suffMatch[3] ? parseInt(suffMatch[3], 10) : undefined
+    const suffix = line ? `:${line}${column ? `:${column}` : ''}` : ''
+    const cleanPath = basePath.replace(/[/\\]+$/, '')
+    const filename = cleanPath.split(/[/\\]/).filter(Boolean).pop() || cleanPath
+    const displayName = `${filename}${type === 'folder' ? '/' : ''}${suffix}`
+    items.push({ type, full, displayName, path: cleanPath, line, column })
+  }
+  return items.length > 0 ? { items, remaining } : null
 }

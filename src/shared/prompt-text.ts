@@ -17,6 +17,7 @@ import GPT from '../../resources/prompts/gpt.txt?raw'
 import GEMINI from '../../resources/prompts/gemini.txt?raw'
 import KIMI from '../../resources/prompts/kimi.txt?raw'
 import TRINITY from '../../resources/prompts/trinity.txt?raw'
+import ROLEPLAY from '../../resources/prompts/roleplay.txt?raw'
 import DEFAULT from '../../resources/prompts/default.txt?raw'
 import PLAN from '../../resources/prompts/plan.txt?raw'
 import AGENT_EXPLORE from '../../resources/prompts/agent-explore.txt?raw'
@@ -31,6 +32,7 @@ export const PROMPT_TEXT: Record<PromptName, string> = {
   gemini: GEMINI,
   kimi: KIMI,
   trinity: TRINITY,
+  roleplay: ROLEPLAY,
   default: DEFAULT
 }
 

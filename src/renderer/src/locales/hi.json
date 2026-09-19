@@ -518,6 +518,7 @@
     "searchTab": "Search",
     "searching": "Searching…",
     "selectFile": "Select a file to preview its contents.",
+    "sendErrorToChat": "Send error to chat",
     "settingsDescription": "Browse workspace files and read code beside your chat. Files are read-only.",
     "settingsTitle": "IDE mode",
     "showDeleted": "Show deleted code",

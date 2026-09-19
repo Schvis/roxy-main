@@ -24,6 +24,7 @@ import { layoutMarkdown, layoutPlainText } from './prose'
 import { layoutToolCard, type ToolCardInput } from './tool-card'
 import { PROMPT_GUTTER } from './prompt-history'
 import { TranscriptWindow } from './transcript-window'
+import { parseAttachedContext } from '@shared/context'
 import { stripQuestionTags } from '../lib/agent-input-options'
 import { stripPlanSteps } from '../lib/agent-steps'
 
@@ -279,8 +280,90 @@ export function layoutUserBody(
   const text = parts
     .map((p) => (p.type === 'text' || p.type === 'reasoning' ? p.text : ''))
     .join('')
-  if (text) {
-    cursor += layoutPlainText(builder, text, x, cursor, width, {
+
+  const attached = parseAttachedContext(text)
+  const textToRender = attached ? attached.remaining.trim() : text
+
+  if (attached && attached.items.length > 0) {
+    const badgeHeight = 26
+    const badgePadX = 8
+    const gap = 6
+    const tagText = builder.t('chat.contextAttached')
+    const tagFont = font(FONT_SIZE.micro, 600, 'sans')
+    const tagTextW = builder.metrics.measure(tagText, tagFont)
+    const tagPillW = tagTextW + 8
+    const nameFont = font(FONT_SIZE.tiny, 500, 'mono')
+    const iconSize = SIZE.iconSm
+
+    let badgeX = x
+    let rowTop = cursor
+    for (const item of attached.items) {
+      const maxNameW = Math.max(
+        80,
+        width - (badgeX - x) - badgePadX * 2 - iconSize - gap - tagPillW - gap - 10
+      )
+      const nameCut = builder.metrics.ellipsize(item.displayName, nameFont, maxNameW)
+      const namePillW = nameCut.width + 10
+      const badgeW = badgePadX + iconSize + gap + tagPillW + gap + namePillW + badgePadX
+
+      if (badgeX + badgeW > x + width && badgeX > x) {
+        badgeX = x
+        rowTop += badgeHeight + 6
+      }
+
+      builder.rect(
+        badgeX,
+        rowTop,
+        badgeW,
+        badgeHeight,
+        SPACE.radiusMd,
+        alpha(palette.accent, 0.1),
+        alpha(palette.accent, 0.3)
+      )
+
+      const iconName = item.type === 'folder' ? 'folderOpen' : 'fileText'
+      const iconY = rowTop + (badgeHeight - iconSize) / 2
+      builder.icon(badgeX + badgePadX, iconY, iconSize, iconName, palette.accent)
+
+      const pillH = 17
+      const pillY = rowTop + (badgeHeight - pillH) / 2
+      const pillX = badgeX + badgePadX + iconSize + gap
+      builder.rect(pillX, pillY, tagPillW, pillH, SPACE.radiusBase, alpha(palette.accent, 0.2))
+      const tagTextY = rowTop + (badgeHeight - builder.metrics.lineHeight(tagFont)) / 2
+      builder.text(pillX + 4, tagTextY, tagText, tagFont, palette.accent)
+
+      const namePillX = pillX + tagPillW + gap
+      builder.rect(
+        namePillX,
+        pillY,
+        namePillW,
+        pillH,
+        SPACE.radiusBase,
+        alpha(palette.white, 0.08),
+        alpha(palette.border, 0.6)
+      )
+      const nameY = rowTop + (badgeHeight - builder.metrics.lineHeight(nameFont)) / 2
+      builder.text(namePillX + 5, nameY, nameCut.text, nameFont, palette.text)
+
+      builder.region(
+        badgeX,
+        rowTop,
+        badgeW,
+        badgeHeight,
+        { type: 'file', path: item.path, line: item.line },
+        {
+          hover: 'subtle',
+          title: item.line ? `${item.path}:${item.line}` : item.path
+        }
+      )
+
+      badgeX += badgeW + 8
+    }
+    cursor = rowTop + badgeHeight + 8
+  }
+
+  if (textToRender) {
+    cursor += layoutPlainText(builder, textToRender, x, cursor, width, {
       color: palette.text,
       size: FONT_SIZE.body
     })

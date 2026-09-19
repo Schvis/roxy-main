@@ -318,6 +318,10 @@ export function isVtuberWindow(win: BrowserWindow): boolean {
   return win === vtuberWindow
 }
 
+export function isOverlayChatWindow(win: BrowserWindow): boolean {
+  return win === overlayWindow
+}
+
 export function isOverlayWindow(win: BrowserWindow): boolean {
   return win === overlayWindow || win === floatingIconWindow || win === vtuberWindow
 }

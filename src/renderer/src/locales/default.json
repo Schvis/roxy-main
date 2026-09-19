@@ -9,6 +9,7 @@
     "syntax_tooLarge": "Diagnostics paused: file exceeds 300,000 characters or 8,000 lines.",
     "syntax_failed": "Diagnostic check failed. Edit or reopen this file to retry.",
     "syntaxLocation": "Line {{line}}, column {{column}} · TS{{code}}: {{message}}",
+    "sendErrorToChat": "Send error to chat",
     "toggleErrors": "Toggle error list",
     "closeErrors": "Close error list",
     "settingsTitle": "IDE mode",

@@ -7,7 +7,7 @@ import { BrowserWindow } from 'electron'
 import { CHANNELS } from '../../shared/ipc'
 import type { ShellState, ShellType } from '../../shared/api'
 import { sessionCwd } from './workspace'
-import { isOverlayWindow } from './overlay'
+import { isFloatingIconWindow, isVtuberWindow } from './overlay'
 
 interface ShellSession {
   sessionId: string
@@ -55,7 +55,7 @@ function resolveShell(type?: ShellType): { cmd: string; args: string[]; resolved
 
 function broadcastChunk(sessionId: string, chunk: string): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed() && !isOverlayWindow(win)) {
+    if (!win.isDestroyed() && !isFloatingIconWindow(win) && !isVtuberWindow(win)) {
       win.webContents.send(CHANNELS.shellOutput, { sessionId, chunk })
     }
   }
@@ -63,7 +63,7 @@ function broadcastChunk(sessionId: string, chunk: string): void {
 
 function broadcastExit(sessionId: string, code: number | null): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed() && !isOverlayWindow(win)) {
+    if (!win.isDestroyed() && !isFloatingIconWindow(win) && !isVtuberWindow(win)) {
       win.webContents.send(CHANNELS.shellExit, { sessionId, code })
     }
   }

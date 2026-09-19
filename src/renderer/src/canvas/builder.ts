@@ -169,16 +169,30 @@ export class Builder {
     this.push({ kind: 'lines', x, y, lines })
     for (const line of lines) {
       for (const run of line.runs) {
-        const href = run.href && linkUrl(run.href)
-        if (href)
+        if (run.file) {
           this.region(
             x + run.x,
             y + line.y,
             run.width,
             line.height,
-            { type: 'link', href },
-            { title: href }
+            { type: 'file', path: run.file.path, line: run.file.line },
+            {
+              hover: 'subtle',
+              title: run.file.line ? `${run.file.path}:${run.file.line}` : run.file.path
+            }
           )
+        } else {
+          const href = run.href && linkUrl(run.href)
+          if (href)
+            this.region(
+              x + run.x,
+              y + line.y,
+              run.width,
+              line.height,
+              { type: 'link', href },
+              { title: href }
+            )
+        }
       }
     }
     if (selectable) this.registerLines(lines, x, y)

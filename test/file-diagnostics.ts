@@ -59,6 +59,24 @@ async function main(): Promise<void> {
     // 7. Path outside workspace rejects
     await assert.rejects(getWorkspaceFileDiagnostics(root, '../outside.ts', 'const x = 1;'))
 
+    // 8. tsconfig path aliases resolved without 2307
+    await writeFile(
+      path.join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          paths: {
+            '@/*': ['./sub/*']
+          }
+        }
+      })
+    )
+    const aliasImport = await getWorkspaceFileDiagnostics(
+      root,
+      'target.ts',
+      'import { goodValue } from "@/exporter";\nconsole.log(goodValue);\n'
+    )
+    assert.equal(aliasImport.length, 0, 'path alias from tsconfig should resolve with 0 errors')
+
     console.log('File diagnostics tests passed')
   } finally {
     await rm(temp, { recursive: true, force: true })

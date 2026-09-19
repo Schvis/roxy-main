@@ -27,6 +27,16 @@
 import { DEFAULT_AGENT_ID } from './agents'
 import type { AppSettings, Chat, ReasoningEffort } from './types'
 
+type SessionConfigSettings = Pick<
+  AppSettings,
+  | 'activeProviderId'
+  | 'activeModel'
+  | 'activeAgentId'
+  | 'reasoningEffort'
+  | 'contextLimit'
+  | 'activePromptId'
+>
+
 /** The fully-resolved inference config for one session. */
 export interface SessionConfig {
   providerId: string | null
@@ -97,7 +107,7 @@ export function parseReasoningEffort(v: unknown): ReasoningEffort | null {
  */
 export function resolveSessionConfig(
   chat: SessionConfigSource | null | undefined,
-  settings: AppSettings | null | undefined
+  settings: SessionConfigSettings | null | undefined
 ): SessionConfig {
   // The provider pins the pair: a session with no provider of its own inherits
   // the global provider AND the global model together.
@@ -117,7 +127,9 @@ export function resolveSessionConfig(
  * chose". Called by `createChat`; `agentId` is included so a session opened
  * right after you switch to Plan stays in Plan.
  */
-export function seedSessionConfig(settings: AppSettings | null | undefined): SessionConfig {
+export function seedSessionConfig(
+  settings: SessionConfigSettings | null | undefined
+): SessionConfig {
   return {
     providerId: settings?.activeProviderId ?? null,
     model: settings?.activeModel ?? null,

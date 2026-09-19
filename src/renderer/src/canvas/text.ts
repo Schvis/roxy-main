@@ -185,6 +185,8 @@ export interface TextRun {
   chipColor?: string
   /** Set when the run is a link, so a click can open it. */
   href?: string
+  /** Set when the run points to a local file, so a click can open it in the editor. */
+  file?: { path: string; line?: number }
   /**
    * Where this run's first character sits in the source string. Text selection
    * maps a click back to an offset through this, so copying a selection yields
@@ -213,6 +215,7 @@ export interface InlineSpan {
   strike?: boolean
   chipColor?: string
   href?: string
+  file?: { path: string; line?: number }
   offset: number
   background?: string
 }

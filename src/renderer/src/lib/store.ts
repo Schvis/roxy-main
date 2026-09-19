@@ -415,6 +415,7 @@ interface RoxyStore {
     line?: number,
     root?: string | null
   ) => void
+  openFileInEditor: (filePath: string, line?: number) => void
   setSidebarRailed: (railed: boolean) => void
   pendingContextAttachments: Record<string, ChatContextAttachment[]>
   addPendingContextAttachment: (chatId: string, item: ChatContextAttachment) => void
@@ -1045,6 +1046,51 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         ? { settings: { ...state.settings, ideMode: true, ttsEnabled: false } }
         : {})
     })
+  },
+  openFileInEditor: (filePath, line) => {
+    if (!filePath) return
+    const state = get()
+    const chat = state.chats.find((c) => c.id === state.activeChatId)
+    const parentChat = chat?.parentId ? state.chats.find((c) => c.id === chat.parentId) : undefined
+    let root =
+      chat?.worktreePath ??
+      chat?.workspacePath ??
+      parentChat?.worktreePath ??
+      parentChat?.workspacePath ??
+      null
+
+    let normPath = filePath.replace(/\\/g, '/')
+    if (!root && (normPath.startsWith('/') || /^[a-zA-Z]:\//.test(normPath))) {
+      const candidates = [
+        ...state.projectOrder,
+        ...state.chats.map((c) => c.worktreePath || c.workspacePath).filter(Boolean)
+      ] as string[]
+      const matchingProj = candidates.find((p) => {
+        const normP = p.replace(/\\/g, '/').toLowerCase()
+        return normPath.toLowerCase().startsWith(normP.endsWith('/') ? normP : normP + '/')
+      })
+      if (matchingProj) {
+        root = matchingProj
+      }
+    }
+
+    if (root) {
+      const normRoot = root.replace(/\\/g, '/').replace(/\/+$/, '')
+      if (normPath.toLowerCase().startsWith(normRoot.toLowerCase() + '/')) {
+        normPath = normPath.slice(normRoot.length + 1)
+      }
+    }
+
+    const name = normPath.split('/').pop() || normPath
+    state.setIdeSelectedFile(
+      {
+        path: normPath,
+        name,
+        directory: false
+      },
+      line,
+      root
+    )
   },
   pendingContextAttachments: {},
   addPendingContextAttachment: (chatId, item) => {
@@ -2408,11 +2454,18 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
         if (chatExists()) {
           try {
+            let finalParts = parts
+            if (finalParts.length === 0 && !wasStopped) {
+              const snapshot = await api.llm.snapshot(chatId).catch(() => null)
+              if (snapshot && snapshot.length > 0) {
+                finalParts = snapshot
+              }
+            }
             const assistantMessage = await api.messages.add({
               chatId,
               role: 'assistant',
-              content: partsToContent(parts),
-              parts
+              content: partsToContent(finalParts),
+              parts: finalParts
             })
             appendIfActive(assistantMessage)
           } catch (e) {

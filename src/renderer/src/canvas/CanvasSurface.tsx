@@ -25,6 +25,7 @@ import {
 } from './renderer'
 import { CanvasMenu, type CanvasMenuItem } from './CanvasMenu'
 import { openLink } from './links'
+import { useRoxyStore } from '../lib/store'
 import { diffPatch } from '../components/diff/model'
 import { prefersReducedMotion, subscribeMotion } from '../lib/motion'
 import { writeClipboardImage, writeClipboardText } from '../lib/clipboard'
@@ -601,7 +602,9 @@ export function CanvasSurface({
         .find((r) => r.id === action.id)
       if (region) setScroll(region, action.left, action.top)
     } else if (action.type === 'copy') copy(action.text)
-    else if (action.type === 'link') openLink(action.href)
+    else if (action.type === 'file') {
+      useRoxyStore.getState().openFileInEditor(action.path, action.line)
+    } else if (action.type === 'link') openLink(action.href)
     else if (action.type === 'image') setImage(action.src)
     else onAction?.(action)
   }
@@ -890,6 +893,20 @@ export function CanvasSurface({
                 run: () => copy(selected),
                 accelerator: `${modifier}+C`
               })
+            if (hit?.action.type === 'file') {
+              const fileAction = hit.action
+              items.push(
+                {
+                  label: t('ide.openFile', 'Open in Editor'),
+                  run: () =>
+                    useRoxyStore.getState().openFileInEditor(fileAction.path, fileAction.line)
+                },
+                {
+                  label: t('transcript.copyPath', 'Copy Path'),
+                  run: () => copy(fileAction.path)
+                }
+              )
+            }
             if (hit?.action.type === 'link') {
               const href = hit.action.href
               items.push(
