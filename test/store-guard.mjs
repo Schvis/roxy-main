@@ -94,6 +94,15 @@ check(
   offenders.join(', ')
 )
 
+// 4. Switching sessions must respect user preference and never force ideMode on.
+const selectChatImpl = src.match(
+  /selectChat:\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\n {2}\},/
+)?.[1]
+check(
+  'selectChat does not force ideMode on',
+  selectChatImpl !== undefined && !selectChatImpl.includes('setIdeMode')
+)
+
 // Execute the real model-cache actions with a fake bridge. This avoids loading
 // the renderer's DOM, motion and Vite-only prompt imports into a Node test.
 console.log('store: live Copilot catalogs')

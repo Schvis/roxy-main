@@ -422,6 +422,7 @@ export function FileEditor({
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0)
   const findInputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
+  const justSavedTimeRef = useRef<number>(0)
 
   const isImage = isImageFile(path)
   const isAudio = isAudioFile(path)
@@ -630,11 +631,13 @@ export function FileEditor({
   const [isGitFolder, setIsGitFolder] = useState<boolean>(false)
   // Fetch committed HEAD content from git for working-tree diff visual decorations
   const [gitHeadText, setGitHeadText] = useState<string | null>(null)
+  const [isGitTrackedAndModified, setIsGitTrackedAndModified] = useState<boolean>(false)
 
   const refreshGitHead = useCallback(() => {
     if (!root || !path) {
       setIsGitFolder(false)
       setGitHeadText(null)
+      setIsGitTrackedAndModified(false)
       return
     }
     api.git
@@ -643,20 +646,35 @@ export function FileEditor({
         if (!st.isRepo) {
           setIsGitFolder(false)
           setGitHeadText(null)
+          setIsGitTrackedAndModified(false)
           return
         }
         setIsGitFolder(true)
-        return api.git.fileDiff(root, path).then((res) => {
-          if (res.ok && !res.isBinary) {
-            setGitHeadText(res.before ? res.before.replace(/\r\n?/g, '\n') : '')
-          } else {
-            setGitHeadText(null)
+        return Promise.all([api.git.fileDiff(root, path), api.git.changedFiles(root)]).then(
+          ([res, changed]) => {
+            if (res.ok && !res.isBinary) {
+              setGitHeadText(res.before ? res.before.replace(/\r\n?/g, '\n') : '')
+            } else {
+              setGitHeadText(null)
+            }
+            const isModified = changed.some(
+              (f) =>
+                pathsMatch(f.path, path) &&
+                (f.status === 'modified' ||
+                  f.status === 'renamed' ||
+                  f.status === 'copied' ||
+                  f.status === 'conflict' ||
+                  f.status === 'added' ||
+                  f.status === 'untracked')
+            )
+            setIsGitTrackedAndModified(isModified)
           }
-        })
+        )
       })
       .catch(() => {
         setIsGitFolder(false)
         setGitHeadText(null)
+        setIsGitTrackedAndModified(false)
       })
   }, [root, path])
 
@@ -671,8 +689,21 @@ export function FileEditor({
     })
   }, [refreshGitHead])
 
-  const isModifiedVsGit = Boolean(isGitFolder && gitHeadText !== null && gitHeadText !== text)
+  useEffect(() => {
+    const onFocus = (): void => {
+      refreshGitHead()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshGitHead])
+
+  const normHeadText = gitHeadText !== null ? gitHeadText.replace(/\r?\n$/, '') : null
+  const normText = text.replace(/\r?\n$/, '')
   const hasUnsavedDraft = Boolean(draft && draft.text !== draft.saved)
+  const isModifiedVsGit = Boolean(
+    isGitFolder &&
+    (hasUnsavedDraft ? normHeadText !== null && normHeadText !== normText : isGitTrackedAndModified)
+  )
 
   const handleRevertThisFile = async (): Promise<void> => {
     if (!window.confirm(t('git.revertFileConfirm', { path: entry.path }))) return
@@ -697,12 +728,14 @@ export function FileEditor({
     if (!isGitFolder || activeAligned || gitHeadText === null) {
       return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
     }
-    if (gitHeadText === diffText) {
+    const normHead = gitHeadText.replace(/\r?\n$/, '')
+    const normDiff = diffText.replace(/\r?\n$/, '')
+    if (normHead === normDiff) {
       return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
     }
 
-    const bLines = gitHeadText ? gitHeadText.split('\n') : []
-    const cLines = diffText.split('\n')
+    const bLines = normHead ? normHead.split('\n') : []
+    const cLines = normDiff ? normDiff.split('\n') : []
     if (bLines.length > 5000 || cLines.length > 5000) {
       return { addedLines: new Set<number>(), deletedMarkers: new Map<number, number>() }
     }
@@ -1047,6 +1080,9 @@ export function FileEditor({
   useEffect(() => {
     return api.files.onChanged((payload) => {
       if (payload.root && !pathsMatch(payload.root, root)) return
+      if (Date.now() - justSavedTimeRef.current < 2000) {
+        return
+      }
       const curDraft = drafts.get(key)
       if (!curDraft || curDraft.text === curDraft.saved) {
         drafts.delete(key)
@@ -1123,6 +1159,7 @@ export function FileEditor({
     try {
       const result = await api.files.write(sessionId, path, content, revision)
       if (result.status === 'saved') {
+        justSavedTimeRef.current = Date.now()
         draft.saved = draft.text
         draft.userEdited = false
         draft.revision = result.revision
@@ -1844,7 +1881,7 @@ export function FileEditor({
               autoCapitalize="off"
               autoComplete="off"
               wrap="off"
-              disabled={loading}
+              readOnly={loading && !draft}
               style={{ tabSize, '--editor-tab-size': tabSize } as CSSProperties}
               className={cn(
                 'file-editor-code file-editor-input relative block h-full w-full resize-none overflow-auto bg-transparent text-text focus-visible:outline-none',

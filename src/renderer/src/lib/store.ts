@@ -2030,9 +2030,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       restoredLine = savedFile.line
       restoredRoot =
         'root' in savedFile && typeof savedFile.root === 'string' ? savedFile.root : workspaceRoot
-      if (!get().settings?.ideMode) {
-        void api.settings.setIdeMode(true)
-      }
     }
 
     set({
