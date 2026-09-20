@@ -4,6 +4,22 @@
   </a>
 </p>
 
+<p align="center">
+  <strong>Languages:</strong>
+  <a href="README.md">English</a> ·
+  <a href="README.zh.md">简体中文</a> ·
+  <a href="README.hi.md">हिन्दी</a> ·
+  <a href="README.es.md">Español</a> ·
+  <a href="README.ar.md">العربية</a> ·
+  <a href="README.fr.md">Français</a> ·
+  <a href="README.pt.md">Português</a> ·
+  <a href="README.ru.md">Русский</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.ja.md">日本語</a>
+  <br />
+  <a href="#translations">Contribute in your language</a>
+</p>
+
 # Roxy
 
 > An open-source AI coding agent for engineers — built as a cross-platform desktop app.
@@ -226,6 +242,22 @@ transcript and streamed agent events are relayed.
 - **Security** — Zero-login authentication: a short-lived HMAC guest token passes through the URL fragment
   and the phone must provide the 6-digit **PIN** displayed on desktop. Rooms are automatically revoked on stop,
   after repeated failed PIN attempts, or upon desktop disconnection.
+
+<a id="translations"></a>
+
+## Translations
+
+Roxy ships in English, 简体中文, हिन्दी, Español, العربية, Français, Português, Русский,
+Deutsch, and 日本語. Native speakers can help make the interface clearer and more natural.
+Issues and pull-request descriptions are welcome in any of these languages.
+
+- English source strings live in
+  [`src/renderer/src/locales/default.json`](src/renderer/src/locales/default.json).
+- Translation catalogs live in
+  [`src/renderer/src/locales`](src/renderer/src/locales).
+- See the [localization guide](AGENTS.md#user-facing-strings-live-in-defaultjson) before editing
+  UI copy or adding a language.
+- Run `npm run i18n` to validate catalog structure, placeholders, and inline markup.
 
 ## License
 

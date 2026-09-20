@@ -11,6 +11,10 @@ import { listModels } from './services/models'
 import { backfillUsageFromHistory } from './services/usage'
 import { listConnectedProviders } from './db/repo'
 import { setAppIcon, closeAll as closeAllBrowsers } from './services/browser'
+import {
+  BROWSER_PARTITION,
+  credentialsFor as browserProxyCredentials
+} from './services/browser-proxy'
 import { cleanupToolOutputs } from './services/tool-output-store'
 import { cancelAllBackgroundJobs } from './services/background-tasks'
 import { shutdownAllLsp } from './services/lsp'
@@ -225,6 +229,16 @@ if (!gotTheLock) {
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
+    })
+
+    app.on('login', (event, webContents, _details, authInfo, callback) => {
+      if (!authInfo.isProxy || webContents.session !== session.fromPartition(BROWSER_PARTITION))
+        return
+      event.preventDefault()
+      void browserProxyCredentials(authInfo).then((credentials) => {
+        if (credentials) callback(credentials.username, credentials.password)
+        else callback()
+      })
     })
 
     // Grant media (microphone) and clipboard permissions

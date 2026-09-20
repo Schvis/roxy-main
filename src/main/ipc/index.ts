@@ -16,6 +16,7 @@ import type { SessionConfigPatch } from '../../shared/session-config'
 import type { ClipboardAction } from '../../shared/context-menu'
 import { clipboardHasContent, runClipboardAction } from '../services/context-menu'
 import type {
+  BrowserProxyInput,
   CookieRow,
   CreateChatInput,
   CreateLoopInput,
@@ -81,6 +82,7 @@ import {
 import * as copilot from '../services/copilot'
 import * as cliproxy from '../services/cliproxy'
 import * as browser from '../services/browser'
+import * as browserProxy from '../services/browser-proxy'
 import * as cookies from '../services/cookies'
 import { invalidateCopilotModels, listModels } from '../services/models'
 import { copilotNeedsReauthentication, invalidateCopilotToken } from '../services/llm'
@@ -694,6 +696,7 @@ export function registerIpc(): void {
       await cliproxy.disconnect(id).catch(() => undefined)
     }
     repo.resetAll()
+    await browserProxy.reset()
     invalidateCopilotModels()
     invalidateCopilotToken()
     updateOverlayShortcut(repo.getSettings())
@@ -1629,6 +1632,10 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.browserActivateTab, (e, id: string) => browser.activateTab(id, keyOf(e)))
   ipcMain.handle(CHANNELS.browserMoveTab, (e, id: string, toIndex: number) =>
     browser.moveTab(id, toIndex, keyOf(e))
+  )
+  ipcMain.handle(CHANNELS.browserProxyGet, () => browserProxy.get())
+  ipcMain.handle(CHANNELS.browserProxySet, (_e, input: BrowserProxyInput) =>
+    browserProxy.set(input)
   )
 
   // ---- cookies (the built-in Cookie-Editor) ----

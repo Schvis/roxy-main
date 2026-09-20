@@ -34,6 +34,7 @@ import { randomSlug, slugToBranchSegment } from '@shared/slugs'
 import { PageShell } from '../components/PageShell'
 import { McpServers } from '../components/McpServers'
 import { CookiePanel } from '../components/CookiePanel'
+import { ProxyPanel } from '../components/ProxyPanel'
 import { ConfigBackup } from '../components/ConfigBackup'
 import { ActivitySection } from '../components/ActivitySection'
 import { ProviderLogo } from '../lib/providerLogos'
@@ -1163,6 +1164,10 @@ export default function Settings(): JSX.Element {
             </p>
           </div>
           <CookiePanel className="max-h-[420px]" />
+        </div>
+
+        <div className="mt-3 overflow-hidden sq sq-xl sq-ring rounded-xl border border-border bg-surface">
+          <ProxyPanel />
         </div>
       </section>
 

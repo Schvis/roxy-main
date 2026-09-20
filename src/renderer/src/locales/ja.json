@@ -2,10 +2,12 @@
   "browserChrome": {
     "back": "戻る",
     "closeCookies": "Cookieを閉じる",
+    "closeProxy": "ブラウザプロキシを閉じる",
     "closeTab": "タブを閉じる",
     "cookies": "Cookie",
     "forward": "進む",
     "newTab": "新しいタブ",
+    "proxy": "ブラウザプロキシ",
     "urlPlaceholder": "検索またはURLを入力"
   },
   "chat": {
@@ -32,10 +34,10 @@
     "confirmPlanPrompt": "Proceed with the planned changes.",
     "contextAttached": "Attached",
     "copied": "コピーしました",
-    "copilotAuthenticate": "Authenticate on GitHub",
-    "copilotReconnect": "Refresh GitHub Copilot login",
-    "copilotReconnectBody": "GitHub Copilot auth sucks sometimes. Your authorization expired or was revoked, and automatic refresh could not recover it. Refresh your login here to keep chatting.",
-    "copilotReconnected": "GitHub Copilot is reconnected. You can retry your message when you are ready.",
+    "copilotAuthenticate": "GitHubで認証",
+    "copilotReconnect": "GitHub Copilotのログインを更新",
+    "copilotReconnectBody": "GitHub Copilotの認証は時々うまくいきません。認証の有効期限が切れたか、取り消されたため、自動更新で復旧できませんでした。チャットを続けるには、ここでログインを更新してください。",
+    "copilotReconnected": "GitHub Copilotが再接続されました。準備ができたらメッセージを再試行できます。",
     "currentFile": "Current file",
     "currentStep": "Current: {{title}}",
     "customInput": "Custom input…",
@@ -659,18 +661,18 @@
   },
   "models": {
     "allHidden": "すべてのモデルが非表示になっています。<settings>設定 → モデル</settings>で一部を元に戻してください。",
-    "copilotUnavailable": "No available GitHub Copilot model is selected. Choose an enabled model, or check your account's model access and connection, then try again.",
+    "copilotUnavailable": "利用可能なGitHub Copilotモデルが選択されていません。有効なモデルを選択するか、アカウントのモデルアクセスと接続を確認してから再試行してください。",
     "imageGeneration": "Image generation",
     "loadFailed": "models.dev からモデルを読み込めませんでした — 現在のモデルで送信することはできます。",
     "loading": "モデルを読み込み中…",
-    "matchesInOther": "Available in:",
+    "matchesInOther": "利用可能:",
     "noMatch": "「{{query}}」に一致するモデルはありません。",
-    "noMatchInProvider": "No models match “{{query}}” in {{provider}}.",
+    "noMatchInProvider": "{{provider}}に「{{query}}」に一致するモデルはありません。",
     "noProvider": "プロバイダーが接続されていません",
-    "reasoning": "Reasoning",
+    "reasoning": "推論",
     "search": "モデルを検索…",
     "selectModel": "モデルを選択",
-    "tools": "Tools"
+    "tools": "ツール"
   },
   "onboarding": {
     "apiKey": "APIキー",
@@ -718,6 +720,25 @@
   },
   "page": {
     "back": "戻る"
+  },
+  "proxy": {
+    "activeSummary": "アクティブ: {{scheme}}://{{host}}:{{port}}",
+    "clearPassword": "保存されたパスワードを削除",
+    "connected": "プロキシが有効になりました。既存のブラウザ接続は再起動されました。",
+    "description": "専用のRoxyブラウザのみをカスタムプロキシ経由でルーティングします。Roxyのモデル、アップデート、その他のアプリトラフィックは通常の接続を使用します。",
+    "direct": "直接接続",
+    "disabled": "プロキシが無効になりました。ブラウザは直接接続を使用しています。",
+    "host": "ホスト",
+    "hostPlaceholder": "proxy.example.com",
+    "optional": "オプション",
+    "password": "パスワード",
+    "passwordSaved": "保存されたパスワード",
+    "port": "ポート",
+    "protocol": "プロトコル",
+    "saveFailed": "ブラウザプロキシを保存できませんでした。",
+    "socksAuth": "ChromiumはSOCKSプロキシのユーザー名/パスワード認証をサポートしていません。",
+    "title": "ブラウザプロキシ",
+    "username": "ユーザー名"
   },
   "queue": {
     "attachImages": "画像を添付",
