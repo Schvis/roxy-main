@@ -136,18 +136,6 @@ npm run tts:server
 
 You can also enable **Fish Audio API** under Settings for cloud-based voice synthesis without local GPU requirements.
 
-### Self-Hosted Remote Relay (Optional)
-
-By default, Remote Workspace connects to `https://roxy.schvis.com`. To run your own relay using the standalone `remote-server/` (kept uncommitted via `.gitignore`):
-
-```bash
-cd remote-server
-npm install
-npm run dev
-```
-
-Point the desktop app to your relay by setting `ROXY_REMOTE_BASE="http://<your-host>:3000"` before launching Roxy.
-
 ## Useful scripts
 
 | Script                   | Description                                                               |
