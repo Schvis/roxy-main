@@ -144,13 +144,12 @@ export function ModelPicker(): JSX.Element {
     [providers, selectedProviderId, activeProvider]
   )
 
-  // Lazy-load every connected provider's models into shared caches
+  // Load only the active catalog during startup. Other catalogs load when their
+  // provider tab is selected, avoiding unnecessary IPC and network work.
   useEffect(() => {
     void ensureHiddenModels()
-    providers.forEach((p) => {
-      void ensureModels(p.id)
-    })
-  }, [providers, ensureModels, ensureHiddenModels])
+    if (activeProvider) void ensureModels(activeProvider.id)
+  }, [activeProvider, ensureModels, ensureHiddenModels])
 
   useEffect(() => {
     if (!open) return

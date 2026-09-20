@@ -1,22 +1,29 @@
-import { useEffect, useState, useRef } from 'react'
+import { lazy, Suspense, useEffect, useState, useRef } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useRoxyStore } from './lib/store'
 import roxy from './assets/roxy.png'
 import overlayIcon from './assets/overlay.png'
 import Onboarding from './routes/Onboarding'
 import Chat from './routes/Chat'
-import Integrations from './routes/Integrations'
-import Skills from './routes/Skills'
-import Mcp from './routes/Mcp'
-import Themes from './routes/Themes'
-import Settings from './routes/Settings'
-import GitPage from './routes/GitPage'
 import { ChatView } from './components/ChatView'
-import { VtuberStandalone } from './components/VtuberStandalone'
-import { StandaloneTerminal } from './components/StandaloneTerminal'
 import { cn } from './lib/cn'
 import { api } from './lib/api'
 import { initTtsPlayer } from './lib/tts-player'
+
+const Integrations = lazy(() => import('./routes/Integrations'))
+const Skills = lazy(() => import('./routes/Skills'))
+const Mcp = lazy(() => import('./routes/Mcp'))
+const Themes = lazy(() => import('./routes/Themes'))
+const Settings = lazy(() => import('./routes/Settings'))
+const GitPage = lazy(() => import('./routes/GitPage'))
+const VtuberStandalone = lazy(() =>
+  import('./components/VtuberStandalone').then((module) => ({ default: module.VtuberStandalone }))
+)
+const StandaloneTerminal = lazy(() =>
+  import('./components/StandaloneTerminal').then((module) => ({
+    default: module.StandaloneTerminal
+  }))
+)
 
 function FloatingIcon(): JSX.Element {
   const [isDragging, setIsDragging] = useState(false)
@@ -84,6 +91,10 @@ function Splash(): JSX.Element {
       />
     </div>
   )
+}
+
+function LazyScreen({ children }: { children: React.ReactNode }): JSX.Element {
+  return <Suspense fallback={<Splash />}>{children}</Suspense>
 }
 
 function ResizeHandle(): JSX.Element {
@@ -189,39 +200,45 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
 
       {vtuberVisible && (
         <div className="absolute inset-0 z-30 flex h-full w-full items-center justify-center bg-transparent overflow-visible">
-          <VtuberStandalone />
+          <LazyScreen>
+            <VtuberStandalone />
+          </LazyScreen>
         </div>
       )}
 
       {terminalVisible && (
         <div className="absolute inset-0 z-30 flex h-full w-full flex-col bg-bg">
-          <StandaloneTerminal />
+          <LazyScreen>
+            <StandaloneTerminal />
+          </LazyScreen>
         </div>
       )}
 
       {!chatVisible && !isAuxiliary && (
         <div className="absolute inset-0 z-10 bg-bg">
-          <Routes>
-            <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/" element={onboarded ? null : <Navigate to="/onboarding" replace />} />
-            <Route
-              path="/overlay"
-              element={onboarded ? null : <Navigate to="/onboarding" replace />}
-            />
-            <Route
-              path="/floating-icon"
-              element={onboarded ? null : <Navigate to="/onboarding" replace />}
-            />
-            <Route path="/vtuber" element={<VtuberStandalone />} />
-            <Route path="/terminal" element={<StandaloneTerminal />} />
-            <Route path="/integrations" element={<Integrations />} />
-            <Route path="/skills" element={<Skills />} />
-            <Route path="/mcp" element={<Mcp />} />
-            <Route path="/themes" element={<Themes />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/git" element={<GitPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Suspense fallback={<Splash />}>
+            <Routes>
+              <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/" element={onboarded ? null : <Navigate to="/onboarding" replace />} />
+              <Route
+                path="/overlay"
+                element={onboarded ? null : <Navigate to="/onboarding" replace />}
+              />
+              <Route
+                path="/floating-icon"
+                element={onboarded ? null : <Navigate to="/onboarding" replace />}
+              />
+              <Route path="/vtuber" element={<VtuberStandalone />} />
+              <Route path="/terminal" element={<StandaloneTerminal />} />
+              <Route path="/integrations" element={<Integrations />} />
+              <Route path="/skills" element={<Skills />} />
+              <Route path="/mcp" element={<Mcp />} />
+              <Route path="/themes" element={<Themes />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/git" element={<GitPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </div>
       )}
     </div>
