@@ -58,10 +58,15 @@ async function releaseMetadata() {
 
 function checksumFor(body, asset) {
   for (const line of body.split('\n')) {
-    const match = line.trim().match(/^([a-f0-9]{64})\s+(.+)$/i)
+    const match = line.trim().match(/^([a-f0-9]{64})\s+[* ]?(.+)$/i)
     if (match && match[2].trim() === asset) return match[1].toLowerCase()
   }
   return null
+}
+
+function assetDigest(item) {
+  const match = String(item?.digest || '').match(/^sha256:([a-f0-9]{64})$/i)
+  return match ? match[1].toLowerCase() : null
 }
 
 async function findFile(root, wanted) {
@@ -87,19 +92,20 @@ async function bundleCliProxy(context) {
   const arch = archName(context.arch)
   const { release, version } = await releaseMetadata()
   const asset = assetName(version, platform, arch)
-  const byName = new Map(release.assets.map((item) => [item.name, item.browser_download_url]))
-  const archiveUrl = byName.get(asset)
-  const checksumsUrl = byName.get('checksums.txt')
-  if (!archiveUrl || !checksumsUrl) {
+  const byName = new Map(release.assets.map((item) => [item.name, item]))
+  const archiveAsset = byName.get(asset)
+  const checksumsAsset = byName.get('checksums.txt')
+  if (!archiveAsset || !checksumsAsset) {
     throw new Error(`CLIProxyAPI v${version} does not publish ${asset} and checksums.txt.`)
   }
 
   console.log(`  - bundling CLIProxyAPI v${version} (${platform}/${arch})`)
   const [checksums, archive] = await Promise.all([
-    fetchBytes(checksumsUrl, 'CLIProxyAPI checksums'),
-    fetchBytes(archiveUrl, asset)
+    fetchBytes(checksumsAsset.browser_download_url, 'CLIProxyAPI checksums'),
+    fetchBytes(archiveAsset.browser_download_url, asset)
   ])
-  const expectedArchiveSha256 = checksumFor(checksums.toString('utf8'), asset)
+  const expectedArchiveSha256 =
+    assetDigest(archiveAsset) || checksumFor(checksums.toString('utf8'), asset)
   const archiveSha256 = sha256(archive)
   if (!expectedArchiveSha256 || archiveSha256 !== expectedArchiveSha256) {
     throw new Error(
@@ -164,3 +170,4 @@ module.exports = bundleCliProxy
 module.exports.default = bundleCliProxy
 module.exports.assetName = assetName
 module.exports.checksumFor = checksumFor
+module.exports.assetDigest = assetDigest
