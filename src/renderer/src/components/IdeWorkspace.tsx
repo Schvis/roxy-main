@@ -54,6 +54,7 @@ const MIN_PANEL_WIDTH = 180
 const MAX_PANEL_WIDTH = 800
 const DEFAULT_PANEL_WIDTH = 260
 const PANEL_WIDTH_KEY = 'roxy:ide-panel-width'
+const PANEL_COLLAPSED_KEY = 'roxy:ide-panel-collapsed'
 
 function normalizePathKey(p: string): string {
   if (!p) return ''
@@ -920,10 +921,17 @@ function WorkspaceContents({
       ? v
       : DEFAULT_PANEL_WIDTH
   })
+  const [panelCollapsed, setPanelCollapsed] = useState(
+    () => localStorage.getItem(PANEL_COLLAPSED_KEY) === 'true'
+  )
 
   useEffect(() => {
     localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth))
   }, [panelWidth])
+
+  useEffect(() => {
+    localStorage.setItem(PANEL_COLLAPSED_KEY, String(panelCollapsed))
+  }, [panelCollapsed])
 
   // Auto-refresh when files change in workspace
   useEffect(() => {
@@ -1361,18 +1369,25 @@ function WorkspaceContents({
           <button
             type="button"
             role="tab"
-            aria-selected={ideTab === 'files'}
-            onClick={() => setIdeTab('files')}
+            aria-selected={!panelCollapsed && ideTab === 'files'}
+            onClick={() => {
+              if (ideTab === 'files' && !panelCollapsed) {
+                setPanelCollapsed(true)
+                return
+              }
+              setIdeTab('files')
+              setPanelCollapsed(false)
+            }}
             title={t('ide.filesTab')}
             aria-label={t('ide.filesTab')}
             className={cn(
               'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              ideTab === 'files'
+              !panelCollapsed && ideTab === 'files'
                 ? 'bg-elevated text-accent shadow-xs'
                 : 'text-text-muted hover:bg-white/5 hover:text-text'
             )}
           >
-            {ideTab === 'files' && (
+            {!panelCollapsed && ideTab === 'files' && (
               <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
             )}
             <Folder className="h-4 w-4" />
@@ -1380,21 +1395,26 @@ function WorkspaceContents({
           <button
             type="button"
             role="tab"
-            aria-selected={ideTab === 'search'}
+            aria-selected={!panelCollapsed && ideTab === 'search'}
             onClick={() => {
+              if (ideTab === 'search' && !panelCollapsed) {
+                setPanelCollapsed(true)
+                return
+              }
               setIdeTab('search')
+              setPanelCollapsed(false)
               setTimeout(() => searchInputRef.current?.focus(), 50)
             }}
             title={t('ide.searchTab')}
             aria-label={t('ide.searchTab')}
             className={cn(
               'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              ideTab === 'search'
+              !panelCollapsed && ideTab === 'search'
                 ? 'bg-elevated text-accent shadow-xs'
                 : 'text-text-muted hover:bg-white/5 hover:text-text'
             )}
           >
-            {ideTab === 'search' && (
+            {!panelCollapsed && ideTab === 'search' && (
               <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
             )}
             <Search className="h-4 w-4" />
@@ -1402,8 +1422,15 @@ function WorkspaceContents({
           <button
             type="button"
             role="tab"
-            aria-selected={ideTab === 'git'}
-            onClick={() => setIdeTab('git')}
+            aria-selected={!panelCollapsed && ideTab === 'git'}
+            onClick={() => {
+              if (ideTab === 'git' && !panelCollapsed) {
+                setPanelCollapsed(true)
+                return
+              }
+              setIdeTab('git')
+              setPanelCollapsed(false)
+            }}
             title={
               isGitRepo && gitChangedFiles.size > 0
                 ? `${t('ide.gitTab')} (${gitChangedFiles.size})`
@@ -1412,12 +1439,12 @@ function WorkspaceContents({
             aria-label={t('ide.gitTab')}
             className={cn(
               'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              ideTab === 'git'
+              !panelCollapsed && ideTab === 'git'
                 ? 'bg-elevated text-accent shadow-xs'
                 : 'text-text-muted hover:bg-white/5 hover:text-text'
             )}
           >
-            {ideTab === 'git' && (
+            {!panelCollapsed && ideTab === 'git' && (
               <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
             )}
             <GitBranch className="h-4 w-4" />
@@ -1431,8 +1458,9 @@ function WorkspaceContents({
 
         {/* Panel content (Files, Search, or Git) */}
         <div
-          style={{ width: panelWidth }}
-          className="flex h-full flex-col overflow-hidden shrink-0"
+          style={{ width: panelCollapsed ? 0 : panelWidth }}
+          aria-hidden={panelCollapsed}
+          className="flex h-full flex-col overflow-hidden shrink-0 transition-[width] duration-150"
         >
           {sessionId && root ? (
             ideTab === 'files' ? (
@@ -1766,7 +1794,7 @@ function WorkspaceContents({
         </div>
 
         {/* Horizontal drag handle to resize the sidebar panel width */}
-        <div
+        {!panelCollapsed && <div
           role="separator"
           aria-orientation="vertical"
           aria-label={t('ide.resizePanel')}
@@ -1792,7 +1820,7 @@ function WorkspaceContents({
           }}
           className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize touch-none z-20 hover:bg-accent/40 focus-visible:bg-accent transition-colors"
           title={t('ide.resizePanel')}
-        />
+        />}
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

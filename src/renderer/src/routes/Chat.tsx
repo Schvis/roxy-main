@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MessageSquare } from 'lucide-react'
 import { Sidebar } from '../components/Sidebar'
 import { ChatView } from '../components/ChatView'
 import { IdeWorkspace } from '../components/IdeWorkspace'
@@ -7,6 +8,7 @@ import { TopNavbar } from '../components/TopNavbar'
 import { useRoxyStore } from '../lib/store'
 
 const IDE_CHAT_SIZES_KEY = 'roxy.ide.chatSizes.v1'
+const IDE_CHAT_COLLAPSED_KEY = 'roxy.ide.chatCollapsed.v1'
 const DEFAULT_IDE_CHAT_SIZES = { left: 42, right: 42, bottom: 42 }
 const MIN_CHAT_WIDTH_PX = 380
 const MIN_CHAT_HEIGHT_PX = 300
@@ -37,11 +39,17 @@ function Chat(): JSX.Element {
   const { t } = useTranslation()
   const dock = useRoxyStore((s) => s.settings?.ideChatDock ?? 'right')
   const [sizes, setSizes] = useState(loadChatSizes)
+  const [chatCollapsed, setChatCollapsed] = useState(
+    () => localStorage.getItem(IDE_CHAT_COLLAPSED_KEY) === 'true'
+  )
   useEffect(() => {
     try {
       localStorage.setItem(IDE_CHAT_SIZES_KEY, JSON.stringify(sizes))
     } catch {}
   }, [sizes])
+  useEffect(() => {
+    localStorage.setItem(IDE_CHAT_COLLAPSED_KEY, String(chatCollapsed))
+  }, [chatCollapsed])
   const pane = useRef<HTMLDivElement>(null)
   const dragging = useRef<number | null>(null)
   const bottom = dock === 'bottom'
@@ -83,8 +91,26 @@ function Chat(): JSX.Element {
         <Sidebar />
         <div
           ref={pane}
-          className={`flex min-h-0 min-w-0 flex-1 overflow-auto ${ideMode && bottom ? 'flex-col' : ''}`}
+          className={`relative flex min-h-0 min-w-0 flex-1 overflow-auto ${ideMode && bottom ? 'flex-col' : ''}`}
         >
+          {ideMode && chatCollapsed && (
+            <button
+              type="button"
+              onClick={() => setChatCollapsed(false)}
+              title={t('ide.expandChat')}
+              aria-label={t('ide.expandChat')}
+              aria-expanded={false}
+              className={`absolute z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-muted shadow-sm transition-colors hover:bg-elevated hover:text-text ${
+                bottom
+                  ? 'bottom-2 right-2'
+                  : dock === 'left'
+                    ? 'left-2 top-2'
+                    : 'right-2 top-2'
+              }`}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
+          )}
           {ideMode ? (
             <div
               className={`flex min-h-0 min-w-0 flex-1 ${bottom ? 'w-full min-h-[220px]' : 'min-w-[380px]'}`}
@@ -97,7 +123,7 @@ function Chat(): JSX.Element {
               />
             </div>
           ) : null}
-          {ideMode ? (
+          {ideMode && !chatCollapsed ? (
             <div
               role="separator"
               tabIndex={0}
@@ -150,16 +176,29 @@ function Chat(): JSX.Element {
           ) : null}
           {/* Fixed sibling slot and wrapper preserve transcript/composer state on toggles. */}
           <div
-            className={`flex min-h-0 min-w-0 ${
+            className={`relative flex min-h-0 min-w-0 shrink-0 ${
               ideMode
-                ? bottom
-                  ? 'w-full min-h-[300px]'
-                  : 'min-w-[380px] min-h-[300px]'
+                ? chatCollapsed
+                  ? bottom
+                    ? 'h-0 w-full overflow-hidden'
+                    : 'h-full w-0 overflow-hidden'
+                  : bottom
+                    ? 'w-full min-h-[300px]'
+                    : 'min-w-[380px] min-h-[300px]'
                 : 'h-full flex-1 min-w-[380px] min-h-[300px]'
             }`}
-            style={ideMode ? { order: dock === 'left' ? 0 : 2, flex: `0 0 ${size}%` } : undefined}
+            style={
+              ideMode
+                ? {
+                    order: dock === 'left' ? 0 : 2,
+                    flex: `0 0 ${chatCollapsed ? '0px' : `${size}%`}`
+                  }
+                : undefined
+            }
           >
-            <ChatView />
+            <div className={chatCollapsed ? 'invisible h-full w-full overflow-hidden' : 'flex h-full min-h-0 w-full min-w-0'}>
+              <ChatView onCollapse={() => setChatCollapsed(true)} />
+            </div>
           </div>
         </div>
       </div>

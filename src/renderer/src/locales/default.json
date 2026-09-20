@@ -29,6 +29,8 @@
     "dockError": "Could not save chat position. Try again.",
     "resizeChat": "Resize chat pane",
     "resizePanel": "Resize sidebar panel",
+    "collapseChat": "Collapse chat",
+    "expandChat": "Expand chat",
     "saving": "Saving…",
     "saveError": "Could not save IDE mode. Try the switch again.",
     "explorer": "Explorer",

@@ -11,6 +11,7 @@ import {
   Hammer,
   ListTree,
   Loader2,
+  MessageSquare,
   Repeat,
   RotateCw,
   Settings,
@@ -201,7 +202,13 @@ function dismissCommandLineForSession(chatId: string): void {
   }
 }
 
-export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } = {}): JSX.Element {
+export function ChatView({
+  isOverlay: propIsOverlay,
+  onCollapse
+}: {
+  isOverlay?: boolean
+  onCollapse?: () => void
+} = {}): JSX.Element {
   const { pathname } = useLocation()
   const isOverlay = propIsOverlay ?? pathname === '/overlay'
   const { t } = useTranslation()
@@ -412,7 +419,17 @@ export function ChatView({ isOverlay: propIsOverlay }: { isOverlay?: boolean } =
             </div>
           ) : (
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              {isSub ? (
+              {ideMode && onCollapse ? (
+                <button
+                  type="button"
+                  onClick={onCollapse}
+                  title={t('ide.collapseChat')}
+                  aria-label={t('ide.collapseChat')}
+                  className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </button>
+              ) : isSub ? (
                 <Hammer className="h-4 w-4 shrink-0 text-text-muted" />
               ) : (
                 <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
