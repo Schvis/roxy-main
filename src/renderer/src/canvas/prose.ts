@@ -15,7 +15,7 @@ import { highlight, tokenColors, familyFor } from './highlight'
 import { alpha, mix } from './theme'
 import { linkUrl } from './links'
 import { resolveImageSrc } from '../../../shared/images'
-import { detectFilePath, splitTextWithFilePaths } from '@shared/context'
+import { detectFilePath, splitTextWithFilePaths } from '../../../shared/context'
 
 /** Gap after each block kind — the prose rhythm. */
 const BLOCK_GAP = 10

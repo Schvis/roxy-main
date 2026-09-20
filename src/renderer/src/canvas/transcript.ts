@@ -24,7 +24,7 @@ import { layoutMarkdown, layoutPlainText } from './prose'
 import { layoutToolCard, type ToolCardInput } from './tool-card'
 import { PROMPT_GUTTER } from './prompt-history'
 import { TranscriptWindow } from './transcript-window'
-import { parseAttachedContext } from '@shared/context'
+import { parseAttachedContext } from '../../../shared/context'
 import { stripQuestionTags } from '../lib/agent-input-options'
 import { stripPlanSteps } from '../lib/agent-steps'
 
