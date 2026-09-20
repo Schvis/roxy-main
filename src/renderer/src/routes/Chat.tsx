@@ -101,11 +101,7 @@ function Chat(): JSX.Element {
               aria-label={t('ide.expandChat')}
               aria-expanded={false}
               className={`absolute z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-muted shadow-sm transition-colors hover:bg-elevated hover:text-text ${
-                bottom
-                  ? 'bottom-2 right-2'
-                  : dock === 'left'
-                    ? 'left-2 top-2'
-                    : 'right-2 top-2'
+                bottom ? 'bottom-2 right-2' : dock === 'left' ? 'left-2 top-2' : 'right-2 top-2'
               }`}
             >
               <MessageSquare className="h-4 w-4" />
@@ -196,7 +192,13 @@ function Chat(): JSX.Element {
                 : undefined
             }
           >
-            <div className={chatCollapsed ? 'invisible h-full w-full overflow-hidden' : 'flex h-full min-h-0 w-full min-w-0'}>
+            <div
+              className={
+                chatCollapsed
+                  ? 'invisible h-full w-full overflow-hidden'
+                  : 'flex h-full min-h-0 w-full min-w-0'
+              }
+            >
               <ChatView onCollapse={() => setChatCollapsed(true)} />
             </div>
           </div>

@@ -1794,33 +1794,35 @@ function WorkspaceContents({
         </div>
 
         {/* Horizontal drag handle to resize the sidebar panel width */}
-        {!panelCollapsed && <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t('ide.resizePanel')}
-          aria-valuenow={panelWidth}
-          onPointerDown={(e) => {
-            isPanelDragging.current = true
-            e.currentTarget.setPointerCapture(e.pointerId)
-          }}
-          onPointerMove={(e) => {
-            if (!isPanelDragging.current) return
-            const aside = asideRef.current
-            if (!aside) return
-            const rect = aside.getBoundingClientRect()
-            const newW = e.clientX - rect.left - 44
-            setPanelWidth(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newW)))
-          }}
-          onPointerUp={(e) => {
-            isPanelDragging.current = false
-            e.currentTarget.releasePointerCapture(e.pointerId)
-          }}
-          onDoubleClick={() => {
-            setPanelWidth(DEFAULT_PANEL_WIDTH)
-          }}
-          className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize touch-none z-20 hover:bg-accent/40 focus-visible:bg-accent transition-colors"
-          title={t('ide.resizePanel')}
-        />}
+        {!panelCollapsed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('ide.resizePanel')}
+            aria-valuenow={panelWidth}
+            onPointerDown={(e) => {
+              isPanelDragging.current = true
+              e.currentTarget.setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={(e) => {
+              if (!isPanelDragging.current) return
+              const aside = asideRef.current
+              if (!aside) return
+              const rect = aside.getBoundingClientRect()
+              const newW = e.clientX - rect.left - 44
+              setPanelWidth(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newW)))
+            }}
+            onPointerUp={(e) => {
+              isPanelDragging.current = false
+              e.currentTarget.releasePointerCapture(e.pointerId)
+            }}
+            onDoubleClick={() => {
+              setPanelWidth(DEFAULT_PANEL_WIDTH)
+            }}
+            className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize touch-none z-20 hover:bg-accent/40 focus-visible:bg-accent transition-colors"
+            title={t('ide.resizePanel')}
+          />
+        )}
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
