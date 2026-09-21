@@ -23,6 +23,7 @@ import type {
   CreateWorktreeInput,
   CreateWorktreeResult,
   ForkChatInput,
+  GitRepositoryAction,
   GitStatusView,
   ImageGenerationInput,
   MultiSyncOutcome,
@@ -1696,15 +1697,19 @@ export function registerIpc(): void {
     if (!cwd || !(await git.isGitAvailable())) return empty
     const root = await git.repoRoot(cwd)
     if (!root) return empty
-    const [st, def] = await Promise.all([git.status(cwd), git.defaultBranch(cwd)])
+    const [st, def, sync] = await Promise.all([
+      git.status(cwd),
+      git.defaultBranch(cwd),
+      git.syncTargetFor(cwd)
+    ])
     return {
       isRepo: true,
       root,
       branch: st?.branch ?? null,
       dirty: st?.dirty ?? false,
       changed: st?.changed ?? 0,
-      ahead: st?.ahead ?? 0,
-      behind: st?.behind ?? 0,
+      ahead: sync?.ahead ?? st?.ahead ?? 0,
+      behind: sync?.behind ?? st?.behind ?? 0,
       hasUpstream: st?.hasUpstream ?? false,
       defaultBranch: def
     }
@@ -1884,9 +1889,41 @@ export function registerIpc(): void {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
     return git.initRepository(cwd)
   })
-  ipcMain.handle(CHANNELS.gitCommit, async (_e, cwd: string, message: string) => {
+  ipcMain.handle(
+    CHANNELS.gitCommit,
+    async (
+      _e,
+      cwd: string,
+      message: string,
+      options?: { amend?: boolean; signoff?: boolean; all?: boolean }
+    ) => {
+      if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+      return git.commitChanges(cwd, message, options)
+    }
+  )
+  ipcMain.handle(CHANNELS.gitUndoLastCommit, async (_e, cwd: string) => {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
-    return git.commitChanges(cwd, message)
+    return git.undoLastCommit(cwd)
+  })
+  ipcMain.handle(CHANNELS.gitCreateBranch, async (_e, cwd: string, name: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.createBranch(cwd, name)
+  })
+  ipcMain.handle(CHANNELS.gitCreateTag, async (_e, cwd: string, name: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.createTag(cwd, name)
+  })
+  ipcMain.handle(CHANNELS.gitStash, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const result = await git.stashChanges(cwd)
+    if (result.ok) notifyWorkspaceFilesChanged(cwd)
+    return result
+  })
+  ipcMain.handle(CHANNELS.gitStashPop, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    const result = await git.popStash(cwd)
+    if (result.ok) notifyWorkspaceFilesChanged(cwd)
+    return result
   })
   ipcMain.handle(CHANNELS.gitFetch, async (_e, cwd: string) => {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
@@ -1957,6 +1994,10 @@ export function registerIpc(): void {
     if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
     return git.unstageFile(cwd, filePath)
   })
+  ipcMain.handle(CHANNELS.gitStageAll, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+    return git.stageAll(cwd)
+  })
   ipcMain.handle(
     CHANNELS.gitResolveConflict,
     async (_e, cwd: string, filePath: string, content: string) => {
@@ -1976,6 +2017,20 @@ export function registerIpc(): void {
     if (!(await git.isGitAvailable())) return false
     return git.isMerging(cwd)
   })
+  ipcMain.handle(CHANNELS.gitIsRebasing, async (_e, cwd: string) => {
+    if (!(await git.isGitAvailable())) return false
+    return git.isRebasing(cwd)
+  })
+  ipcMain.handle(CHANNELS.gitCommandLog, (_e, cwd: string) => git.getCommandLog(cwd))
+  ipcMain.handle(
+    CHANNELS.gitRepositoryAction,
+    async (_e, cwd: string, action: GitRepositoryAction) => {
+      if (!(await git.isGitAvailable())) return { ok: false, error: 'Git isn\u2019t installed.' }
+      const r = await git.repositoryAction(cwd, action)
+      if (r.ok) notifyWorkspaceFilesChanged(cwd)
+      return r
+    }
+  )
 
   // ---- forge (the git host behind `origin`: PR state for the branch) ----
   // Same degrade-never-throw contract as the git handlers above: no remote, an

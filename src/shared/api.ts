@@ -185,6 +185,44 @@ export interface GitStatusView {
   defaultBranch: string | null
 }
 
+export interface GitCommandLogEntry {
+  id: number
+  command: string
+  cwd: string
+  startedAt: number
+  finishedAt?: number
+  status: 'running' | 'succeeded' | 'failed'
+  stdout: string
+  stderr: string
+  exitCode: number | null
+}
+
+export type GitRepositoryAction =
+  | { type: 'checkout'; branch: string; detached?: boolean }
+  | { type: 'renameBranch'; newName: string; oldName?: string }
+  | { type: 'merge'; branch: string }
+  | { type: 'rebase'; branch: string }
+  | { type: 'abortRebase' }
+  | { type: 'createBranchFrom'; name: string; startPoint: string }
+  | { type: 'deleteBranch'; name: string; force?: boolean }
+  | { type: 'deleteRemoteBranch'; remote: string; branch: string }
+  | { type: 'publishBranch' }
+  | { type: 'addRemote'; name: string; url: string }
+  | { type: 'removeRemote'; name: string }
+  | { type: 'pull'; rebase?: boolean; remote?: string; branch?: string }
+  | { type: 'push'; remote?: string; branch?: string; force?: boolean }
+  | { type: 'fetch'; prune?: boolean; all?: boolean }
+  | { type: 'unstageAll' }
+  | { type: 'stash'; mode: 'tracked' | 'untracked' | 'staged'; message?: string }
+  | { type: 'stashApply'; stash?: string }
+  | { type: 'stashPop'; stash?: string }
+  | { type: 'stashDrop'; stash?: string }
+  | { type: 'stashClear' }
+  | { type: 'stashShow'; stash?: string }
+  | { type: 'deleteTag'; name: string }
+  | { type: 'deleteRemoteTag'; remote: string; name: string }
+  | { type: 'pushTags'; remote?: string }
+
 /** One checkout of a repository — the main working tree, or a workstream's. */
 export interface WorktreeView {
   path: string
@@ -1608,7 +1646,21 @@ export interface RoxyApi {
     /** Initialize a git repository in `cwd`. */
     init(cwd: string): Promise<{ ok: boolean; error?: string }>
     /** Stage all and commit with a message. */
-    commit(cwd: string, message: string): Promise<{ ok: boolean; error?: string; sha?: string }>
+    commit(
+      cwd: string,
+      message: string,
+      options?: { amend?: boolean; signoff?: boolean; all?: boolean }
+    ): Promise<{ ok: boolean; error?: string; sha?: string }>
+    /** Undo latest local commit while preserving its changes in the index. */
+    undoLastCommit(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Create a branch at HEAD without switching the current worktree. */
+    createBranch(cwd: string, name: string): Promise<{ ok: boolean; error?: string }>
+    /** Create a lightweight tag at HEAD. */
+    createTag(cwd: string, name: string): Promise<{ ok: boolean; error?: string }>
+    /** Stash tracked and untracked workspace changes. */
+    stash(cwd: string): Promise<{ ok: boolean; error?: string }>
+    /** Apply and remove the latest stash. */
+    stashPop(cwd: string): Promise<{ ok: boolean; error?: string }>
     /** Fetch from origin. */
     fetch(cwd: string): Promise<{ ok: boolean; error?: string }>
     /** Pull / fast-forward from upstream. */
@@ -1638,6 +1690,8 @@ export interface RoxyApi {
     stageFile(cwd: string, filePath: string): Promise<{ ok: boolean; error?: string }>
     /** Unstage a file. */
     unstageFile(cwd: string, filePath: string): Promise<{ ok: boolean; error?: string }>
+    /** Stage all workspace changes for commit. */
+    stageAll(cwd: string): Promise<{ ok: boolean; error?: string }>
     /** Save resolved conflict file and stage it in git. */
     resolveConflict(
       cwd: string,
@@ -1648,6 +1702,15 @@ export interface RoxyApi {
     abortMerge(cwd: string): Promise<{ ok: boolean; error?: string }>
     /** Check whether git is in a merge state (.git/MERGE_HEAD). */
     isMerging(cwd: string): Promise<boolean>
+    /** Check whether git is in a rebase state (.git/rebase-merge or .git/rebase-apply). */
+    isRebasing(cwd: string): Promise<boolean>
+    /** Recent Git commands, including currently running commands. */
+    commandLog(cwd: string): Promise<GitCommandLogEntry[]>
+    /** Run one validated repository operation from the Git actions menu. */
+    repositoryAction(
+      cwd: string,
+      action: GitRepositoryAction
+    ): Promise<{ ok: boolean; error?: string }>
   }
   remote: {
     /** Mint a room on roxy.gg + open the host relay socket for a session. */

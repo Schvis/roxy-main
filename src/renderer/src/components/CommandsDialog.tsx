@@ -15,6 +15,7 @@ import {
   Edit3,
   ExternalLink,
   Folder,
+  GitBranch,
   Loader2,
   PanelRight,
   Play,
@@ -26,7 +27,7 @@ import {
   X
 } from 'lucide-react'
 import type { Chat, MessagePart } from '@shared/types'
-import type { ShellType } from '@shared/api'
+import type { GitCommandLogEntry, ShellType } from '@shared/api'
 import { useRoxyStore } from '../lib/store'
 import { api } from '../lib/api'
 import { writeClipboardText } from '../lib/clipboard'
@@ -121,7 +122,7 @@ export interface CommandsPaneProps {
   onClose?: () => void
   onPopOut?: () => void
   isStandalone?: boolean
-  initialTab?: 'agent' | 'user'
+  initialTab?: 'agent' | 'user' | 'git'
   className?: string
 }
 
@@ -143,7 +144,7 @@ export function CommandsPane({
     agentCommands.find((c) => c.tool === 'bash' && c.state === 'running') ??
     agentCommands.find((c) => c.state === 'running')
 
-  const [activeTab, setActiveTab] = useState<'agent' | 'user'>(() => {
+  const [activeTab, setActiveTab] = useState<'agent' | 'user' | 'git'>(() => {
     if (initialTab) return initialTab
     return runningAgentCommand || agentCommands.length > 0 ? 'agent' : 'user'
   })
@@ -152,11 +153,9 @@ export function CommandsPane({
   useEffect(() => {
     if (initialTab && initialTab !== prevInitialTabRef.current) {
       prevInitialTabRef.current = initialTab
-      if (initialTab === 'agent' || activeTab !== 'agent') {
-        setActiveTab(initialTab)
-      }
+      setActiveTab(initialTab)
     }
-  }, [initialTab, activeTab])
+  }, [initialTab])
 
   // Selected agent command to view
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
@@ -165,11 +164,11 @@ export function CommandsPane({
 
   // Auto-switch to agent tab and select running command as soon as it begins
   useEffect(() => {
-    if (runningAgentCommand) {
+    if (runningAgentCommand && activeTab !== 'git') {
       setActiveTab('agent')
       setSelectedAgentId(runningAgentCommand.id)
     }
-  }, [runningAgentCommand?.id])
+  }, [runningAgentCommand?.id, activeTab])
 
   const activeAgentCommand =
     (runningAgentCommand && (!selectedAgentId || selectedAgentId === runningAgentCommand.id)
@@ -312,6 +311,23 @@ export function CommandsPane({
   const agentStickToBottom = useRef(true)
 
   const workspacePath = chat.worktreePath ?? chat.workspacePath ?? ''
+  const [gitCommandLog, setGitCommandLog] = useState<GitCommandLogEntry[]>([])
+
+  useEffect(() => {
+    if (activeTab !== 'git' || !workspacePath) return
+    let active = true
+    const refresh = (): void => {
+      void api.git.commandLog(workspacePath).then((entries) => {
+        if (active) setGitCommandLog(entries)
+      })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 500)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [activeTab, workspacePath])
 
   // Auto-scroll agent terminal output
   useEffect(() => {
@@ -426,6 +442,23 @@ export function CommandsPane({
             >
               <span>{t('commands.commandLine')}</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('git')}
+              className={cn(
+                'press-scale flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors',
+                activeTab === 'git'
+                  ? 'bg-elevated text-text shadow-xs font-semibold'
+                  : 'text-text-muted hover:text-text'
+              )}
+            >
+              <GitBranch className="h-3 w-3" />
+              <span>{t('git.commandOutput')}</span>
+              {gitCommandLog.some((entry) => entry.status === 'running') && (
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              )}
+            </button>
           </div>
 
           {workspacePath && (
@@ -523,7 +556,7 @@ export function CommandsPane({
                 <PanelRight className="h-3.5 w-3.5" />
               </button>
             </>
-          ) : (
+          ) : activeTab === 'agent' ? (
             runningAgentCommand && (
               <button
                 type="button"
@@ -535,7 +568,7 @@ export function CommandsPane({
                 {t('commands.agentRunning')}
               </button>
             )
-          )}
+          ) : null}
 
           {(onPopOut || onClose) && <div className="h-4 w-px bg-border shrink-0 mx-0.5" />}
 
@@ -809,6 +842,75 @@ export function CommandsPane({
             </div>
           ))}
 
+        {activeTab === 'git' && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#0b0b0d]">
+            <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/80 bg-surface/50 px-3">
+              <div className="flex items-center gap-2 text-xs font-medium text-text">
+                <GitBranch className="h-3.5 w-3.5 text-accent" />
+                {t('git.commandOutput')}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  void copyText(
+                    gitCommandLog
+                      .slice()
+                      .reverse()
+                      .map(
+                        (entry) =>
+                          `$ ${entry.command}\n${entry.stdout}${entry.stderr}${entry.status === 'running' ? '' : `\n[${entry.status}]`}`
+                      )
+                      .join('\n\n'),
+                    'git-output'
+                  )
+                }
+                disabled={gitCommandLog.length === 0}
+                title={t('commands.copyOutput')}
+                className="flex h-7 w-7 items-center justify-center rounded text-text-subtle transition-colors hover:bg-white/5 hover:text-text disabled:opacity-40"
+              >
+                {copiedId === 'git-output' ? (
+                  <Check className="h-3.5 w-3.5 text-success" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 font-mono text-xs">
+              {gitCommandLog.length === 0 ? (
+                <div className="flex h-full items-center justify-center font-sans text-xs text-text-muted">
+                  {t('git.noCommandOutput')}
+                </div>
+              ) : (
+                gitCommandLog.map((entry) => (
+                  <section
+                    key={entry.id}
+                    className="overflow-hidden rounded-lg border border-border/80 bg-surface/40"
+                  >
+                    <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
+                      {entry.status === 'running' ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
+                      ) : entry.status === 'succeeded' ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                      ) : (
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 text-danger" />
+                      )}
+                      <span className="min-w-0 flex-1 break-all text-[#d4d4d4]">
+                        $ {entry.command}
+                      </span>
+                    </div>
+                    {(entry.stdout || entry.stderr) && (
+                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all p-3 leading-relaxed text-[#d4d4d4]">
+                        {entry.stdout}
+                        {entry.stderr && <span className="text-danger">{entry.stderr}</span>}
+                      </pre>
+                    )}
+                  </section>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         {/* USER INTERACTIVE COMMAND LINE VIEW WITH MULTIPLE TABS */}
         <div
           className={cn(
@@ -928,7 +1030,7 @@ export function CommandsDialog({
   chat: Chat
   onClose: () => void
   onPopOut?: () => void
-  initialTab?: 'agent' | 'user'
+  initialTab?: 'agent' | 'user' | 'git'
 }): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

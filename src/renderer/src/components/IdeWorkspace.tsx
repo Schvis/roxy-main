@@ -808,6 +808,101 @@ function GitDiffViewer({
   )
 }
 
+function GitChangesViewer({
+  root,
+  files,
+  onClose
+}: {
+  root: string
+  files: GitChangedFile[]
+  onClose: () => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [diffs, setDiffs] = useState<Record<string, GitFileDiffResult>>({})
+
+  useEffect(() => {
+    let active = true
+    setDiffs({})
+    void Promise.all(
+      files.map(async (file) => {
+        try {
+          return await api.git.fileDiff(root, file.path)
+        } catch (error) {
+          return {
+            path: file.path,
+            before: '',
+            after: '',
+            ok: false,
+            error: error instanceof Error ? error.message : String(error)
+          } satisfies GitFileDiffResult
+        }
+      })
+    ).then((results) => {
+      if (!active) return
+      setDiffs(Object.fromEntries(results.map((diff) => [diff.path, diff])))
+    })
+    return () => {
+      active = false
+    }
+  }, [files, root])
+
+  return (
+    <section
+      className="flex min-h-0 min-w-[280px] flex-1 flex-col bg-bg"
+      aria-label={t('git.openChanges')}
+    >
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-text">{t('git.changesLabel')}</span>
+          <span className="rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent">
+            {files.length}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          title={t('common.close')}
+          aria-label={t('common.close')}
+          className="flex h-6 w-6 items-center justify-center rounded text-text-subtle transition-colors hover:bg-white/5 hover:text-text"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {files.map((file) => {
+          const diff = diffs[file.path]
+          return (
+            <article key={file.path} className="border-b border-border">
+              <div className="sticky top-0 z-10 flex h-9 items-center bg-surface/95 px-3 font-mono text-xs font-semibold text-text backdrop-blur">
+                {file.path}
+              </div>
+              {!diff ? (
+                <div className="flex h-20 items-center justify-center text-text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+              ) : !diff.ok ? (
+                <div className="p-4 text-xs text-danger">{diff.error || t('git.diffError')}</div>
+              ) : diff.isBinary ? (
+                <div className="p-4 text-xs text-text-subtle">{t('git.binaryDiff')}</div>
+              ) : (
+                <FileDiffView
+                  path={file.path}
+                  before={diff.before}
+                  after={diff.after}
+                  mode="unified"
+                  showAll={false}
+                  hideToolbar
+                  embedded
+                />
+              )}
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function Preview({
   sessionId,
   root,
@@ -879,6 +974,7 @@ function WorkspaceContents({
     path: string
     commitSha?: string
   } | null>(null)
+  const [changesTarget, setChangesTarget] = useState<GitChangedFile[] | null>(null)
   const [copied, setCopied] = useState(0)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [creating, setCreating] = useState<{ parentPath: string; isDirectory: boolean } | null>(
@@ -907,6 +1003,7 @@ function WorkspaceContents({
 
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
+  const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | 'git' | undefined>()
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const chats = useRoxyStore((s) => s.chats)
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null
@@ -915,6 +1012,7 @@ function WorkspaceContents({
 
   const asideRef = useRef<HTMLElement | null>(null)
   const isPanelDragging = useRef(false)
+  const [panelDragging, setPanelDragging] = useState(false)
   const [panelWidth, setPanelWidth] = useState<number>(() => {
     const v = Number(localStorage.getItem(PANEL_WIDTH_KEY))
     return Number.isFinite(v) && v >= MIN_PANEL_WIDTH && v <= MAX_PANEL_WIDTH
@@ -1460,7 +1558,10 @@ function WorkspaceContents({
         <div
           style={{ width: panelCollapsed ? 0 : panelWidth }}
           aria-hidden={panelCollapsed}
-          className="flex h-full flex-col overflow-hidden shrink-0 transition-[width] duration-150"
+          className={cn(
+            'flex h-full flex-col overflow-hidden shrink-0',
+            !panelDragging && 'transition-[width] duration-150'
+          )}
         >
           {sessionId && root ? (
             ideTab === 'files' ? (
@@ -1774,6 +1875,14 @@ function WorkspaceContents({
               <GitActionsView
                 root={root}
                 sessionId={sessionId}
+                onOpenCommandOutput={() => {
+                  setCommandsInitialTab('git')
+                  setCommandsOpen(true)
+                }}
+                onOpenChanges={(files) => {
+                  setDiffTarget(null)
+                  setChangesTarget(files)
+                }}
                 onOpenFile={(filePath, commitSha) => {
                   const fileName = filePath.split('/').pop() || filePath
                   const entry: WorkspaceFileEntry = {
@@ -1784,6 +1893,7 @@ function WorkspaceContents({
                   setSelected(entry)
                   setSelectedLine(undefined)
                   setIdeSelectedFile(entry, undefined, root)
+                  setChangesTarget(null)
                   setDiffTarget({ path: filePath, commitSha })
                 }}
               />
@@ -1801,7 +1911,9 @@ function WorkspaceContents({
             aria-label={t('ide.resizePanel')}
             aria-valuenow={panelWidth}
             onPointerDown={(e) => {
+              if (e.button !== 0) return
               isPanelDragging.current = true
+              setPanelDragging(true)
               e.currentTarget.setPointerCapture(e.pointerId)
             }}
             onPointerMove={(e) => {
@@ -1814,7 +1926,18 @@ function WorkspaceContents({
             }}
             onPointerUp={(e) => {
               isPanelDragging.current = false
-              e.currentTarget.releasePointerCapture(e.pointerId)
+              setPanelDragging(false)
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId)
+              }
+            }}
+            onPointerCancel={() => {
+              isPanelDragging.current = false
+              setPanelDragging(false)
+            }}
+            onLostPointerCapture={() => {
+              isPanelDragging.current = false
+              setPanelDragging(false)
             }}
             onDoubleClick={() => {
               setPanelWidth(DEFAULT_PANEL_WIDTH)
@@ -1828,7 +1951,13 @@ function WorkspaceContents({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {sessionId && root ? (
-            diffTarget ? (
+            changesTarget ? (
+              <GitChangesViewer
+                root={root}
+                files={changesTarget}
+                onClose={() => setChangesTarget(null)}
+              />
+            ) : diffTarget ? (
               <GitDiffViewer
                 key={`diff:${diffTarget.path}:${diffTarget.commitSha ?? 'wt'}`}
                 root={root}
@@ -1899,7 +2028,11 @@ function WorkspaceContents({
             />
             <CommandsPane
               chat={activeChat}
-              onClose={() => setCommandsOpen(false)}
+              initialTab={commandsInitialTab}
+              onClose={() => {
+                setCommandsInitialTab(undefined)
+                setCommandsOpen(false)
+              }}
               onPopOut={() => void api.terminal.open(activeChat.id)}
               className="h-full border-0 rounded-none shadow-none"
             />

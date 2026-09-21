@@ -20,6 +20,7 @@ export interface FileDiffViewProps {
   showAll?: boolean
   onShowAllChange?: (showAll: boolean) => void
   hideToolbar?: boolean
+  embedded?: boolean
 }
 
 function renderInlineHighlighted(
@@ -101,7 +102,8 @@ export function FileDiffView({
   onModeChange,
   showAll: propShowAll,
   onShowAllChange,
-  hideToolbar = false
+  hideToolbar = false,
+  embedded = false
 }: FileDiffViewProps): JSX.Element {
   const { t } = useTranslation()
   const [internalMode, setInternalMode] = useState<'unified' | 'split'>('unified')
@@ -192,7 +194,7 @@ export function FileDiffView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-bg text-xs">
+    <div className={cn('flex flex-col bg-bg text-xs', embedded ? 'min-h-fit' : 'min-h-0 flex-1')}>
       {/* Diff Controls Bar */}
       {!hideToolbar && (
         <div className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-surface/80 px-3 text-[11px]">
@@ -266,7 +268,12 @@ export function FileDiffView({
 
       {/* Diff content view */}
       {mode === 'unified' ? (
-        <div className="flex min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-5">
+        <div
+          className={cn(
+            'flex min-h-0 flex-1 font-mono text-[12px] leading-5',
+            embedded ? 'overflow-visible' : 'overflow-auto'
+          )}
+        >
           <table className="w-full border-collapse" style={{ tabSize: 4 }}>
             <tbody>
               {rows.map((row, idx) => {

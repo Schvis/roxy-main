@@ -566,7 +566,13 @@ const roxy: RoxyApi = {
     renameBranch: (sessionId, to) => ipcRenderer.invoke(CHANNELS.gitRenameBranch, sessionId, to),
     pruneWorktrees: (cwd, dryRun) => ipcRenderer.invoke(CHANNELS.gitPruneWorktrees, cwd, dryRun),
     init: (cwd) => ipcRenderer.invoke(CHANNELS.gitInit, cwd),
-    commit: (cwd, message) => ipcRenderer.invoke(CHANNELS.gitCommit, cwd, message),
+    commit: (cwd, message, options) =>
+      ipcRenderer.invoke(CHANNELS.gitCommit, cwd, message, options),
+    undoLastCommit: (cwd) => ipcRenderer.invoke(CHANNELS.gitUndoLastCommit, cwd),
+    createBranch: (cwd, name) => ipcRenderer.invoke(CHANNELS.gitCreateBranch, cwd, name),
+    createTag: (cwd, name) => ipcRenderer.invoke(CHANNELS.gitCreateTag, cwd, name),
+    stash: (cwd) => ipcRenderer.invoke(CHANNELS.gitStash, cwd),
+    stashPop: (cwd) => ipcRenderer.invoke(CHANNELS.gitStashPop, cwd),
     fetch: (cwd) => ipcRenderer.invoke(CHANNELS.gitFetch, cwd),
     pull: (cwd) => ipcRenderer.invoke(CHANNELS.gitPull, cwd),
     push: (cwd) => ipcRenderer.invoke(CHANNELS.gitPush, cwd),
@@ -581,10 +587,15 @@ const roxy: RoxyApi = {
     revertAll: (cwd) => ipcRenderer.invoke(CHANNELS.gitRevertAll, cwd),
     stageFile: (cwd, filePath) => ipcRenderer.invoke(CHANNELS.gitStageFile, cwd, filePath),
     unstageFile: (cwd, filePath) => ipcRenderer.invoke(CHANNELS.gitUnstageFile, cwd, filePath),
+    stageAll: (cwd) => ipcRenderer.invoke(CHANNELS.gitStageAll, cwd),
     resolveConflict: (cwd, filePath, content) =>
       ipcRenderer.invoke(CHANNELS.gitResolveConflict, cwd, filePath, content),
     abortMerge: (cwd) => ipcRenderer.invoke(CHANNELS.gitAbortMerge, cwd),
-    isMerging: (cwd) => ipcRenderer.invoke(CHANNELS.gitIsMerging, cwd)
+    isMerging: (cwd) => ipcRenderer.invoke(CHANNELS.gitIsMerging, cwd),
+    isRebasing: (cwd) => ipcRenderer.invoke(CHANNELS.gitIsRebasing, cwd),
+    commandLog: (cwd) => ipcRenderer.invoke(CHANNELS.gitCommandLog, cwd),
+    repositoryAction: (cwd, action) =>
+      ipcRenderer.invoke(CHANNELS.gitRepositoryAction, cwd, action)
   },
   forge: {
     status: (cwd, force) => ipcRenderer.invoke(CHANNELS.forgeStatus, cwd, force),

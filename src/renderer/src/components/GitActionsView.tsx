@@ -1,24 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   AlertCircle,
+  Archive,
   ArrowDown,
   ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   FileCode,
+  Files,
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
   GitMerge,
   Loader2,
+  Ellipsis,
+  Plus,
   RefreshCw,
   RotateCcw,
+  ScrollText,
+  Tag,
   UploadCloud,
   X
 } from 'lucide-react'
-import type { GitChangedFile, GitCommitNode, GitFileDiffResult, GitStatusView } from '@shared/api'
+import type {
+  GitChangedFile,
+  GitCommitNode,
+  GitFileDiffResult,
+  GitRepositoryAction,
+  GitStatusView
+} from '@shared/api'
 import { api } from '../lib/api'
 import { writeClipboardText } from '../lib/clipboard'
 import { cn } from '../lib/cn'
@@ -65,13 +78,17 @@ export interface GitActionsViewProps {
   root: string | null
   sessionId?: string | null
   onOpenFile?: (path: string, commitSha?: string) => void
+  onOpenChanges?: (files: GitChangedFile[]) => void
+  onOpenCommandOutput?: () => void
   isStandalone?: boolean
 }
 
 export function GitActionsView({
   root,
-  sessionId: _sessionId,
+  sessionId,
   onOpenFile,
+  onOpenChanges,
+  onOpenCommandOutput,
   isStandalone: _isStandalone = false
 }: GitActionsViewProps): JSX.Element {
   const { t } = useTranslation()
@@ -81,16 +98,22 @@ export function GitActionsView({
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [gitMenuOpen, setGitMenuOpen] = useState(false)
+  const gitMenuRef = useRef<HTMLDivElement>(null)
 
   // Commit composer state
   const [commitMessage, setCommitMessage] = useState('')
   const [committing, setCommitting] = useState(false)
+  const [undoingCommit, setUndoingCommit] = useState(false)
+  const [commitMenuOpen, setCommitMenuOpen] = useState(false)
+  const commitMenuRef = useRef<HTMLDivElement>(null)
 
   // Remote operations state
   const [fetching, setFetching] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [pushing, setPushing] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [repositoryAction, setRepositoryAction] = useState<string | null>(null)
 
   // Publishing / Initialize state
   const [publishOpen, setPublishOpen] = useState(false)
@@ -128,9 +151,64 @@ export function GitActionsView({
   // Merge conflict resolution and revert states
   const [resolvingConflictPath, setResolvingConflictPath] = useState<string | null>(null)
   const [isGitMerging, setIsGitMerging] = useState(false)
+  const [isGitRebasing, setIsGitRebasing] = useState(false)
   const [abortingMerge, setAbortingMerge] = useState(false)
   const [revertingPath, setRevertingPath] = useState<string | null>(null)
   const [isRevertingAll, setIsRevertingAll] = useState(false)
+  const [stagingPath, setStagingPath] = useState<string | null>(null)
+  const [isStagingAll, setIsStagingAll] = useState(false)
+  const [activeCategory, setActiveCategory] = useState<
+    'commit' | 'changes' | 'pullPush' | 'branch' | 'remote' | 'stash' | 'tags' | null
+  >(null)
+  const [categoryAnchorRect, setCategoryAnchorRect] = useState<DOMRect | null>(null)
+  const portalRef = useRef<HTMLDivElement>(null)
+  const mainMenuRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!commitMenuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!commitMenuRef.current?.contains(event.target as Node)) setCommitMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setCommitMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [commitMenuOpen])
+
+  useEffect(() => {
+    if (!gitMenuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node
+      if (!gitMenuRef.current?.contains(target) && !portalRef.current?.contains(target)) {
+        setGitMenuOpen(false)
+        setActiveCategory(null)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setGitMenuOpen(false)
+        setActiveCategory(null)
+      }
+    }
+    const onResize = (): void => {
+      setGitMenuOpen(false)
+      setActiveCategory(null)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [gitMenuOpen])
 
   // Internal diff modal state (used when onOpenFile is not provided, e.g. standalone view)
   const [internalDiff, setInternalDiff] = useState<{ path: string; commitSha?: string } | null>(
@@ -204,12 +282,14 @@ export function GitActionsView({
 
     try {
       setError(null)
-      const [st, merging] = await Promise.all([
+      const [st, merging, rebasing] = await Promise.all([
         api.git.status(targetRoot),
-        api.git.isMerging(targetRoot)
+        api.git.isMerging(targetRoot),
+        api.git.isRebasing(targetRoot)
       ])
       setGitStatus(st)
       setIsGitMerging(merging)
+      setIsGitRebasing(rebasing)
       if (st.isRepo) {
         const [graph, files] = await Promise.all([
           api.git.logGraph(targetRoot, 60),
@@ -252,9 +332,14 @@ export function GitActionsView({
     }
     isRefreshingRef.current = true
     try {
-      const [st, merging] = await Promise.all([api.git.status(root), api.git.isMerging(root)])
+      const [st, merging, rebasing] = await Promise.all([
+        api.git.status(root),
+        api.git.isMerging(root),
+        api.git.isRebasing(root)
+      ])
       setGitStatus(st)
       setIsGitMerging(merging)
+      setIsGitRebasing(rebasing)
       if (st.isRepo) {
         const count = Math.max(60, commitsCountRef.current)
         const [graph, files] = await Promise.all([
@@ -283,11 +368,11 @@ export function GitActionsView({
   // 1. Auto-refresh when files change in workspace
   useEffect(() => {
     return api.files.onChanged((payload) => {
-      if (!payload.sessionId || payload.sessionId === _sessionId) {
+      if (!payload.sessionId || payload.sessionId === sessionId) {
         void refreshSilently()
       }
     })
-  }, [_sessionId, refreshSilently])
+  }, [sessionId, refreshSilently])
 
   // 2. Auto-refresh when window regains focus
   useEffect(() => {
@@ -316,7 +401,7 @@ export function GitActionsView({
 
   // 5. Auto-refresh when agent streaming finishes
   const streaming = useRoxyStore((s) =>
-    _sessionId ? (s.streamingChats[_sessionId] ?? null) : null
+    sessionId ? (s.streamingChats[sessionId] ?? null) : null
   )
   const prevStreamingRef = useRef(streaming)
   useEffect(() => {
@@ -399,19 +484,45 @@ export function GitActionsView({
     }
   }
 
-  const handleCommit = async (): Promise<void> => {
+  const handleCommit = async (
+    action: 'commit' | 'push' | 'sync' | 'amend' = 'commit'
+  ): Promise<void> => {
     if (!root) return
     const msg = commitMessage.trim()
-    if (!msg && !isGitMerging) return
+    if (!msg && !isGitMerging && action !== 'amend') return
+    setCommitMenuOpen(false)
     setCommitting(true)
     setError(null)
     try {
-      const res = await api.git.commit(root, msg)
-      if (res.ok) {
-        setCommitMessage('')
-        await refreshAll(root)
-      } else {
+      if (action !== 'amend' && !changedFiles.some((file) => file.staged)) {
+        const stageRes = await api.git.stageAll(root)
+        if (!stageRes.ok) {
+          setError(stageRes.error || t('git.stageAllFailed'))
+          return
+        }
+      }
+      const res = await api.git.commit(root, msg, { amend: action === 'amend' })
+      if (!res.ok) {
         setError(res.error || 'Commit failed')
+        return
+      }
+      setCommitMessage('')
+      await refreshAll(root)
+
+      if (action === 'push') {
+        const pushRes = await api.git.push(root)
+        if (!pushRes.ok) setError(pushRes.error || 'Push failed')
+        await refreshAll(root)
+      } else if (action === 'sync') {
+        const pullRes = await api.git.pull(root)
+        await refreshAll(root)
+        if (!pullRes.ok) {
+          if (!pullRes.conflict) setError(pullRes.error || 'Pull failed during sync')
+          return
+        }
+        const pushRes = await api.git.push(root)
+        if (!pushRes.ok) setError(pushRes.error || 'Push failed during sync')
+        await refreshAll(root)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -435,6 +546,23 @@ export function GitActionsView({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setFetching(false)
+    }
+  }
+
+  const handleUndoLastCommit = async (): Promise<void> => {
+    if (!root || !window.confirm(t('git.undoLastCommitConfirm'))) return
+    setCommitMenuOpen(false)
+    setGitMenuOpen(false)
+    setUndoingCommit(true)
+    setError(null)
+    try {
+      const res = await api.git.undoLastCommit(root)
+      if (!res.ok) setError(res.error || t('git.undoLastCommitFailed'))
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setUndoingCommit(false)
     }
   }
 
@@ -473,15 +601,139 @@ export function GitActionsView({
     }
   }
 
-  const handleSync = async (): Promise<void> => {
+  const runRepoAction = async (action: GitRepositoryAction): Promise<void> => {
+    if (!root) return
+    setGitMenuOpen(false)
+    setActiveCategory(null)
+    setRepositoryAction(action.type)
+    setError(null)
+    try {
+      const res = await api.git.repositoryAction(root, action)
+      if (!res.ok) setError(res.error || 'Git operation failed')
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRepositoryAction(null)
+    }
+  }
+
+  const handleCommitWithOptions = async (options: {
+    amend?: boolean
+    signoff?: boolean
+    all?: boolean
+    stagedOnly?: boolean
+  }): Promise<void> => {
+    if (!root) return
+    setGitMenuOpen(false)
+    setActiveCategory(null)
+    const msg = commitMessage.trim()
+    if (!msg && !isGitMerging && !options.amend) {
+      setError(t('git.commitPlaceholder'))
+      return
+    }
+    setCommitting(true)
+    setError(null)
+    try {
+      if (!options.all && !options.stagedOnly && !changedFiles.some((f) => f.staged)) {
+        const stageRes = await api.git.stageAll(root)
+        if (!stageRes.ok) {
+          setError(stageRes.error || t('git.stageAllFailed'))
+          return
+        }
+      }
+      const res = await api.git.commit(root, msg, {
+        amend: options.amend,
+        signoff: options.signoff,
+        all: options.all
+      })
+      if (!res.ok) {
+        setError(res.error || 'Commit failed')
+        return
+      }
+      setCommitMessage('')
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCommitting(false)
+    }
+  }
+
+  const handleShowCommandOutput = async (): Promise<void> => {
+    if (!root) return
+    setGitMenuOpen(false)
+    setActiveCategory(null)
+    onOpenCommandOutput?.()
+  }
+
+  const handleCreateBranch = async (): Promise<void> => {
+    if (!root) return
+    setGitMenuOpen(false)
+    setActiveCategory(null)
+    const name = window.prompt(t('git.createBranchPrompt'))?.trim()
+    if (!name) return
+    setRepositoryAction('branch')
+    setError(null)
+    try {
+      const res = await api.git.createBranch(root, name)
+      if (!res.ok) setError(res.error || t('git.createBranchFailed'))
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRepositoryAction(null)
+    }
+  }
+
+  const handleCreateTag = async (): Promise<void> => {
+    if (!root) return
+    setGitMenuOpen(false)
+    setActiveCategory(null)
+    const name = window.prompt(t('git.createTagPrompt'))?.trim()
+    if (!name) return
+    setRepositoryAction('tag')
+    setError(null)
+    try {
+      const res = await api.git.createTag(root, name)
+      if (!res.ok) setError(res.error || t('git.createTagFailed'))
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRepositoryAction(null)
+    }
+  }
+
+  const handleStashPop = async (): Promise<void> => {
+    if (!root) return
+    setGitMenuOpen(false)
+    setActiveCategory(null)
+    setRepositoryAction('stash-pop')
+    setError(null)
+    try {
+      const res = await api.git.stashPop(root)
+      if (!res.ok) setError(res.error || t('git.stashPopFailed'))
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRepositoryAction(null)
+    }
+  }
+
+  const handleSync = async (rebase = false): Promise<void> => {
     if (!root) return
     setSyncing(true)
     setError(null)
     try {
-      const pullRes = await api.git.pull(root)
+      const pullRes = rebase
+        ? await api.git.repositoryAction(root, { type: 'pull', rebase: true })
+        : await api.git.pull(root)
       await refreshAll(root)
       if (!pullRes.ok) {
-        if (!pullRes.conflict) {
+        const hasConflict = 'conflict' in pullRes && Boolean(pullRes.conflict)
+        if (!hasConflict) {
           setError(pullRes.error || 'Pull failed during sync')
         }
         setSyncing(false)
@@ -496,6 +748,293 @@ export function GitActionsView({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const getCategoryItems = (
+    cat: 'commit' | 'changes' | 'pullPush' | 'branch' | 'remote' | 'stash' | 'tags'
+  ): {
+    label?: string
+    action?: () => void | Promise<void>
+    disabled?: boolean
+    danger?: boolean
+    isDivider?: boolean
+  }[] => {
+    switch (cat) {
+      case 'commit':
+        return [
+          { label: t('git.commit'), action: () => void handleCommitWithOptions({}) },
+          { label: t('git.commitAmend'), action: () => void handleCommitWithOptions({ amend: true }) },
+          { label: t('git.commitSignedOff'), action: () => void handleCommitWithOptions({ signoff: true }) },
+          {
+            label: t('git.commitStaged'),
+            action: () => void handleCommitWithOptions({ stagedOnly: true }),
+            disabled: !changedFiles.some((f) => f.staged)
+          },
+          {
+            label: t('git.commitStagedAmend'),
+            action: () => void handleCommitWithOptions({ stagedOnly: true, amend: true }),
+            disabled: !changedFiles.some((f) => f.staged)
+          },
+          {
+            label: t('git.commitStagedSignedOff'),
+            action: () => void handleCommitWithOptions({ stagedOnly: true, signoff: true }),
+            disabled: !changedFiles.some((f) => f.staged)
+          },
+          { label: t('git.commitAll'), action: () => void handleCommitWithOptions({ all: true }) },
+          { label: t('git.commitAllAmend'), action: () => void handleCommitWithOptions({ all: true, amend: true }) },
+          { label: t('git.commitAllSignedOff'), action: () => void handleCommitWithOptions({ all: true, signoff: true }) },
+          { isDivider: true },
+          {
+            label: t('git.undoLastCommit'),
+            action: () => void handleUndoLastCommit(),
+            disabled: !canUndoLastCommit,
+            danger: true
+          }
+        ]
+      case 'changes':
+        return [
+          {
+            label: t('git.openAllChanges'),
+            action: () => {
+              setGitMenuOpen(false)
+              setActiveCategory(null)
+              onOpenChanges?.(changedFiles)
+            },
+            disabled: changedFiles.length === 0 || !onOpenChanges
+          },
+          {
+            label: t('git.stageAllChanges'),
+            action: () => void handleStageAll(),
+            disabled: changedFiles.length === 0 || changedFiles.every((f) => f.staged)
+          },
+          {
+            label: t('git.unstageAllChanges'),
+            action: () => void runRepoAction({ type: 'unstageAll' }),
+            disabled: !changedFiles.some((f) => f.staged)
+          },
+          { isDivider: true },
+          {
+            label: t('git.discardAllChanges'),
+            action: () => void handleRevertAll(),
+            disabled: changedFiles.length === 0,
+            danger: true
+          }
+        ]
+      case 'pullPush':
+        return [
+          { label: t('git.pull'), action: () => void handlePull(), disabled: pulling },
+          {
+            label: t('git.pullRebase'),
+            action: () => void runRepoAction({ type: 'pull', rebase: true }),
+            disabled: pulling
+          },
+          {
+            label: t('git.pullFrom'),
+            action: () => {
+              const input = window.prompt(t('git.pullFromPrompt'))?.trim()
+              if (!input) return
+              const [remote, branch] = input.split(/\s+/)
+              void runRepoAction({ type: 'pull', remote, branch })
+            },
+            disabled: pulling
+          },
+          { isDivider: true },
+          { label: t('git.push'), action: () => void handlePush(), disabled: pushing },
+          {
+            label: t('git.pushForce'),
+            action: () => void runRepoAction({ type: 'push', force: true }),
+            disabled: pushing
+          },
+          {
+            label: t('git.pushTo'),
+            action: () => {
+              const input = window.prompt(t('git.pushToPrompt'))?.trim()
+              if (!input) return
+              const [remote, branch] = input.split(/\s+/)
+              void runRepoAction({ type: 'push', remote, branch })
+            },
+            disabled: pushing
+          },
+          { isDivider: true },
+          { label: t('git.sync'), action: () => void handleSync(), disabled: syncing },
+          { label: t('git.syncRebase'), action: () => void handleSync(true), disabled: syncing }
+        ]
+      case 'branch':
+        return [
+          {
+            label: t('git.checkoutTo'),
+            action: () => {
+              const branch = window.prompt(t('git.checkoutPrompt'))?.trim()
+              if (branch) void runRepoAction({ type: 'checkout', branch })
+            }
+          },
+          {
+            label: t('git.checkoutToDetached'),
+            action: () => {
+              const branch = window.prompt(t('git.checkoutDetachedPrompt'))?.trim()
+              if (branch) void runRepoAction({ type: 'checkout', branch, detached: true })
+            }
+          },
+          { isDivider: true },
+          { label: t('git.createBranch'), action: () => void handleCreateBranch() },
+          {
+            label: t('git.createBranchFrom'),
+            action: () => {
+              const name = window.prompt(t('git.createBranchFromPromptName'))?.trim()
+              if (!name) return
+              const startPoint = window.prompt(t('git.createBranchFromPromptStart'))?.trim()
+              if (!startPoint) return
+              void runRepoAction({ type: 'createBranchFrom', name, startPoint })
+            }
+          },
+          {
+            label: t('git.renameBranch'),
+            action: () => {
+              const newName = window.prompt(t('git.renameBranchPrompt'))?.trim()
+              if (newName) void runRepoAction({ type: 'renameBranch', newName })
+            }
+          },
+          {
+            label: t('git.deleteBranch'),
+            action: () => {
+              const name = window.prompt(t('git.deleteBranchPrompt'))?.trim()
+              if (!name) return
+              if (!window.confirm(t('git.deleteBranchConfirm', { name }))) return
+              void runRepoAction({ type: 'deleteBranch', name })
+            }
+          },
+          { isDivider: true },
+          {
+            label: t('git.merge'),
+            action: () => {
+              const branch = window.prompt(t('git.mergePrompt'))?.trim()
+              if (branch) void runRepoAction({ type: 'merge', branch })
+            }
+          },
+          {
+            label: t('git.rebaseBranch'),
+            action: () => {
+              const branch = window.prompt(t('git.rebaseBranchPrompt'))?.trim()
+              if (branch) void runRepoAction({ type: 'rebase', branch })
+            }
+          },
+          { isDivider: true },
+          {
+            label: t('git.abortRebase'),
+            action: () => void runRepoAction({ type: 'abortRebase' }),
+            disabled: !isGitRebasing
+          }
+        ]
+      case 'remote':
+        return [
+          {
+            label: t('git.addRemote'),
+            action: () => {
+              const name = window.prompt(t('git.addRemotePromptName'))?.trim()
+              if (!name) return
+              const url = window.prompt(t('git.addRemotePromptUrl'))?.trim()
+              if (!url) return
+              void runRepoAction({ type: 'addRemote', name, url })
+            }
+          },
+          {
+            label: t('git.removeRemote'),
+            action: () => {
+              const name = window.prompt(t('git.removeRemotePrompt'), 'origin')?.trim()
+              if (!name) return
+              if (!window.confirm(t('git.removeRemoteConfirm', { name }))) return
+              void runRepoAction({ type: 'removeRemote', name })
+            }
+          },
+          { isDivider: true },
+          { label: t('git.fetch'), action: () => void handleFetch(), disabled: fetching },
+          {
+            label: t('git.fetchPrune'),
+            action: () => void runRepoAction({ type: 'fetch', prune: true }),
+            disabled: fetching
+          },
+          {
+            label: t('git.fetchFromAllRemotes'),
+            action: () => void runRepoAction({ type: 'fetch', all: true }),
+            disabled: fetching
+          }
+        ]
+      case 'stash':
+        return [
+          {
+            label: t('git.stashPrompt'),
+            action: () => {
+              const message = window.prompt(t('git.stashPromptMessage'))?.trim()
+              void runRepoAction({ type: 'stash', mode: 'tracked', message: message || undefined })
+            },
+            disabled: !hasWorkingChanges
+          },
+          {
+            label: t('git.stashIncludeUntracked'),
+            action: () => void runRepoAction({ type: 'stash', mode: 'untracked' }),
+            disabled: !hasWorkingChanges
+          },
+          { isDivider: true },
+          { label: t('git.applyLatestStash'), action: () => void runRepoAction({ type: 'stashApply' }) },
+          {
+            label: t('git.applyStash'),
+            action: () => {
+              const stash = window.prompt(t('git.applyStashPrompt'), 'stash@{0}')?.trim()
+              if (stash) void runRepoAction({ type: 'stashApply', stash })
+            }
+          },
+          { label: t('git.popStash'), action: () => void handleStashPop() },
+          {
+            label: t('git.popStashPrompt'),
+            action: () => {
+              const stash = window.prompt(t('git.popStashPrompt'), 'stash@{0}')?.trim()
+              if (stash) void runRepoAction({ type: 'stashPop', stash })
+            }
+          },
+          { isDivider: true },
+          {
+            label: t('git.dropStash'),
+            action: () => {
+              const stash = window.prompt(t('git.dropStashPrompt'), 'stash@{0}')?.trim()
+              if (!stash) return
+              if (!window.confirm(t('git.dropStashConfirm', { stash }))) return
+              void runRepoAction({ type: 'stashDrop', stash })
+            }
+          },
+          {
+            label: t('git.dropAllStashes'),
+            action: () => {
+              if (!window.confirm(t('git.dropAllStashesConfirm'))) return
+              void runRepoAction({ type: 'stashClear' })
+            }
+          }
+        ]
+      case 'tags':
+        return [
+          { label: t('git.createTag'), action: () => void handleCreateTag() },
+          {
+            label: t('git.deleteTag'),
+            action: () => {
+              const name = window.prompt(t('git.deleteTagPrompt'))?.trim()
+              if (!name) return
+              if (!window.confirm(t('git.deleteTagConfirm', { name }))) return
+              void runRepoAction({ type: 'deleteTag', name })
+            }
+          },
+          {
+            label: t('git.deleteRemoteTag'),
+            action: () => {
+              const remote = window.prompt(t('git.deleteRemoteTagPromptRemote'), 'origin')?.trim()
+              if (!remote) return
+              const name = window.prompt(t('git.deleteRemoteTagPromptTag'))?.trim()
+              if (!name) return
+              if (!window.confirm(t('git.deleteRemoteTagConfirm', { remote, name }))) return
+              void runRepoAction({ type: 'deleteRemoteTag', remote, name })
+            }
+          },
+          { label: t('git.pushTags'), action: () => void runRepoAction({ type: 'pushTags' }) }
+        ]
     }
   }
 
@@ -516,6 +1055,38 @@ export function GitActionsView({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setRevertingPath(null)
+    }
+  }
+
+  const handleStageFile = async (file: GitChangedFile): Promise<void> => {
+    if (!root) return
+    setStagingPath(file.path)
+    setError(null)
+    try {
+      const res = file.staged
+        ? await api.git.unstageFile(root, file.path)
+        : await api.git.stageFile(root, file.path)
+      if (!res.ok) setError(res.error || t(file.staged ? 'git.unstageFailed' : 'git.stageFailed'))
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setStagingPath(null)
+    }
+  }
+
+  const handleStageAll = async (): Promise<void> => {
+    if (!root) return
+    setIsStagingAll(true)
+    setError(null)
+    try {
+      const res = await api.git.stageAll(root)
+      if (!res.ok) setError(res.error || t('git.stageAllFailed'))
+      await refreshAll(root)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setIsStagingAll(false)
     }
   }
 
@@ -933,6 +1504,26 @@ export function GitActionsView({
 
   const branchName = gitStatus?.branch || t('git.detached')
   const isDirty = changedFiles.length > 0 || Boolean(gitStatus?.dirty)
+  const pendingSyncCount = (gitStatus?.ahead ?? 0) + (gitStatus?.behind ?? 0)
+  const hasWorkingChanges = changedFiles.length > 0
+  const canUndoLastCommit = commits.length > 0 && (!gitStatus?.hasUpstream || (gitStatus?.ahead ?? 0) > 0)
+  const showCommitMenu = hasWorkingChanges || canUndoLastCommit
+
+  const categories: {
+    id: 'commit' | 'changes' | 'pullPush' | 'branch' | 'remote' | 'stash' | 'tags'
+    label: string
+    icon: typeof GitBranch
+  }[] = [
+    { id: 'commit', label: t('git.menuCommit'), icon: GitCommitHorizontal },
+    { id: 'changes', label: t('git.menuChanges'), icon: Files },
+    { id: 'pullPush', label: t('git.menuPullPush'), icon: RefreshCw },
+    { id: 'branch', label: t('git.menuBranch'), icon: GitBranch },
+    { id: 'remote', label: t('git.menuRemote'), icon: FolderGit2 },
+    { id: 'stash', label: t('git.menuStash'), icon: Archive },
+    { id: 'tags', label: t('git.menuTags'), icon: Tag }
+  ]
+
+  const isActionBusy = repositoryAction !== null || fetching || pulling || pushing || syncing
 
   return (
     <div
@@ -980,78 +1571,161 @@ export function GitActionsView({
           )}
         </div>
 
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div ref={gitMenuRef} className="relative shrink-0">
           <button
             type="button"
-            onClick={handleFetch}
-            disabled={fetching || refreshing}
-            title={t('git.fetch')}
-            aria-label={t('git.fetch')}
-            className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-50 transition-colors"
+            onClick={() =>
+              setGitMenuOpen((open) => {
+                if (open) setActiveCategory(null)
+                return !open
+              })
+            }
+            title={t('git.moreActions')}
+            aria-label={t('git.moreActions')}
+            aria-expanded={gitMenuOpen}
+            disabled={isActionBusy}
+            className="press-scale flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-white/5 hover:text-text"
           >
-            <RefreshCw className={cn('h-3 w-3', fetching && 'animate-spin')} />
+            {isActionBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Ellipsis className="h-4 w-4" />
+            )}
           </button>
+          {gitMenuOpen &&
+            createPortal(
+              <div ref={portalRef} className="z-[9999] text-xs font-sans">
+                <div
+                  ref={mainMenuRef}
+                  style={{
+                    position: 'fixed',
+                    top: (gitMenuRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                    right: Math.max(
+                      8,
+                      window.innerWidth - (gitMenuRef.current?.getBoundingClientRect().right ?? 0)
+                    ),
+                    zIndex: 9999
+                  }}
+                  className="animate-pop-in flex max-h-[75vh] w-52 origin-top-right flex-col overflow-y-auto sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated p-1 shadow-float"
+                >
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onMouseEnter={(e) => {
+                        setActiveCategory(cat.id)
+                        setCategoryAnchorRect(e.currentTarget.getBoundingClientRect())
+                      }}
+                      onClick={(e) => {
+                        setActiveCategory((prev) => (prev === cat.id ? null : cat.id))
+                        setCategoryAnchorRect(e.currentTarget.getBoundingClientRect())
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors',
+                        activeCategory === cat.id
+                          ? 'bg-accent/15 text-accent'
+                          : 'text-text hover:bg-white/5'
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <cat.icon className="h-3.5 w-3.5 opacity-70" />
+                        <span>{cat.label}</span>
+                      </div>
+                      <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+                    </button>
+                  ))}
+                  {!gitStatus?.hasUpstream && (
+                    <>
+                      <div className="my-1 border-t border-border" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGitMenuOpen(false)
+                          setActiveCategory(null)
+                          setError(null)
+                          setPublishOpen(true)
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+                      >
+                        <UploadCloud className="h-3.5 w-3.5" />
+                        {t('git.publishRepo')}
+                      </button>
+                    </>
+                  )}
+                  <div className="my-1 border-t border-border" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGitMenuOpen(false)
+                      setActiveCategory(null)
+                      handleManualRefresh()
+                    }}
+                    disabled={refreshing}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text disabled:opacity-40"
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                    {t('ide.refresh')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleShowCommandOutput()}
+                    disabled={!onOpenCommandOutput}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text disabled:opacity-40"
+                  >
+                    <ScrollText className="h-3.5 w-3.5" />
+                    {t('git.showGitOutput')}
+                  </button>
+                </div>
 
-          <button
-            type="button"
-            onClick={handlePull}
-            disabled={pulling || refreshing}
-            title={t('git.pull')}
-            aria-label={t('git.pull')}
-            className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-50 transition-colors"
-          >
-            <ArrowDown className={cn('h-3 w-3', pulling && 'animate-spin')} />
-          </button>
-
-          <button
-            type="button"
-            onClick={handlePush}
-            disabled={pushing || refreshing}
-            title={t('git.push')}
-            aria-label={t('git.push')}
-            className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-50 transition-colors"
-          >
-            <ArrowUp className={cn('h-3 w-3', pushing && 'animate-spin')} />
-          </button>
-
-          {!gitStatus?.hasUpstream && (
-            <button
-              type="button"
-              onClick={() => {
-                setError(null)
-                setPublishOpen(true)
-              }}
-              title={t('git.publishRepo')}
-              aria-label={t('git.publishRepo')}
-              className="press-scale flex h-6 items-center gap-1 rounded bg-accent/15 px-1.5 text-[11px] font-medium text-accent hover:bg-accent/25 transition-colors"
-            >
-              <UploadCloud className="h-3 w-3" />
-              <span className="hidden sm:inline">{t('git.publish')}</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={syncing || refreshing}
-            title={t('git.sync')}
-            aria-label={t('git.sync')}
-            className="press-scale flex h-6 items-center gap-1 rounded bg-accent/15 px-1.5 text-[11px] font-medium text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={cn('h-2.5 w-2.5', syncing && 'animate-spin')} />
-            <span className="hidden sm:inline">{t('git.sync')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleManualRefresh}
-            disabled={refreshing}
-            title={t('ide.refresh')}
-            aria-label={t('ide.refresh')}
-            className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={cn('h-3 w-3', refreshing && 'animate-spin')} />
-          </button>
+                {activeCategory && categoryAnchorRect && (
+                  <div
+                    ref={submenuRef}
+                    style={{
+                      position: 'fixed',
+                      top: Math.min(
+                        Math.max(8, categoryAnchorRect.top - 4),
+                        Math.max(8, window.innerHeight - 340)
+                      ),
+                      left:
+                        window.innerWidth - categoryAnchorRect.right >= 230
+                          ? categoryAnchorRect.right + 4
+                          : Math.max(8, categoryAnchorRect.left - 224),
+                      zIndex: 10000
+                    }}
+                    className="animate-pop-in flex max-h-[75vh] w-56 flex-col overflow-y-auto sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated p-1 shadow-float"
+                  >
+                    {getCategoryItems(activeCategory).map((item, idx) => {
+                      if (item.isDivider) {
+                        return (
+                          <div key={`divider-${idx}`} className="my-1 border-t border-border" />
+                        )
+                      }
+                      return (
+                        <button
+                          key={`${item.label}-${idx}`}
+                          type="button"
+                          onClick={() => {
+                            setGitMenuOpen(false)
+                            setActiveCategory(null)
+                            item.action?.()
+                          }}
+                          disabled={item.disabled}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors',
+                            item.danger
+                              ? 'text-danger hover:bg-danger/10 disabled:opacity-40'
+                              : 'text-text hover:bg-white/5 disabled:opacity-40'
+                          )}
+                        >
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>,
+              document.body
+            )}
         </div>
       </header>
 
@@ -1137,61 +1811,168 @@ export function GitActionsView({
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 min-w-0">
-              <button
-                type="button"
-                onClick={() => setFilesExpanded(!filesExpanded)}
-                className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text transition-colors"
-              >
-                {filesExpanded ? (
-                  <ChevronDown className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5" />
-                )}
-                <span>
-                  {changedFiles.length > 0
-                    ? t('git.changes', { count: changedFiles.length })
-                    : t('git.noChanges')}
-                </span>
-              </button>
-
-              {changedFiles.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => void handleRevertAll()}
-                  disabled={isRevertingAll}
-                  title={t('git.revertAll')}
-                  className="press-scale flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-50 transition-colors ml-1"
-                >
-                  <RotateCcw className={cn('h-2.5 w-2.5', isRevertingAll && 'animate-spin')} />
-                  <span>{t('git.revertAll')}</span>
-                </button>
-              )}
-            </div>
-
+          <div
+            ref={commitMenuRef}
+            className="relative flex h-8 w-full overflow-visible rounded-lg bg-accent text-white"
+          >
             <Button
               variant="primary"
               size="sm"
-              onClick={() => void handleCommit()}
+              onClick={() => void (hasWorkingChanges ? handleCommit() : handleSync())}
               disabled={
                 committing ||
-                changedFiles.length === 0 ||
-                (!commitMessage.trim() && !isGitMerging) ||
+                syncing ||
+                (!hasWorkingChanges && pendingSyncCount === 0) ||
+                (hasWorkingChanges && !commitMessage.trim() && !isGitMerging) ||
                 changedFiles.some((f) => f.status === 'conflict')
               }
+              className={cn(
+                'min-w-0 flex-1 bg-accent text-white hover:bg-accent/90',
+                showCommitMenu && 'rounded-r-none'
+              )}
             >
-              {committing ? (
+              {committing || syncing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : !hasWorkingChanges ? (
+                <RefreshCw className="h-3.5 w-3.5" />
               ) : (
                 <GitCommitHorizontal className="h-3.5 w-3.5" />
               )}
-              {committing
+              {!hasWorkingChanges
+                ? syncing
+                  ? t('git.commitsToSync', { count: pendingSyncCount })
+                  : `${t('git.syncChanges')} (${pendingSyncCount})`
+                : committing
                 ? t('git.committing')
                 : isGitMerging
                   ? t('git.completeMerge')
                   : t('git.commit')}
             </Button>
+            {showCommitMenu && (
+              <button
+                type="button"
+                title={t('git.commitOptions')}
+                aria-label={t('git.commitOptions')}
+                aria-expanded={commitMenuOpen}
+                onClick={() => setCommitMenuOpen((open) => !open)}
+                disabled={
+                  committing ||
+                  undoingCommit ||
+                  isGitMerging ||
+                  changedFiles.some((f) => f.status === 'conflict')
+                }
+                className="press-scale flex w-9 items-center justify-center rounded-r-lg border-l border-white/20 bg-accent text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronDown className={cn('h-3.5 w-3.5 transition', commitMenuOpen && 'rotate-180')} />
+              </button>
+            )}
+            {showCommitMenu && commitMenuOpen && (
+              <div className="animate-pop-in absolute right-0 top-full z-50 mt-2 flex w-52 origin-top-right flex-col overflow-hidden sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated p-1 shadow-float">
+                {hasWorkingChanges &&
+                  ([
+                    ['push', t('git.commitAndPush')],
+                    ['sync', t('git.commitAndSync')],
+                    ['amend', t('git.commitAmend')]
+                  ] as const).map(([action, label]) => (
+                    <button
+                      key={action}
+                      type="button"
+                      onClick={() => void handleCommit(action)}
+                      disabled={action !== 'amend' && !commitMessage.trim()}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                {hasWorkingChanges && canUndoLastCommit && <div className="my-1 border-t border-border" />}
+                {canUndoLastCommit && (
+                  <button
+                    type="button"
+                    onClick={() => void handleUndoLastCommit()}
+                    disabled={undoingCommit}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-warning/10 hover:text-warning disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {undoingCommit ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    )}
+                    {undoingCommit ? t('git.undoingLastCommit') : t('git.undoLastCommit')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 min-w-0">
+            <button
+              type="button"
+              onClick={() => setFilesExpanded(!filesExpanded)}
+              title={
+                changedFiles.length > 0
+                  ? t('git.changes', { count: changedFiles.length })
+                  : t('git.noChanges')
+              }
+              className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text transition-colors"
+            >
+              {filesExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+              {changedFiles.length > 0 ? (
+                <>
+                  <span>{t('git.changesLabel')}</span>
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/15 px-1 text-[10px] font-semibold leading-none text-accent">
+                    {changedFiles.length}
+                  </span>
+                </>
+              ) : (
+                <span>{t('git.noChanges')}</span>
+              )}
+            </button>
+
+            {changedFiles.length > 0 && (
+              <>
+                {onOpenChanges && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenChanges(changedFiles)}
+                    title={t('git.openChanges')}
+                    aria-label={t('git.openChanges')}
+                    className="press-scale ml-auto flex h-6 w-6 items-center justify-center rounded text-text-subtle transition-colors hover:bg-white/5 hover:text-text"
+                  >
+                    <Files className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {changedFiles.some((file) => !file.staged && file.status !== 'conflict') && (
+                  <button
+                    type="button"
+                    onClick={() => void handleStageAll()}
+                    disabled={isStagingAll}
+                    title={isStagingAll ? t('git.stagingAll') : t('git.stageAll')}
+                    aria-label={isStagingAll ? t('git.stagingAll') : t('git.stageAll')}
+                    className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-subtle transition-colors hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  >
+                    {isStagingAll ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleRevertAll()}
+                  disabled={isRevertingAll}
+                  title={t('git.revertAll')}
+                  aria-label={t('git.revertAll')}
+                  className="press-scale ml-1 flex h-6 w-6 items-center justify-center rounded text-text-subtle transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                >
+                  <RotateCcw className={cn('h-3 w-3', isRevertingAll && 'animate-spin')} />
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1251,17 +2032,40 @@ export function GitActionsView({
                         {t('git.resolveConflict')}
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleRevertFile(file.path)}
-                        disabled={revertingPath === file.path}
-                        title={t('git.revertFile')}
-                        className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-text-muted hover:bg-danger/15 hover:text-danger disabled:opacity-50 transition-all"
-                      >
-                        <RotateCcw
-                          className={cn('h-3 w-3', revertingPath === file.path && 'animate-spin')}
-                        />
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleStageFile(file)}
+                          disabled={stagingPath === file.path}
+                          title={t(file.staged ? 'git.unstage' : 'git.stage')}
+                          className={cn(
+                            'flex h-5 min-w-5 items-center justify-center rounded px-1 text-[10px] font-semibold opacity-0 transition-all group-hover:opacity-100 disabled:opacity-50',
+                            stagingPath === file.path && 'opacity-100',
+                            file.staged
+                              ? 'bg-success/15 text-success hover:bg-success/25'
+                              : 'text-text-muted hover:bg-accent/15 hover:text-accent'
+                          )}
+                        >
+                          {stagingPath === file.path ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : file.staged ? (
+                            <Check className="h-3 w-3" />
+                          ) : (
+                            <Plus className="h-3 w-3" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRevertFile(file.path)}
+                          disabled={revertingPath === file.path}
+                          title={t('git.revertFile')}
+                          className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-text-muted hover:bg-danger/15 hover:text-danger disabled:opacity-50 transition-all"
+                        >
+                          <RotateCcw
+                            className={cn('h-3 w-3', revertingPath === file.path && 'animate-spin')}
+                          />
+                        </button>
+                      </>
                     )}
 
                     <span

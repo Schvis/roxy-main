@@ -37,7 +37,9 @@ import type {
   RepoSyncTarget,
   GitCommitNode,
   GitChangedFile,
-  GitFileDiffResult
+  GitFileDiffResult,
+  GitCommandLogEntry,
+  GitRepositoryAction
 } from '../../shared/api'
 
 /** How long any single git command may run before it's killed. */
@@ -46,6 +48,43 @@ const GIT_TIMEOUT_MS = 30_000
 const FETCH_TIMEOUT_MS = 60_000
 /** Cap git's stdout so a pathological repo can't balloon memory. */
 const MAX_GIT_OUTPUT = 2_000_000
+const MAX_GIT_COMMAND_LOG = 100
+const gitCommandLog: GitCommandLogEntry[] = []
+let nextGitCommandId = 1
+
+function displayGitCommand(args: string[]): string {
+  const text = ['git', ...args].map((arg) => (/[\s"]/u.test(arg) ? JSON.stringify(arg) : arg)).join(' ')
+  return text.replace(/:\/\/[^/@\s]+@/gu, '://***@')
+}
+
+function redactGitOutput(text: string): string {
+  return text.replace(/:\/\/[^/@\s]+@/gu, '://***@')
+}
+
+function beginGitCommand(args: string[], cwd: string): GitCommandLogEntry {
+  const entry: GitCommandLogEntry = {
+    id: nextGitCommandId++,
+    command: displayGitCommand(args),
+    cwd,
+    startedAt: Date.now(),
+    status: 'running',
+    stdout: '',
+    stderr: '',
+    exitCode: null
+  }
+  gitCommandLog.push(entry)
+  if (gitCommandLog.length > MAX_GIT_COMMAND_LOG) gitCommandLog.shift()
+  return entry
+}
+
+export function getCommandLog(cwd: string): GitCommandLogEntry[] {
+  const key = canonicalPath(cwd)
+  return gitCommandLog
+    .filter((entry) => !key || canonicalPath(entry.cwd) === key)
+    .slice()
+    .reverse()
+    .map((entry) => ({ ...entry }))
+}
 
 /** Fallback prefix when settings haven't been read (tests, early startup). */
 export const WORKTREE_BRANCH_PREFIX = DEFAULT_BRANCH_PREFIX
@@ -178,6 +217,7 @@ function execGit(
   stdinInput?: string
 ): Promise<GitResult> {
   return new Promise((resolve) => {
+    const logEntry = beginGitCommand(args, cwd)
     let child: ReturnType<typeof spawn>
     try {
       child = spawn('git', args, {
@@ -197,12 +237,16 @@ function execGit(
         }
       })
     } catch (e) {
-      resolve({
+      const result = {
         ok: false,
         stdout: '',
         stderr: e instanceof Error ? e.message : String(e),
         code: null
-      })
+      }
+      logEntry.finishedAt = Date.now()
+      logEntry.status = 'failed'
+      logEntry.stderr = result.stderr
+      resolve(result)
       return
     }
 
@@ -222,6 +266,11 @@ function execGit(
       if (done) return
       done = true
       clearTimeout(timer)
+      logEntry.finishedAt = Date.now()
+      logEntry.status = r.ok ? 'succeeded' : 'failed'
+      logEntry.stdout = redactGitOutput(r.stdout)
+      logEntry.stderr = redactGitOutput(r.stderr)
+      logEntry.exitCode = r.code
       resolve(r)
     }
 
@@ -236,9 +285,11 @@ function execGit(
 
     child.stdout?.on('data', (d: Buffer) => {
       if (stdout.length < MAX_GIT_OUTPUT) stdout += d.toString()
+      logEntry.stdout = redactGitOutput(stdout)
     })
     child.stderr?.on('data', (d: Buffer) => {
       if (stderr.length < MAX_GIT_OUTPUT) stderr += d.toString()
+      logEntry.stderr = redactGitOutput(stderr)
     })
     child.on('error', (e) => finish({ ok: false, stdout, stderr: e.message, code: null }))
     child.on('close', (code) => finish({ ok: code === 0, stdout, stderr, code: code ?? null }))
@@ -1276,24 +1327,245 @@ export async function initRepository(cwd: string): Promise<{ ok: boolean; error?
   return { ok: true }
 }
 
-/** Stage all changes and commit with the given message. Supports completing an active merge. */
+/** Commit staged changes with the given message. Supports completing an active merge. */
 export async function commitChanges(
   cwd: string,
-  message: string
+  message: string,
+  options?: { amend?: boolean; signoff?: boolean; all?: boolean }
 ): Promise<{ ok: boolean; error?: string; sha?: string }> {
   if (!cwd) return { ok: false, error: 'Missing repository directory.' }
   const msg = message.trim()
   const merging = await isMerging(cwd)
-  if (!msg && !merging) return { ok: false, error: 'Commit message cannot be empty.' }
+  if (!msg && !merging && !options?.amend) {
+    return { ok: false, error: 'Commit message cannot be empty.' }
+  }
 
-  const add = await git(['add', '-A'], cwd)
-  if (!add.ok) return { ok: false, error: cleanGitError(add, 'Failed to stage files') }
+  if (options?.all) {
+    const add = await git(['add', '-A'], cwd)
+    if (!add.ok) return { ok: false, error: cleanGitError(add, 'Failed to stage files') }
+  }
 
-  const r = msg ? await git(['commit', '-m', msg], cwd) : await git(['commit', '--no-edit'], cwd)
+  const commitArgs = ['commit']
+  if (options?.amend) commitArgs.push('--amend')
+  if (options?.signoff) commitArgs.push('--signoff')
+  if (msg) commitArgs.push('-m', msg)
+  else commitArgs.push('--no-edit')
+  const r = await git(commitArgs, cwd)
   if (!r.ok) return { ok: false, error: cleanGitError(r, 'Commit failed') }
 
   const sha = await resolveCommit(cwd, 'HEAD')
   return { ok: true, sha: sha ?? undefined }
+}
+
+/** Move HEAD back one local commit while preserving that commit's changes staged. */
+export async function undoLastCommit(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  if (await isMerging(cwd)) return { ok: false, error: 'Cannot undo a commit during a merge.' }
+
+  const head = await git(['rev-parse', '--verify', 'HEAD'], cwd)
+  if (!head.ok) return { ok: false, error: 'No commit to undo.' }
+
+  const st = await status(cwd)
+  if (st?.hasUpstream && st.ahead === 0) {
+    return { ok: false, error: 'Latest commit is already synchronized.' }
+  }
+
+  const parent = await git(['rev-parse', '--verify', 'HEAD^'], cwd)
+  const r = parent.ok
+    ? await git(['reset', '--soft', 'HEAD^'], cwd)
+    : await git(['update-ref', '-d', 'HEAD'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to undo commit') }
+}
+
+/** Create a new branch at HEAD without changing the branch checked out in this worktree. */
+export async function createBranch(
+  cwd: string,
+  name: string
+): Promise<{ ok: boolean; error?: string }> {
+  const branch = name.trim()
+  if (!cwd || !branch) return { ok: false, error: 'Branch name cannot be empty.' }
+  const valid = await git(['check-ref-format', '--branch', branch], cwd)
+  if (!valid.ok) return { ok: false, error: `"${branch}" is not a valid branch name.` }
+  const r = await git(['branch', branch, 'HEAD'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to create branch') }
+}
+
+/** Create a lightweight tag at HEAD. */
+export async function createTag(
+  cwd: string,
+  name: string
+): Promise<{ ok: boolean; error?: string }> {
+  const tag = name.trim()
+  if (!cwd || !tag) return { ok: false, error: 'Tag name cannot be empty.' }
+  const valid = await git(['check-ref-format', `refs/tags/${tag}`], cwd)
+  if (!valid.ok) return { ok: false, error: `"${tag}" is not a valid tag name.` }
+  const r = await git(['tag', tag, 'HEAD'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to create tag') }
+}
+
+/** Stash tracked and untracked workspace changes. */
+export async function stashChanges(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  const r = await git(['stash', 'push', '--include-untracked', '-m', 'Roxy manual stash'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to stash changes') }
+}
+
+/** Apply and remove the latest stash. */
+export async function popStash(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+  const r = await git(['stash', 'pop'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to pop stash') }
+}
+
+async function validBranchName(cwd: string, name: string): Promise<boolean> {
+  return Boolean(name && (await git(['check-ref-format', '--branch', name], cwd)).ok)
+}
+
+function validRemoteName(name: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(name)
+}
+
+/** Run a validated action exposed by the Git repository menu. */
+export async function repositoryAction(
+  cwd: string,
+  action: GitRepositoryAction
+): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing repository directory.' }
+
+  let args: string[]
+  switch (action.type) {
+    case 'checkout':
+      if (action.detached) {
+        args = ['checkout', '--detach', action.branch]
+      } else {
+        if (!(await validBranchName(cwd, action.branch))) {
+          return { ok: false, error: 'Invalid branch name.' }
+        }
+        args = ['switch', action.branch]
+      }
+      break
+    case 'renameBranch':
+      if (!(await validBranchName(cwd, action.newName))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = action.oldName
+        ? ['branch', '-m', action.oldName, action.newName]
+        : ['branch', '-m', action.newName]
+      break
+    case 'merge':
+      if (!(await validBranchName(cwd, action.branch))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = ['merge', action.branch]
+      break
+    case 'rebase':
+      if (!(await validBranchName(cwd, action.branch))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = ['rebase', action.branch]
+      break
+    case 'abortRebase':
+      args = ['rebase', '--abort']
+      break
+    case 'createBranchFrom':
+      if (!(await validBranchName(cwd, action.name))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = ['branch', action.name, action.startPoint]
+      break
+    case 'deleteBranch':
+      if (!(await validBranchName(cwd, action.name))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = ['branch', action.force ? '-D' : '-d', action.name]
+      break
+    case 'deleteRemoteBranch':
+      if (!validRemoteName(action.remote) || !(await validBranchName(cwd, action.branch))) {
+        return { ok: false, error: 'Invalid remote or branch name.' }
+      }
+      args = ['push', action.remote, '--delete', action.branch]
+      break
+    case 'publishBranch': {
+      const branch = await currentBranch(cwd)
+      if (!branch) return { ok: false, error: 'Not on a branch.' }
+      args = ['push', '--set-upstream', 'origin', branch]
+      break
+    }
+    case 'addRemote':
+      if (!validRemoteName(action.name) || !action.url.trim()) {
+        return { ok: false, error: 'Invalid remote name or URL.' }
+      }
+      args = ['remote', 'add', action.name, action.url.trim()]
+      break
+    case 'removeRemote':
+      if (!validRemoteName(action.name)) return { ok: false, error: 'Invalid remote name.' }
+      args = ['remote', 'remove', action.name]
+      break
+    case 'pull':
+      if (action.remote && !validRemoteName(action.remote)) {
+        return { ok: false, error: 'Invalid remote name.' }
+      }
+      if (action.branch && !(await validBranchName(cwd, action.branch))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = ['pull', ...(action.rebase ? ['--rebase'] : [])]
+      if (action.remote) args.push(action.remote)
+      if (action.branch) args.push(action.branch)
+      break
+    case 'push': {
+      const remote = action.remote ?? 'origin'
+      const branch = action.branch ?? (await currentBranch(cwd))
+      if (!validRemoteName(remote) || !branch || !(await validBranchName(cwd, branch))) {
+        return { ok: false, error: 'Invalid remote or branch name.' }
+      }
+      args = ['push', ...(action.force ? ['--force-with-lease'] : []), remote, branch]
+      break
+    }
+    case 'fetch':
+      args = ['fetch', ...(action.all ? ['--all'] : []), ...(action.prune ? ['--prune'] : [])]
+      break
+    case 'unstageAll':
+      args = ['restore', '--staged', '.']
+      break
+    case 'stash':
+      args = ['stash', 'push', '-m', action.message?.trim() || 'Roxy manual stash']
+      if (action.mode === 'untracked') args.push('--include-untracked')
+      if (action.mode === 'staged') args.push('--staged')
+      break
+    case 'stashApply':
+      args = ['stash', 'apply', action.stash ?? 'stash@{0}']
+      break
+    case 'stashPop':
+      args = ['stash', 'pop', action.stash ?? 'stash@{0}']
+      break
+    case 'stashDrop':
+      args = ['stash', 'drop', action.stash ?? 'stash@{0}']
+      break
+    case 'stashClear':
+      args = ['stash', 'clear']
+      break
+    case 'stashShow':
+      args = ['stash', 'show', '--stat', '--patch', action.stash ?? 'stash@{0}']
+      break
+    case 'deleteTag':
+      args = ['tag', '-d', action.name]
+      break
+    case 'deleteRemoteTag':
+      if (!validRemoteName(action.remote)) return { ok: false, error: 'Invalid remote name.' }
+      args = ['push', action.remote, '--delete', `refs/tags/${action.name}`]
+      break
+    case 'pushTags':
+      if (action.remote && !validRemoteName(action.remote)) {
+        return { ok: false, error: 'Invalid remote name.' }
+      }
+      args = ['push', action.remote ?? 'origin', '--tags']
+      break
+  }
+
+  const result = await git(args, cwd, FETCH_TIMEOUT_MS)
+  return result.ok
+    ? { ok: true }
+    : { ok: false, error: cleanGitError(result, 'Git operation failed') }
 }
 
 /** Fetch commit graph history including merges, branches, and author metadata. */
@@ -1700,6 +1972,13 @@ export async function unstageFile(
   return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to unstage file') }
 }
 
+/** Stage all workspace changes in git. */
+export async function stageAll(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  if (!cwd) return { ok: false, error: 'Missing directory' }
+  const r = await git(['add', '-A'], cwd)
+  return r.ok ? { ok: true } : { ok: false, error: cleanGitError(r, 'Failed to stage changes') }
+}
+
 /** Save resolved conflict file content to disk and stage it in git. */
 export async function resolveConflict(
   cwd: string,
@@ -1730,6 +2009,23 @@ export async function isMerging(cwd: string): Promise<boolean> {
     const mergeHead = path.join(gitDir, 'MERGE_HEAD')
     await fs.access(mergeHead)
     return true
+  } catch {
+    return false
+  }
+}
+
+/** Check whether git is in an active rebase state (.git/rebase-merge or .git/rebase-apply). */
+export async function isRebasing(cwd: string): Promise<boolean> {
+  if (!cwd) return false
+  try {
+    const gitDirRes = await git(['rev-parse', '--git-dir'], cwd)
+    if (!gitDirRes.ok || !gitDirRes.stdout.trim()) return false
+    const gitDir = path.resolve(cwd, gitDirRes.stdout.trim())
+    const rebaseMerge = path.join(gitDir, 'rebase-merge')
+    const rebaseApply = path.join(gitDir, 'rebase-apply')
+    const hasMerge = await fs.access(rebaseMerge).then(() => true, () => false)
+    const hasApply = await fs.access(rebaseApply).then(() => true, () => false)
+    return hasMerge || hasApply
   } catch {
     return false
   }
