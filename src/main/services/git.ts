@@ -1437,14 +1437,10 @@ export async function repositoryAction(
   let args: string[]
   switch (action.type) {
     case 'checkout':
-      if (action.detached) {
-        args = ['checkout', '--detach', action.branch]
-      } else {
-        if (!(await validBranchName(cwd, action.branch))) {
-          return { ok: false, error: 'Invalid branch name.' }
-        }
-        args = ['switch', action.branch]
+      if (!action.branch || action.branch.startsWith('-') || /\s/u.test(action.branch)) {
+        return { ok: false, error: 'Invalid branch or reference name.' }
       }
+      args = action.detached ? ['checkout', '--detach', action.branch] : ['checkout', action.branch]
       break
     case 'renameBranch':
       if (!(await validBranchName(cwd, action.newName))) {
@@ -1455,28 +1451,41 @@ export async function repositoryAction(
         : ['branch', '-m', action.newName]
       break
     case 'merge':
-      if (!(await validBranchName(cwd, action.branch))) {
-        return { ok: false, error: 'Invalid branch name.' }
+      if (!action.branch || action.branch.startsWith('-') || /\s/u.test(action.branch)) {
+        return { ok: false, error: 'Invalid branch or reference name.' }
       }
       args = ['merge', action.branch]
       break
     case 'rebase':
-      if (!(await validBranchName(cwd, action.branch))) {
-        return { ok: false, error: 'Invalid branch name.' }
+      if (!action.branch || action.branch.startsWith('-') || /\s/u.test(action.branch)) {
+        return { ok: false, error: 'Invalid branch or reference name.' }
       }
       args = ['rebase', action.branch]
       break
     case 'abortRebase':
       args = ['rebase', '--abort']
       break
+    case 'createBranch':
+      if (!(await validBranchName(cwd, action.name))) {
+        return { ok: false, error: 'Invalid branch name.' }
+      }
+      args = ['branch', action.name]
+      break
     case 'createBranchFrom':
       if (!(await validBranchName(cwd, action.name))) {
         return { ok: false, error: 'Invalid branch name.' }
       }
+      if (
+        !action.startPoint ||
+        action.startPoint.startsWith('-') ||
+        /\s/u.test(action.startPoint)
+      ) {
+        return { ok: false, error: 'Invalid starting point.' }
+      }
       args = ['branch', action.name, action.startPoint]
       break
     case 'deleteBranch':
-      if (!(await validBranchName(cwd, action.name))) {
+      if (!action.name || action.name.startsWith('-') || /\s/u.test(action.name)) {
         return { ok: false, error: 'Invalid branch name.' }
       }
       args = ['branch', action.force ? '-D' : '-d', action.name]
@@ -1549,7 +1558,16 @@ export async function repositoryAction(
     case 'stashShow':
       args = ['stash', 'show', '--stat', '--patch', action.stash ?? 'stash@{0}']
       break
+    case 'createTag':
+      if (!action.name || action.name.startsWith('-') || /\s/u.test(action.name)) {
+        return { ok: false, error: 'Invalid tag name.' }
+      }
+      args = ['tag', action.name]
+      break
     case 'deleteTag':
+      if (!action.name || action.name.startsWith('-') || /\s/u.test(action.name)) {
+        return { ok: false, error: 'Invalid tag name.' }
+      }
       args = ['tag', '-d', action.name]
       break
     case 'deleteRemoteTag':

@@ -83,6 +83,22 @@ export interface GitActionsViewProps {
   isStandalone?: boolean
 }
 
+interface GitPromptModalConfig {
+  title: string
+  description?: string
+  placeholder?: string
+  initialValue?: string
+  confirmText?: string
+  danger?: boolean
+  isConfirmOnly?: boolean
+  secondaryField?: {
+    label: string
+    placeholder?: string
+    initialValue?: string
+  }
+  onSubmit: (value: string, secondaryValue?: string) => void | Promise<void>
+}
+
 export function GitActionsView({
   root,
   sessionId,
@@ -164,6 +180,15 @@ export function GitActionsView({
   const portalRef = useRef<HTMLDivElement>(null)
   const mainMenuRef = useRef<HTMLDivElement>(null)
   const submenuRef = useRef<HTMLDivElement>(null)
+  const [promptModal, setPromptModal] = useState<GitPromptModalConfig | null>(null)
+  const [promptValue, setPromptValue] = useState('')
+  const [promptSecondaryValue, setPromptSecondaryValue] = useState('')
+
+  const openPrompt = useCallback((config: GitPromptModalConfig): void => {
+    setPromptValue(config.initialValue ?? '')
+    setPromptSecondaryValue(config.secondaryField?.initialValue ?? '')
+    setPromptModal(config)
+  }, [])
 
   useEffect(() => {
     if (!commitMenuOpen) return
@@ -269,7 +294,7 @@ export function GitActionsView({
     localStorage.setItem(GRAPH_HEIGHT_KEY, String(graphHeight))
   }, [graphHeight])
 
-  const refreshAll = async (targetRoot = root): Promise<void> => {
+  const refreshAll = async (targetRoot = root, clearError = true): Promise<void> => {
     if (!targetRoot) {
       setGitStatus(null)
       setCommits([])
@@ -277,11 +302,12 @@ export function GitActionsView({
       setLoading(false)
       setHasMoreCommits(false)
       setIsGitMerging(false)
+      setIsGitRebasing(false)
       return
     }
 
     try {
-      setError(null)
+      if (clearError) setError(null)
       const [st, merging, rebasing] = await Promise.all([
         api.git.status(targetRoot),
         api.git.isMerging(targetRoot),
@@ -607,8 +633,12 @@ export function GitActionsView({
     setError(null)
     try {
       const res = await api.git.repositoryAction(root, action)
-      if (!res.ok) setError(res.error || 'Git operation failed')
-      await refreshAll(root)
+      if (!res.ok) {
+        setError(res.error || 'Git operation failed')
+      } else {
+        setError(null)
+      }
+      await refreshAll(root, false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -621,13 +651,26 @@ export function GitActionsView({
     signoff?: boolean
     all?: boolean
     stagedOnly?: boolean
+    message?: string
   }): Promise<void> => {
     if (!root) return
     setGitMenuOpen(false)
     setActiveCategory(null)
-    const msg = commitMessage.trim()
+    const msg = (options.message ?? commitMessage).trim()
     if (!msg && !isGitMerging && !options.amend) {
-      setError(t('git.commitPlaceholder'))
+      openPrompt({
+        title: options.all
+          ? t('git.commitAll')
+          : options.stagedOnly
+            ? t('git.commitStaged')
+            : t('git.commit'),
+        placeholder: t('git.commitPlaceholder'),
+        confirmText: t('git.commit'),
+        onSubmit: (entered) => {
+          if (!entered.trim()) return
+          void handleCommitWithOptions({ ...options, message: entered.trim() })
+        }
+      })
       return
     }
     setCommitting(true)
@@ -665,44 +708,6 @@ export function GitActionsView({
     onOpenCommandOutput?.()
   }
 
-  const handleCreateBranch = async (): Promise<void> => {
-    if (!root) return
-    setGitMenuOpen(false)
-    setActiveCategory(null)
-    const name = window.prompt(t('git.createBranchPrompt'))?.trim()
-    if (!name) return
-    setRepositoryAction('branch')
-    setError(null)
-    try {
-      const res = await api.git.createBranch(root, name)
-      if (!res.ok) setError(res.error || t('git.createBranchFailed'))
-      await refreshAll(root)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setRepositoryAction(null)
-    }
-  }
-
-  const handleCreateTag = async (): Promise<void> => {
-    if (!root) return
-    setGitMenuOpen(false)
-    setActiveCategory(null)
-    const name = window.prompt(t('git.createTagPrompt'))?.trim()
-    if (!name) return
-    setRepositoryAction('tag')
-    setError(null)
-    try {
-      const res = await api.git.createTag(root, name)
-      if (!res.ok) setError(res.error || t('git.createTagFailed'))
-      await refreshAll(root)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setRepositoryAction(null)
-    }
-  }
-
   const handleStashPop = async (): Promise<void> => {
     if (!root) return
     setGitMenuOpen(false)
@@ -711,8 +716,12 @@ export function GitActionsView({
     setError(null)
     try {
       const res = await api.git.stashPop(root)
-      if (!res.ok) setError(res.error || t('git.stashPopFailed'))
-      await refreshAll(root)
+      if (!res.ok) {
+        setError(res.error || t('git.stashPopFailed'))
+      } else {
+        setError(null)
+      }
+      await refreshAll(root, false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -728,7 +737,7 @@ export function GitActionsView({
       const pullRes = rebase
         ? await api.git.repositoryAction(root, { type: 'pull', rebase: true })
         : await api.git.pull(root)
-      await refreshAll(root)
+      await refreshAll(root, false)
       if (!pullRes.ok) {
         const hasConflict = 'conflict' in pullRes && Boolean(pullRes.conflict)
         if (!hasConflict) {
@@ -741,7 +750,7 @@ export function GitActionsView({
       if (!pushRes.ok) {
         setError(pushRes.error || 'Push failed during sync')
       }
-      await refreshAll(root)
+      await refreshAll(root, false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -797,7 +806,16 @@ export function GitActionsView({
           { isDivider: true },
           {
             label: t('git.undoLastCommit'),
-            action: () => void handleUndoLastCommit(),
+            action: () => {
+              openPrompt({
+                title: t('git.undoLastCommit'),
+                description: t('git.undoLastCommitConfirm'),
+                confirmText: t('git.undoLastCommit'),
+                danger: true,
+                isConfirmOnly: true,
+                onSubmit: () => void handleUndoLastCommit()
+              })
+            },
             disabled: !canUndoLastCommit,
             danger: true
           }
@@ -826,7 +844,16 @@ export function GitActionsView({
           { isDivider: true },
           {
             label: t('git.discardAllChanges'),
-            action: () => void handleRevertAll(),
+            action: () => {
+              openPrompt({
+                title: t('git.discardAllChanges'),
+                description: t('git.revertAllConfirm'),
+                confirmText: t('git.discardAllChanges'),
+                danger: true,
+                isConfirmOnly: true,
+                onSubmit: () => void handleRevertAll()
+              })
+            },
             disabled: changedFiles.length === 0,
             danger: true
           }
@@ -842,10 +869,17 @@ export function GitActionsView({
           {
             label: t('git.pullFrom'),
             action: () => {
-              const input = window.prompt(t('git.pullFromPrompt'))?.trim()
-              if (!input) return
-              const [remote, branch] = input.split(/\s+/)
-              void runRepoAction({ type: 'pull', remote, branch })
+              openPrompt({
+                title: t('git.pullFrom'),
+                description: t('git.pullFromPrompt'),
+                placeholder: 'origin main',
+                initialValue: 'origin ' + (gitStatus?.branch || 'main'),
+                confirmText: t('git.pull'),
+                onSubmit: (val) => {
+                  const [remote, branch] = val.trim().split(/\s+/)
+                  void runRepoAction({ type: 'pull', remote, branch })
+                }
+              })
             },
             disabled: pulling
           },
@@ -859,10 +893,17 @@ export function GitActionsView({
           {
             label: t('git.pushTo'),
             action: () => {
-              const input = window.prompt(t('git.pushToPrompt'))?.trim()
-              if (!input) return
-              const [remote, branch] = input.split(/\s+/)
-              void runRepoAction({ type: 'push', remote, branch })
+              openPrompt({
+                title: t('git.pushTo'),
+                description: t('git.pushToPrompt'),
+                placeholder: 'origin main',
+                initialValue: 'origin ' + (gitStatus?.branch || 'main'),
+                confirmText: t('git.push'),
+                onSubmit: (val) => {
+                  const [remote, branch] = val.trim().split(/\s+/)
+                  void runRepoAction({ type: 'push', remote, branch })
+                }
+              })
             },
             disabled: pushing
           },
@@ -875,64 +916,159 @@ export function GitActionsView({
           {
             label: t('git.checkoutTo'),
             action: () => {
-              const branch = window.prompt(t('git.checkoutPrompt'))?.trim()
-              if (branch) void runRepoAction({ type: 'checkout', branch })
+              openPrompt({
+                title: t('git.checkoutTo'),
+                description: t('git.checkoutPrompt'),
+                placeholder: 'main, branch-name, or SHA',
+                confirmText: t('git.checkoutTo'),
+                onSubmit: (branch) => {
+                  if (branch.trim()) void runRepoAction({ type: 'checkout', branch: branch.trim() })
+                }
+              })
             }
           },
           {
             label: t('git.checkoutToDetached'),
             action: () => {
-              const branch = window.prompt(t('git.checkoutDetachedPrompt'))?.trim()
-              if (branch) void runRepoAction({ type: 'checkout', branch, detached: true })
+              openPrompt({
+                title: t('git.checkoutToDetached'),
+                description: t('git.checkoutDetachedPrompt'),
+                placeholder: 'main, tag, or SHA',
+                confirmText: t('git.checkoutToDetached'),
+                onSubmit: (branch) => {
+                  if (branch.trim()) {
+                    void runRepoAction({
+                      type: 'checkout',
+                      branch: branch.trim(),
+                      detached: true
+                    })
+                  }
+                }
+              })
             }
           },
           { isDivider: true },
-          { label: t('git.createBranch'), action: () => void handleCreateBranch() },
+          {
+            label: t('git.createBranch'),
+            action: () => {
+              openPrompt({
+                title: t('git.createBranch'),
+                description: t('git.createBranchPrompt'),
+                placeholder: 'feature/new-branch',
+                confirmText: t('git.createBranch'),
+                onSubmit: (name) => {
+                  if (name.trim()) void runRepoAction({ type: 'createBranch', name: name.trim() })
+                }
+              })
+            }
+          },
           {
             label: t('git.createBranchFrom'),
             action: () => {
-              const name = window.prompt(t('git.createBranchFromPromptName'))?.trim()
-              if (!name) return
-              const startPoint = window.prompt(t('git.createBranchFromPromptStart'))?.trim()
-              if (!startPoint) return
-              void runRepoAction({ type: 'createBranchFrom', name, startPoint })
+              openPrompt({
+                title: t('git.createBranchFrom'),
+                placeholder: t('git.createBranchFromPromptName'),
+                secondaryField: {
+                  label: t('git.createBranchFromPromptStart'),
+                  placeholder: 'HEAD, main, SHA',
+                  initialValue: 'HEAD'
+                },
+                confirmText: t('git.createBranchFrom'),
+                onSubmit: (name, startPoint) => {
+                  if (name.trim()) {
+                    void runRepoAction({
+                      type: 'createBranchFrom',
+                      name: name.trim(),
+                      startPoint: startPoint?.trim() || 'HEAD'
+                    })
+                  }
+                }
+              })
             }
           },
           {
             label: t('git.renameBranch'),
             action: () => {
-              const newName = window.prompt(t('git.renameBranchPrompt'))?.trim()
-              if (newName) void runRepoAction({ type: 'renameBranch', newName })
+              openPrompt({
+                title: t('git.renameBranch'),
+                description: t('git.renameBranchPrompt'),
+                initialValue: gitStatus?.branch || '',
+                confirmText: t('git.renameBranch'),
+                onSubmit: (newName) => {
+                  if (newName.trim()) {
+                    void runRepoAction({ type: 'renameBranch', newName: newName.trim() })
+                  }
+                }
+              })
             }
           },
           {
             label: t('git.deleteBranch'),
             action: () => {
-              const name = window.prompt(t('git.deleteBranchPrompt'))?.trim()
-              if (!name) return
-              if (!window.confirm(t('git.deleteBranchConfirm', { name }))) return
-              void runRepoAction({ type: 'deleteBranch', name })
+              openPrompt({
+                title: t('git.deleteBranch'),
+                description: t('git.deleteBranchPrompt'),
+                placeholder: 'branch-to-delete',
+                confirmText: t('git.deleteBranch'),
+                danger: true,
+                onSubmit: (name) => {
+                  if (name.trim()) {
+                    openPrompt({
+                      title: t('git.deleteBranch'),
+                      description: t('git.deleteBranchConfirm', { name: name.trim() }),
+                      confirmText: t('git.deleteBranch'),
+                      danger: true,
+                      isConfirmOnly: true,
+                      onSubmit: () =>
+                        void runRepoAction({ type: 'deleteBranch', name: name.trim() })
+                    })
+                  }
+                }
+              })
             }
           },
           { isDivider: true },
           {
             label: t('git.merge'),
             action: () => {
-              const branch = window.prompt(t('git.mergePrompt'))?.trim()
-              if (branch) void runRepoAction({ type: 'merge', branch })
+              openPrompt({
+                title: t('git.merge'),
+                description: t('git.mergePrompt'),
+                placeholder: 'branch-to-merge',
+                confirmText: t('git.merge'),
+                onSubmit: (branch) => {
+                  if (branch.trim()) void runRepoAction({ type: 'merge', branch: branch.trim() })
+                }
+              })
             }
           },
           {
             label: t('git.rebaseBranch'),
             action: () => {
-              const branch = window.prompt(t('git.rebaseBranchPrompt'))?.trim()
-              if (branch) void runRepoAction({ type: 'rebase', branch })
+              openPrompt({
+                title: t('git.rebaseBranch'),
+                description: t('git.rebaseBranchPrompt'),
+                placeholder: 'main',
+                confirmText: t('git.rebaseBranch'),
+                onSubmit: (branch) => {
+                  if (branch.trim()) void runRepoAction({ type: 'rebase', branch: branch.trim() })
+                }
+              })
             }
           },
           { isDivider: true },
           {
             label: t('git.abortRebase'),
-            action: () => void runRepoAction({ type: 'abortRebase' }),
+            action: () => {
+              openPrompt({
+                title: t('git.abortRebase'),
+                description: t('git.abortRebaseConfirm'),
+                confirmText: t('git.abortRebase'),
+                danger: true,
+                isConfirmOnly: true,
+                onSubmit: () => void runRepoAction({ type: 'abortRebase' })
+              })
+            },
             disabled: !isGitRebasing
           }
         ]
@@ -941,20 +1077,49 @@ export function GitActionsView({
           {
             label: t('git.addRemote'),
             action: () => {
-              const name = window.prompt(t('git.addRemotePromptName'))?.trim()
-              if (!name) return
-              const url = window.prompt(t('git.addRemotePromptUrl'))?.trim()
-              if (!url) return
-              void runRepoAction({ type: 'addRemote', name, url })
+              openPrompt({
+                title: t('git.addRemote'),
+                placeholder: t('git.addRemotePromptName'),
+                secondaryField: {
+                  label: t('git.addRemotePromptUrl'),
+                  placeholder: 'https://github.com/owner/repo.git'
+                },
+                confirmText: t('git.addRemote'),
+                onSubmit: (name, url) => {
+                  if (name.trim() && url?.trim()) {
+                    void runRepoAction({
+                      type: 'addRemote',
+                      name: name.trim(),
+                      url: url.trim()
+                    })
+                  }
+                }
+              })
             }
           },
           {
             label: t('git.removeRemote'),
             action: () => {
-              const name = window.prompt(t('git.removeRemotePrompt'), 'origin')?.trim()
-              if (!name) return
-              if (!window.confirm(t('git.removeRemoteConfirm', { name }))) return
-              void runRepoAction({ type: 'removeRemote', name })
+              openPrompt({
+                title: t('git.removeRemote'),
+                description: t('git.removeRemotePrompt'),
+                initialValue: 'origin',
+                confirmText: t('git.removeRemote'),
+                danger: true,
+                onSubmit: (name) => {
+                  if (name.trim()) {
+                    openPrompt({
+                      title: t('git.removeRemote'),
+                      description: t('git.removeRemoteConfirm', { name: name.trim() }),
+                      confirmText: t('git.removeRemote'),
+                      danger: true,
+                      isConfirmOnly: true,
+                      onSubmit: () =>
+                        void runRepoAction({ type: 'removeRemote', name: name.trim() })
+                    })
+                  }
+                }
+              })
             }
           },
           { isDivider: true },
@@ -975,8 +1140,19 @@ export function GitActionsView({
           {
             label: t('git.stashPrompt'),
             action: () => {
-              const message = window.prompt(t('git.stashPromptMessage'))?.trim()
-              void runRepoAction({ type: 'stash', mode: 'tracked', message: message || undefined })
+              openPrompt({
+                title: t('git.stashChanges'),
+                description: t('git.stashPromptMessage'),
+                placeholder: 'WIP: stash message (optional)',
+                confirmText: t('git.stashChanges'),
+                onSubmit: (message) => {
+                  void runRepoAction({
+                    type: 'stash',
+                    mode: 'tracked',
+                    message: message.trim() || undefined
+                  })
+                }
+              })
             },
             disabled: !hasWorkingChanges
           },
@@ -993,57 +1169,145 @@ export function GitActionsView({
           {
             label: t('git.applyStash'),
             action: () => {
-              const stash = window.prompt(t('git.applyStashPrompt'), 'stash@{0}')?.trim()
-              if (stash) void runRepoAction({ type: 'stashApply', stash })
+              openPrompt({
+                title: t('git.applyStash'),
+                description: t('git.applyStashPrompt'),
+                initialValue: 'stash@{0}',
+                confirmText: t('git.applyStash'),
+                onSubmit: (stash) => {
+                  if (stash.trim()) void runRepoAction({ type: 'stashApply', stash: stash.trim() })
+                }
+              })
             }
           },
           { label: t('git.popStash'), action: () => void handleStashPop() },
           {
             label: t('git.popStashPrompt'),
             action: () => {
-              const stash = window.prompt(t('git.popStashPrompt'), 'stash@{0}')?.trim()
-              if (stash) void runRepoAction({ type: 'stashPop', stash })
+              openPrompt({
+                title: t('git.popStash'),
+                description: t('git.popStashPrompt'),
+                initialValue: 'stash@{0}',
+                confirmText: t('git.popStash'),
+                onSubmit: (stash) => {
+                  if (stash.trim()) void runRepoAction({ type: 'stashPop', stash: stash.trim() })
+                }
+              })
             }
           },
           { isDivider: true },
           {
             label: t('git.dropStash'),
             action: () => {
-              const stash = window.prompt(t('git.dropStashPrompt'), 'stash@{0}')?.trim()
-              if (!stash) return
-              if (!window.confirm(t('git.dropStashConfirm', { stash }))) return
-              void runRepoAction({ type: 'stashDrop', stash })
+              openPrompt({
+                title: t('git.dropStash'),
+                description: t('git.dropStashPrompt'),
+                initialValue: 'stash@{0}',
+                confirmText: t('git.dropStash'),
+                danger: true,
+                onSubmit: (stash) => {
+                  if (stash.trim()) {
+                    openPrompt({
+                      title: t('git.dropStash'),
+                      description: t('git.dropStashConfirm', { stash: stash.trim() }),
+                      confirmText: t('git.dropStash'),
+                      danger: true,
+                      isConfirmOnly: true,
+                      onSubmit: () => void runRepoAction({ type: 'stashDrop', stash: stash.trim() })
+                    })
+                  }
+                }
+              })
             }
           },
           {
             label: t('git.dropAllStashes'),
             action: () => {
-              if (!window.confirm(t('git.dropAllStashesConfirm'))) return
-              void runRepoAction({ type: 'stashClear' })
+              openPrompt({
+                title: t('git.dropAllStashes'),
+                description: t('git.dropAllStashesConfirm'),
+                confirmText: t('git.dropAllStashes'),
+                danger: true,
+                isConfirmOnly: true,
+                onSubmit: () => void runRepoAction({ type: 'stashClear' })
+              })
             }
           }
         ]
       case 'tags':
         return [
-          { label: t('git.createTag'), action: () => void handleCreateTag() },
+          {
+            label: t('git.createTag'),
+            action: () => {
+              openPrompt({
+                title: t('git.createTag'),
+                description: t('git.createTagPrompt'),
+                placeholder: 'v1.0.0',
+                confirmText: t('git.createTag'),
+                onSubmit: (name) => {
+                  if (name.trim()) void runRepoAction({ type: 'createTag', name: name.trim() })
+                }
+              })
+            }
+          },
           {
             label: t('git.deleteTag'),
             action: () => {
-              const name = window.prompt(t('git.deleteTagPrompt'))?.trim()
-              if (!name) return
-              if (!window.confirm(t('git.deleteTagConfirm', { name }))) return
-              void runRepoAction({ type: 'deleteTag', name })
+              openPrompt({
+                title: t('git.deleteTag'),
+                description: t('git.deleteTagPrompt'),
+                placeholder: 'v1.0.0',
+                confirmText: t('git.deleteTag'),
+                danger: true,
+                onSubmit: (name) => {
+                  if (name.trim()) {
+                    openPrompt({
+                      title: t('git.deleteTag'),
+                      description: t('git.deleteTagConfirm', { name: name.trim() }),
+                      confirmText: t('git.deleteTag'),
+                      danger: true,
+                      isConfirmOnly: true,
+                      onSubmit: () => void runRepoAction({ type: 'deleteTag', name: name.trim() })
+                    })
+                  }
+                }
+              })
             }
           },
           {
             label: t('git.deleteRemoteTag'),
             action: () => {
-              const remote = window.prompt(t('git.deleteRemoteTagPromptRemote'), 'origin')?.trim()
-              if (!remote) return
-              const name = window.prompt(t('git.deleteRemoteTagPromptTag'))?.trim()
-              if (!name) return
-              if (!window.confirm(t('git.deleteRemoteTagConfirm', { remote, name }))) return
-              void runRepoAction({ type: 'deleteRemoteTag', remote, name })
+              openPrompt({
+                title: t('git.deleteRemoteTag'),
+                placeholder: 'origin',
+                initialValue: 'origin',
+                secondaryField: {
+                  label: t('git.deleteRemoteTagPromptTag'),
+                  placeholder: 'v1.0.0'
+                },
+                confirmText: t('git.deleteRemoteTag'),
+                danger: true,
+                onSubmit: (remote, tag) => {
+                  if (remote.trim() && tag?.trim()) {
+                    openPrompt({
+                      title: t('git.deleteRemoteTag'),
+                      description: t('git.deleteRemoteTagConfirm', {
+                        remote: remote.trim(),
+                        name: tag.trim()
+                      }),
+                      confirmText: t('git.deleteRemoteTag'),
+                      danger: true,
+                      isConfirmOnly: true,
+                      onSubmit: () =>
+                        void runRepoAction({
+                          type: 'deleteRemoteTag',
+                          remote: remote.trim(),
+                          name: tag.trim()
+                        })
+                    })
+                  }
+                }
+              })
             }
           },
           { label: t('git.pushTags'), action: () => void runRepoAction({ type: 'pushTags' }) }
@@ -2557,6 +2821,95 @@ export function GitActionsView({
             await refreshAll(root)
           }}
         />
+      )}
+
+      {/* Dynamic Git Action / Prompt Modal */}
+      {promptModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md animate-in fade-in zoom-in-95 duration-150 sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated p-4 shadow-float">
+            <div className="flex items-center justify-between pb-2.5 border-b border-border">
+              <span className="text-xs font-semibold text-text">{promptModal.title}</span>
+              <button
+                type="button"
+                onClick={() => setPromptModal(null)}
+                className="p-1 rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {promptModal.description && (
+              <p className="mt-3 text-xs text-text-muted leading-relaxed">
+                {promptModal.description}
+              </p>
+            )}
+
+            {!promptModal.isConfirmOnly && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <Input
+                    value={promptValue}
+                    onChange={(e) => setPromptValue(e.target.value)}
+                    placeholder={promptModal.placeholder}
+                    className="w-full text-xs font-mono"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const action = promptModal.onSubmit
+                        setPromptModal(null)
+                        void action(promptValue, promptSecondaryValue)
+                      } else if (e.key === 'Escape') {
+                        setPromptModal(null)
+                      }
+                    }}
+                  />
+                </div>
+
+                {promptModal.secondaryField && (
+                  <div>
+                    <label className="block text-[11px] font-medium text-text-muted mb-1">
+                      {promptModal.secondaryField.label}
+                    </label>
+                    <Input
+                      value={promptSecondaryValue}
+                      onChange={(e) => setPromptSecondaryValue(e.target.value)}
+                      placeholder={promptModal.secondaryField.placeholder}
+                      className="w-full text-xs font-mono"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          const action = promptModal.onSubmit
+                          setPromptModal(null)
+                          void action(promptValue, promptSecondaryValue)
+                        } else if (e.key === 'Escape') {
+                          setPromptModal(null)
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center justify-end gap-2 pt-2.5 border-t border-border">
+              <Button variant="ghost" size="sm" onClick={() => setPromptModal(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant={promptModal.danger ? 'danger' : 'primary'}
+                size="sm"
+                onClick={() => {
+                  const action = promptModal.onSubmit
+                  setPromptModal(null)
+                  void action(promptValue, promptSecondaryValue)
+                }}
+              >
+                {promptModal.confirmText || t('common.done')}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

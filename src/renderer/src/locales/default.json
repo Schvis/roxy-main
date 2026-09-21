@@ -1350,6 +1350,7 @@
     "commitStaged": "Commit Staged",
     "commitAll": "Commit All",
     "abortRebase": "Abort Rebase",
+    "abortRebaseConfirm": "Abort the current rebase operation?",
     "commitStagedAmend": "Commit Staged (Amend)",
     "commitAllAmend": "Commit All (Amend)",
     "commitSignedOff": "Commit (Signed Off)",

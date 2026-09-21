@@ -312,6 +312,7 @@
     "abortMerge": "Abort Merge",
     "abortMergeConfirm": "Abort the current merge and revert unmerged changes?",
     "abortRebase": "Abort Rebase",
+    "abortRebaseConfirm": "Abort the current rebase operation?",
     "acceptAllBoth": "Accept All Both",
     "acceptAllCurrent": "Accept All Current",
     "acceptAllIncoming": "Accept All Incoming",

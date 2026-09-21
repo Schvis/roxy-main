@@ -203,6 +203,7 @@ export type GitRepositoryAction =
   | { type: 'merge'; branch: string }
   | { type: 'rebase'; branch: string }
   | { type: 'abortRebase' }
+  | { type: 'createBranch'; name: string }
   | { type: 'createBranchFrom'; name: string; startPoint: string }
   | { type: 'deleteBranch'; name: string; force?: boolean }
   | { type: 'deleteRemoteBranch'; remote: string; branch: string }
@@ -219,6 +220,7 @@ export type GitRepositoryAction =
   | { type: 'stashDrop'; stash?: string }
   | { type: 'stashClear' }
   | { type: 'stashShow'; stash?: string }
+  | { type: 'createTag'; name: string }
   | { type: 'deleteTag'; name: string }
   | { type: 'deleteRemoteTag'; remote: string; name: string }
   | { type: 'pushTags'; remote?: string }
