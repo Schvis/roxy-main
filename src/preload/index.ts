@@ -594,8 +594,7 @@ const roxy: RoxyApi = {
     isMerging: (cwd) => ipcRenderer.invoke(CHANNELS.gitIsMerging, cwd),
     isRebasing: (cwd) => ipcRenderer.invoke(CHANNELS.gitIsRebasing, cwd),
     commandLog: (cwd) => ipcRenderer.invoke(CHANNELS.gitCommandLog, cwd),
-    repositoryAction: (cwd, action) =>
-      ipcRenderer.invoke(CHANNELS.gitRepositoryAction, cwd, action)
+    repositoryAction: (cwd, action) => ipcRenderer.invoke(CHANNELS.gitRepositoryAction, cwd, action)
   },
   forge: {
     status: (cwd, force) => ipcRenderer.invoke(CHANNELS.forgeStatus, cwd, force),

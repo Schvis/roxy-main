@@ -53,7 +53,9 @@ const gitCommandLog: GitCommandLogEntry[] = []
 let nextGitCommandId = 1
 
 function displayGitCommand(args: string[]): string {
-  const text = ['git', ...args].map((arg) => (/[\s"]/u.test(arg) ? JSON.stringify(arg) : arg)).join(' ')
+  const text = ['git', ...args]
+    .map((arg) => (/[\s"]/u.test(arg) ? JSON.stringify(arg) : arg))
+    .join(' ')
   return text.replace(/:\/\/[^/@\s]+@/gu, '://***@')
 }
 
@@ -2023,8 +2025,14 @@ export async function isRebasing(cwd: string): Promise<boolean> {
     const gitDir = path.resolve(cwd, gitDirRes.stdout.trim())
     const rebaseMerge = path.join(gitDir, 'rebase-merge')
     const rebaseApply = path.join(gitDir, 'rebase-apply')
-    const hasMerge = await fs.access(rebaseMerge).then(() => true, () => false)
-    const hasApply = await fs.access(rebaseApply).then(() => true, () => false)
+    const hasMerge = await fs.access(rebaseMerge).then(
+      () => true,
+      () => false
+    )
+    const hasApply = await fs.access(rebaseApply).then(
+      () => true,
+      () => false
+    )
     return hasMerge || hasApply
   } catch {
     return false

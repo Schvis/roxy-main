@@ -400,9 +400,7 @@ export function GitActionsView({
   }, [root, refreshSilently])
 
   // 5. Auto-refresh when agent streaming finishes
-  const streaming = useRoxyStore((s) =>
-    sessionId ? (s.streamingChats[sessionId] ?? null) : null
-  )
+  const streaming = useRoxyStore((s) => (sessionId ? (s.streamingChats[sessionId] ?? null) : null))
   const prevStreamingRef = useRef(streaming)
   useEffect(() => {
     if (prevStreamingRef.current && !streaming) {
@@ -764,8 +762,14 @@ export function GitActionsView({
       case 'commit':
         return [
           { label: t('git.commit'), action: () => void handleCommitWithOptions({}) },
-          { label: t('git.commitAmend'), action: () => void handleCommitWithOptions({ amend: true }) },
-          { label: t('git.commitSignedOff'), action: () => void handleCommitWithOptions({ signoff: true }) },
+          {
+            label: t('git.commitAmend'),
+            action: () => void handleCommitWithOptions({ amend: true })
+          },
+          {
+            label: t('git.commitSignedOff'),
+            action: () => void handleCommitWithOptions({ signoff: true })
+          },
           {
             label: t('git.commitStaged'),
             action: () => void handleCommitWithOptions({ stagedOnly: true }),
@@ -782,8 +786,14 @@ export function GitActionsView({
             disabled: !changedFiles.some((f) => f.staged)
           },
           { label: t('git.commitAll'), action: () => void handleCommitWithOptions({ all: true }) },
-          { label: t('git.commitAllAmend'), action: () => void handleCommitWithOptions({ all: true, amend: true }) },
-          { label: t('git.commitAllSignedOff'), action: () => void handleCommitWithOptions({ all: true, signoff: true }) },
+          {
+            label: t('git.commitAllAmend'),
+            action: () => void handleCommitWithOptions({ all: true, amend: true })
+          },
+          {
+            label: t('git.commitAllSignedOff'),
+            action: () => void handleCommitWithOptions({ all: true, signoff: true })
+          },
           { isDivider: true },
           {
             label: t('git.undoLastCommit'),
@@ -976,7 +986,10 @@ export function GitActionsView({
             disabled: !hasWorkingChanges
           },
           { isDivider: true },
-          { label: t('git.applyLatestStash'), action: () => void runRepoAction({ type: 'stashApply' }) },
+          {
+            label: t('git.applyLatestStash'),
+            action: () => void runRepoAction({ type: 'stashApply' })
+          },
           {
             label: t('git.applyStash'),
             action: () => {
@@ -1506,7 +1519,8 @@ export function GitActionsView({
   const isDirty = changedFiles.length > 0 || Boolean(gitStatus?.dirty)
   const pendingSyncCount = (gitStatus?.ahead ?? 0) + (gitStatus?.behind ?? 0)
   const hasWorkingChanges = changedFiles.length > 0
-  const canUndoLastCommit = commits.length > 0 && (!gitStatus?.hasUpstream || (gitStatus?.ahead ?? 0) > 0)
+  const canUndoLastCommit =
+    commits.length > 0 && (!gitStatus?.hasUpstream || (gitStatus?.ahead ?? 0) > 0)
   const showCommitMenu = hasWorkingChanges || canUndoLastCommit
 
   const categories: {
@@ -1843,10 +1857,10 @@ export function GitActionsView({
                   ? t('git.commitsToSync', { count: pendingSyncCount })
                   : `${t('git.syncChanges')} (${pendingSyncCount})`
                 : committing
-                ? t('git.committing')
-                : isGitMerging
-                  ? t('git.completeMerge')
-                  : t('git.commit')}
+                  ? t('git.committing')
+                  : isGitMerging
+                    ? t('git.completeMerge')
+                    : t('git.commit')}
             </Button>
             {showCommitMenu && (
               <button
@@ -1863,17 +1877,21 @@ export function GitActionsView({
                 }
                 className="press-scale flex w-9 items-center justify-center rounded-r-lg border-l border-white/20 bg-accent text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <ChevronDown className={cn('h-3.5 w-3.5 transition', commitMenuOpen && 'rotate-180')} />
+                <ChevronDown
+                  className={cn('h-3.5 w-3.5 transition', commitMenuOpen && 'rotate-180')}
+                />
               </button>
             )}
             {showCommitMenu && commitMenuOpen && (
               <div className="animate-pop-in absolute right-0 top-full z-50 mt-2 flex w-52 origin-top-right flex-col overflow-hidden sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated p-1 shadow-float">
                 {hasWorkingChanges &&
-                  ([
-                    ['push', t('git.commitAndPush')],
-                    ['sync', t('git.commitAndSync')],
-                    ['amend', t('git.commitAmend')]
-                  ] as const).map(([action, label]) => (
+                  (
+                    [
+                      ['push', t('git.commitAndPush')],
+                      ['sync', t('git.commitAndSync')],
+                      ['amend', t('git.commitAmend')]
+                    ] as const
+                  ).map(([action, label]) => (
                     <button
                       key={action}
                       type="button"
@@ -1884,7 +1902,9 @@ export function GitActionsView({
                       {label}
                     </button>
                   ))}
-                {hasWorkingChanges && canUndoLastCommit && <div className="my-1 border-t border-border" />}
+                {hasWorkingChanges && canUndoLastCommit && (
+                  <div className="my-1 border-t border-border" />
+                )}
                 {canUndoLastCommit && (
                   <button
                     type="button"

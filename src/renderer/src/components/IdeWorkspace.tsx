@@ -1003,7 +1003,9 @@ function WorkspaceContents({
 
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
-  const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | 'git' | undefined>()
+  const [commandsInitialTab, setCommandsInitialTab] = useState<
+    'agent' | 'user' | 'git' | undefined
+  >()
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const chats = useRoxyStore((s) => s.chats)
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null
