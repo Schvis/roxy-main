@@ -653,7 +653,8 @@ export async function searchWorkspaceFiles(
     return []
   }
 
-  const maxResults = Math.min(options?.maxResults ?? 300, 1000)
+  const maxResults = Math.min(Math.max(1, options?.maxResults ?? 5000), 20000)
+  const maxResultsPerFile = Math.max(1, options?.maxResultsPerFile ?? 100)
   const files = await glob('**/*', {
     cwd: realRoot,
     onlyFiles: true,
@@ -671,6 +672,7 @@ export async function searchWorkspaceFiles(
       const content = await readFile(fullPath, 'utf8')
       if (content.includes('\0')) continue
 
+      let fileMatches = 0
       const lines = content.split(/\r?\n/)
       for (let i = 0; i < lines.length; i++) {
         const lineText = lines[i]
@@ -684,10 +686,11 @@ export async function searchWorkspaceFiles(
             matchLength: m[0].length,
             lineText: lineText.trimEnd().slice(0, 300)
           })
-          if (matches.length >= maxResults) break
+          fileMatches++
+          if (matches.length >= maxResults || fileMatches >= maxResultsPerFile) break
           if (m[0].length === 0) break
         }
-        if (matches.length >= maxResults) break
+        if (matches.length >= maxResults || fileMatches >= maxResultsPerFile) break
       }
     } catch {
       continue

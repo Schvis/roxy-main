@@ -1317,7 +1317,7 @@ function WorkspaceContents({
     setSearching(true)
     const timer = setTimeout(() => {
       void api.files
-        .search(sessionId, searchQuery, { caseSensitive, wholeWord })
+        .search(sessionId, searchQuery, { caseSensitive, wholeWord, maxResults: 5000 })
         .then((matches) => {
           if (cancelled) return
           setSearchResults(matches)
@@ -1334,7 +1334,7 @@ function WorkspaceContents({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [ideTab, sessionId, root, searchQuery, caseSensitive, wholeWord, searchNonce, refreshNonce])
+  }, [ideTab, sessionId, root, searchQuery, caseSensitive, wholeWord, searchNonce])
 
   const executeReplace = async (paths?: string[]): Promise<void> => {
     if (!sessionId || !root || !searchQuery.trim() || replacing) return

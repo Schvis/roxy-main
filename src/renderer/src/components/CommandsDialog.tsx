@@ -162,13 +162,12 @@ export function CommandsPane({
     () => runningAgentCommand?.id ?? null
   )
 
-  // Auto-switch to agent tab and select running command as soon as it begins
+  // Select running command as soon as it begins (without forcing active tab switch)
   useEffect(() => {
-    if (runningAgentCommand && activeTab !== 'git') {
-      setActiveTab('agent')
+    if (runningAgentCommand) {
       setSelectedAgentId(runningAgentCommand.id)
     }
-  }, [runningAgentCommand?.id, activeTab])
+  }, [runningAgentCommand?.id])
 
   const activeAgentCommand =
     (runningAgentCommand && (!selectedAgentId || selectedAgentId === runningAgentCommand.id)

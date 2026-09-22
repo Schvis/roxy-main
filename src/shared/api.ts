@@ -880,6 +880,7 @@ export interface WorkspaceFileSearchOptions {
   caseSensitive?: boolean
   wholeWord?: boolean
   maxResults?: number
+  maxResultsPerFile?: number
 }
 
 export interface WorkspaceFileReplaceResult {

@@ -444,8 +444,13 @@ export function layoutParts(
     }
 
     const cleanText = stripPlanSteps(stripQuestionTags(part.text))
-    if (cleanText.trim() === '') return
-    cursor += layoutMarkdown(builder, cleanText, x, cursor, width, {
+    const textToRender = cleanText.trim()
+      ? cleanText
+      : parts.filter((p) => p.type === 'text').length <= 1
+        ? part.text
+        : ''
+    if (textToRender.trim() === '') return
+    cursor += layoutMarkdown(builder, textToRender, x, cursor, width, {
       color: palette.text,
       size: FONT_SIZE.body,
       workspacePath: input.workspacePath
@@ -715,7 +720,8 @@ export function partsText(parts: MessagePart[]): string {
   return parts
     .map((part) => {
       if (part.type === 'text' || part.type === 'reasoning') {
-        return stripPlanSteps(stripQuestionTags(part.text))
+        const clean = stripPlanSteps(stripQuestionTags(part.text))
+        return clean.trim() || part.text
       }
       if (part.type === 'image') return part.name ?? ''
       return [

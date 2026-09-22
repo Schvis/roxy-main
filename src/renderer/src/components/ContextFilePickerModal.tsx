@@ -95,7 +95,7 @@ export function ContextFilePickerModal({
     let cancelled = false
     const timer = setTimeout(() => {
       api.files
-        .search(sessionId, q, { maxResults: 100 })
+        .search(sessionId, q, { maxResults: 500, maxResultsPerFile: 10 })
         .then((res) => {
           if (!cancelled) {
             setSearchResults(res)

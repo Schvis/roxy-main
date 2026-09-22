@@ -1192,8 +1192,22 @@ function recordCall(
 function shouldWaitForUserInput(text: string): boolean {
   if (!text) return false
 
-  return /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/i.test(
-    text
+  const match =
+    text.match(
+      /<(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)>([\s\S]*?)(?:<\/(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)>|$)/i
+    ) ||
+    text.match(
+      /```(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)\s*([\s\S]*?)\s*```/i
+    )
+
+  if (!match) return false
+  const inner = match[1]?.trim()
+  if (!inner) return false
+
+  return (
+    /["'](?:question|questions|options|prompt)["']\s*:/i.test(inner) ||
+    inner.startsWith('[') ||
+    inner.startsWith('{')
   )
 }
 
@@ -1276,7 +1290,45 @@ async function runLoop(o: LoopOptions): Promise<string> {
       cost
     )
     if (text) lastText = text
-    if (toolCalls.length === 0) return lastText // model finished with prose
+    if (toolCalls.length === 0) {
+      if (!text.trim()) {
+        // If the model finished without prose (e.g. after tool executions or empty response)
+        // give it a chance to produce a summary of the actions taken, or emit a clear completion notice.
+        if (convo.some((m) => m.role === 'tool')) {
+          convo.push({
+            role: 'user',
+            content: 'Please briefly summarize what was done and the current status.'
+          })
+          try {
+            const followUp = await streamTurn(
+              providerId,
+              vision,
+              model,
+              trimConvo(convo, contextLimit, metricsId),
+              signal,
+              reasoning,
+              effort,
+              [],
+              onText,
+              onReasoning
+            )
+            if (followUp?.text?.trim()) {
+              return followUp.text
+            }
+          } catch {
+            // ignore follow-up error, fall through to fallback message
+          }
+        }
+        if (!lastText.trim()) {
+          const fallback = convo.some((m) => m.role === 'tool')
+            ? 'Completed all requested actions.'
+            : 'Done.'
+          onText(fallback)
+          return fallback
+        }
+      }
+      return lastText // model finished with prose
+    }
 
     // Halt turn and wait for user input if the agent asked interactive questions.
     if (depth === 0 && shouldWaitForUserInput(text)) {

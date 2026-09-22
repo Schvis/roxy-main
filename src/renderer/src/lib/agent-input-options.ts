@@ -25,9 +25,9 @@ export interface AgentQuestionSummary {
 }
 
 const QUESTION_TAG_RE =
-  /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/gi
+  /<(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)>[\s\S]*?(?:<\/(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)>|$)/gi
 
-/** Strip `<agent-question>` and `<questions>` tags and their contents from text for chat display. */
+/** Strip `<agent-question>` and `<agent-questions>` tags and their contents from text for chat display. */
 export function stripQuestionTags(text: string): string {
   if (!text) return ''
   return text.replace(QUESTION_TAG_RE, '')
@@ -214,13 +214,13 @@ export function extractAgentQuestionOptions(
   const text = getMessageText(last).trim()
   if (!text || text.includes('_[stopped]_') || text.includes('[stopped]')) return null
 
-  // 1. Check for structured <agent-question> or <questions> tag
+  // 1. Check for structured <agent-question> tag
   const tagMatch =
     text.match(
-      /<(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>([\s\S]*?)(?:<\/(?:agent-question|agent-questions|questions|question|ask-questions?|user-questions?|user-inputs?)>|$)/i
+      /<(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)>([\s\S]*?)(?:<\/(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?)>|$)/i
     ) ||
     text.match(
-      /```(?:agent-question|agent-questions|questions|question|json:questions?)\s*([\s\S]*?)\s*```/i
+      /```(?:agent-question|agent-questions|ask-questions?|user-questions?|user-inputs?|json:questions?)\s*([\s\S]*?)\s*```/i
     )
   if (tagMatch) {
     const rawJson = tagMatch[1]

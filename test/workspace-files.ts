@@ -191,6 +191,13 @@ async function main(): Promise<void> {
     const searchEmpty = await searchWorkspaceFiles(root, '')
     assert.deepEqual(searchEmpty, [])
 
+    // Test maxResultsPerFile distribution across multiple files
+    await writeFile(path.join(root, 'search-multi-1.ts'), 'match match match')
+    await writeFile(path.join(root, 'search-multi-2.ts'), 'match match match')
+    const searchPerFile = await searchWorkspaceFiles(root, 'match', { maxResultsPerFile: 1 })
+    assert.equal(searchPerFile.filter((m) => m.path === 'search-multi-1.ts').length, 1)
+    assert.equal(searchPerFile.filter((m) => m.path === 'search-multi-2.ts').length, 1)
+
     // Test workspace file replace
     await writeFile(path.join(root, 'replace-test.ts'), 'const foo = "bar";\nconst foo2 = "bar";')
     const replaceSpecific = await replaceWorkspaceFiles(root, 'bar', 'baz', undefined, [
