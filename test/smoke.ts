@@ -104,11 +104,18 @@ import {
   installSkillFromSource,
   exportGlobalSkills,
   importGlobalSkills,
+  writeSkill,
   _setInstallFetchForTests,
   _resetSkillsForTests
 } from '../src/main/services/skills'
 import { buildExport, applyImport } from '../src/main/services/portable'
 import { parseBundle } from '../src/shared/portable'
+import {
+  isPortableMode,
+  getPortableDataDir,
+  initPortableMode,
+  _resetPortableModeForTests
+} from '../src/main/services/portable-mode'
 import {
   streamTurn,
   isTransientModelError,
@@ -5391,6 +5398,59 @@ async function main(): Promise<void> {
     )
   } catch (e) {
     check('chrome', false, e instanceof Error ? e.message : String(e))
+  }
+
+  // ---- portable mode runtime ----
+  {
+    _resetPortableModeForTests()
+    check('portable: default is not portable', isPortableMode() === false)
+    check('portable: default data dir is null', getPortableDataDir() === null)
+
+    const prevPortableEnv = process.env.PORTABLE_EXECUTABLE_DIR
+    const prevRoxyPortable = process.env.ROXY_PORTABLE
+    try {
+      const mockDir = path.join(tmp, 'portable-root')
+      process.env.PORTABLE_EXECUTABLE_DIR = mockDir
+      _resetPortableModeForTests()
+
+      check('portable: PORTABLE_EXECUTABLE_DIR activates portable mode', isPortableMode() === true)
+      check(
+        'portable: resolves data dir under executable dir',
+        getPortableDataDir() === path.join(mockDir, 'data')
+      )
+
+      const initResult = initPortableMode()
+      check('portable: initPortableMode succeeds', initResult === true)
+      check('portable: data directory was created', existsSync(path.join(mockDir, 'data')))
+      check(
+        'portable: app userData was redirected',
+        app.getPath('userData') === path.join(mockDir, 'data')
+      )
+      check(
+        'portable: app temp was redirected',
+        app.getPath('temp') === path.join(mockDir, 'data', 'temp')
+      )
+
+      _resetSkillsForTests()
+      const globalWrite = await writeSkill(
+        { name: 'globalportableskill', description: 'desc', body: 'body', scope: 'global' },
+        ws,
+        { mode: 'create' }
+      )
+      check('portable: writeSkill succeeded in portable mode', globalWrite.ok === true)
+      check(
+        'portable: global skill wrote into portable data directory',
+        existsSync(path.join(mockDir, 'data', 'skills', 'globalportableskill', 'SKILL.md'))
+      )
+    } finally {
+      if (prevPortableEnv === undefined) delete process.env.PORTABLE_EXECUTABLE_DIR
+      else process.env.PORTABLE_EXECUTABLE_DIR = prevPortableEnv
+      if (prevRoxyPortable === undefined) delete process.env.ROXY_PORTABLE
+      else process.env.ROXY_PORTABLE = prevRoxyPortable
+      _resetPortableModeForTests()
+      _resetSkillsForTests()
+      app.setPath('userData', tmp)
+    }
   }
 
   closeDb()

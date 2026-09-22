@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { CHANNELS } from '../../shared/ipc'
 import type { UpdateState } from '../../shared/api'
+import { isPortableMode } from './portable-mode'
 
 /**
  * Auto-updates via GitHub Releases (electron-updater). The packaged app reads
@@ -29,7 +30,8 @@ export function getUpdateState(): UpdateState {
 export function initAutoUpdater(window: BrowserWindow): void {
   win = window
   // Only meaningful in a packaged app — dev builds have no update feed.
-  if (!app.isPackaged) return
+  // Portable builds disable auto-installing updates to avoid touching the host.
+  if (!app.isPackaged || isPortableMode()) return
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -56,7 +58,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
 
 /** Trigger a check now (startup, the 6h timer, and the Settings button). */
 export async function checkForUpdates(): Promise<void> {
-  if (!app.isPackaged) {
+  if (!app.isPackaged || isPortableMode()) {
     setState({ status: 'not-available' })
     return
   }

@@ -40,6 +40,7 @@ import { updateVoiceShortcut, unregisterVoiceShortcut } from './services/voice-s
 import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 import { initDiscordRpc, shutdownDiscordRpc } from './services/discord-rpc'
 import { flushAllActiveTurns } from './services/turn-recovery'
+import { initPortableMode } from './services/portable-mode'
 
 let isQuitting = false
 
@@ -189,6 +190,8 @@ protocol.registerSchemesAsPrivileged([
     }
   }
 ])
+
+initPortableMode()
 
 const gotTheLock = app.requestSingleInstanceLock()
 

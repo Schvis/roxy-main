@@ -40,17 +40,23 @@ import {
   type PortableSkill,
   type PortableSkillFile
 } from '../../shared/portable'
+import { getPortableDataDir } from './portable-mode'
 
 /** Relative skill-root directories searched under each workspace ancestor. */
 const WORKSPACE_SKILL_DIRS = ['.roxy/skills', '.claude/skills', '.agents/skills']
 /** Absolute skill-root directories searched under the user's home. */
 function globalSkillDirs(): string[] {
   const home = os.homedir()
-  return [
+  const dirs = [
     path.join(home, '.roxy', 'skills'),
     path.join(home, '.claude', 'skills'),
     path.join(home, '.config', 'roxy', 'skills')
   ]
+  const portableDir = getPortableDataDir()
+  if (portableDir) {
+    dirs.unshift(path.join(portableDir, 'skills'))
+  }
+  return dirs
 }
 
 /** Glob patterns matched within each root: a bare `<name>.md` or a folder's `SKILL.md`. */
@@ -258,7 +264,13 @@ export interface WriteSkillResult {
  * (global) — so a freshly written skill is immediately discoverable.
  */
 function primarySkillRoot(scope: SkillScope, cwd: string): string {
-  if (scope === 'global') return path.join(os.homedir(), '.roxy', 'skills')
+  if (scope === 'global') {
+    const portableDir = getPortableDataDir()
+    if (portableDir) {
+      return path.join(portableDir, 'skills')
+    }
+    return path.join(os.homedir(), '.roxy', 'skills')
+  }
   return path.join(path.resolve(cwd), '.roxy', 'skills')
 }
 

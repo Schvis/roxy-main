@@ -32,11 +32,17 @@ asarUnpack:
 afterPack: script/bundle-cliproxy.cjs
 win:
   executableName: roxy
+  target:
+    - nsis
+    - portable
+    - zip
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+portable:
+  artifactName: ${name}-${version}-portable.${ext}
 mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
