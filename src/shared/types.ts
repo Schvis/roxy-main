@@ -78,6 +78,7 @@ export interface ConnectedProvider {
 
 export interface ConnectProviderInput {
   id: string
+  name?: string
   apiKey?: string
   baseURL?: string
   defaultModel?: string

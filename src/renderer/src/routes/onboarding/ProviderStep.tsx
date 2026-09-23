@@ -1,7 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { ArrowLeft, ArrowRight, Check, ChevronRight, ExternalLink, Search } from 'lucide-react'
-import { AUTH_LABELS, SEED_PROVIDERS, isConnectableNow, resolveSeed } from '@shared/providers'
+import {
+  AUTH_LABELS,
+  SEED_PROVIDERS,
+  isConnectableNow,
+  isOpenAiCompatible,
+  resolveSeed
+} from '@shared/providers'
 import { pickDefaultModel } from '@shared/models'
 import type { ConnectedProvider, SeedProvider } from '@shared/types'
 import { api } from '../../lib/api'
@@ -78,7 +84,7 @@ export function ProviderStep(): JSX.Element {
               <ProviderRow
                 key={seed.id}
                 seed={seed}
-                connected={connectedIds.has(seed.id)}
+                connected={seed.id === 'openai-compatible' ? false : connectedIds.has(seed.id)}
                 onClick={() => setSetupId(seed.id)}
               />
             ))}
@@ -89,7 +95,11 @@ export function ProviderStep(): JSX.Element {
       {setupId && (
         <ProviderSetup
           seed={resolveSeed(setupId)}
-          connected={providers.find((provider) => provider.id === setupId)}
+          connected={
+            setupId === 'openai-compatible'
+              ? undefined
+              : providers.find((provider) => provider.id === setupId)
+          }
           onClose={() => setSetupId(null)}
         />
       )}
@@ -184,9 +194,14 @@ function ProviderSetup({
   onClose: () => void
 }): JSX.Element {
   const { t } = useTranslation()
+  const providers = useRoxyStore((s) => s.providers)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
   const clearModelCache = useRoxyStore((s) => s.clearModelCache)
   const [apiKey, setApiKey] = useState('')
+  const isCustomCompatible = seed.id === 'openai-compatible' || isOpenAiCompatible(seed.id)
+  const [name, setName] = useState(
+    connected?.name ?? (isCustomCompatible ? 'OpenAI-compatible' : seed.name)
+  )
   const [baseURL, setBaseURL] = useState(connected?.baseURL ?? seed.baseURL ?? '')
   const [defaultModel, setDefaultModel] = useState(connected?.defaultModel ?? '')
   const [discoverImageModels, setDiscoverImageModels] = useState(
@@ -201,7 +216,6 @@ function ProviderSetup({
   // it is by id, since one sidecar process serves them all.
   const isSubscription = seed.auth === 'subscription'
   const needsKey = seed.auth === 'api-key'
-  const isCustomCompatible = seed.id === 'openai-compatible'
   const needsBaseURL = !seed.baseURL
   const showBaseURL = needsBaseURL || seed.auth === 'none' || isCustomCompatible
   const canConnect =
@@ -213,9 +227,15 @@ function ProviderSetup({
     setConnecting(true)
     setError(null)
     try {
-      clearModelCache(seed.id)
+      const targetId = connected
+        ? connected.id
+        : isCustomCompatible && providers.some((p) => p.id === 'openai-compatible')
+          ? `openai-compatible-${crypto.randomUUID()}`
+          : seed.id
+      clearModelCache(targetId)
       const provider = await api.providers.connect({
-        id: seed.id,
+        id: targetId,
+        name: isCustomCompatible ? name.trim() || undefined : undefined,
         apiKey: apiKey.trim() || undefined,
         baseURL: baseURL.trim() || undefined,
         defaultModel: defaultModel.trim() || undefined,
@@ -283,6 +303,16 @@ function ProviderSetup({
                 </p>
                 {seed.notes && <p className="mt-2 text-xs text-text-subtle">{seed.notes}</p>}
               </div>
+              {isCustomCompatible && (
+                <Field label={t('onboarding.providerName')}>
+                  <Input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t('onboarding.providerNamePlaceholder')}
+                    autoFocus
+                  />
+                </Field>
+              )}
               {needsKey && (
                 <Field label={t('onboarding.apiKey')}>
                   <Input
@@ -290,7 +320,7 @@ function ProviderSetup({
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={seed.id === 'roxy' ? 'rx-…' : 'sk-…'}
-                    autoFocus
+                    autoFocus={!isCustomCompatible}
                   />
                 </Field>
               )}

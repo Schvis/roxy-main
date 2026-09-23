@@ -132,7 +132,8 @@ const roxy: RoxyApi = {
     listConnected: () => ipcRenderer.invoke(CHANNELS.providersList),
     connect: (input) => ipcRenderer.invoke(CHANNELS.providersConnect, input),
     disconnect: (id) => ipcRenderer.invoke(CHANNELS.providersDisconnect, id),
-    reorder: (ids) => ipcRenderer.invoke(CHANNELS.providersReorder, ids)
+    reorder: (ids) => ipcRenderer.invoke(CHANNELS.providersReorder, ids),
+    rename: (id, name) => ipcRenderer.invoke(CHANNELS.providersRename, id, name)
   },
   chats: {
     list: () => ipcRenderer.invoke(CHANNELS.chatsList),

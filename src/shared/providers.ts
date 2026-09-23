@@ -520,8 +520,30 @@ export const DEFAULT_SEED: SeedProvider = {
 
 const SEED_BY_ID = new Map(SEED_PROVIDERS.map((p) => [p.id, p]))
 
+/**
+ * Whether `id` identifies an OpenAI-compatible provider.
+ * Supports the default 'openai-compatible' id as well as additional custom endpoints
+ * (e.g. 'openai-compatible-xxx').
+ */
+export function isOpenAiCompatible(id: string): boolean {
+  return (
+    id === 'openai-compatible' ||
+    id.startsWith('openai-compatible-') ||
+    id.startsWith('openai-compatible:')
+  )
+}
+
 export function resolveSeed(providerId: string): SeedProvider {
-  return SEED_BY_ID.get(providerId) ?? { ...DEFAULT_SEED, id: providerId, name: providerId }
+  const hit = SEED_BY_ID.get(providerId)
+  if (hit) return hit
+  if (isOpenAiCompatible(providerId)) {
+    return {
+      ...DEFAULT_SEED,
+      id: providerId,
+      name: 'OpenAI-compatible (custom)'
+    }
+  }
+  return { ...DEFAULT_SEED, id: providerId, name: providerId }
 }
 
 /**

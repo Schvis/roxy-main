@@ -1035,6 +1035,8 @@ export interface RoxyApi {
     disconnect(id: string): Promise<void>
     /** Reorder connected providers; `ids` is the full Settings list, top-to-bottom. */
     reorder(ids: string[]): Promise<void>
+    /** Rename a connected provider. */
+    rename(id: string, name: string): Promise<ConnectedProvider>
   }
   chats: {
     list(): Promise<Chat[]>

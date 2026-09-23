@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useRoxyStore } from '../lib/store'
 import { api } from '../lib/api'
 import { Button } from '../components/ui'
@@ -16,7 +16,7 @@ export default function Onboarding(): JSX.Element {
   const navigate = useNavigate()
   const providers = useRoxyStore((s) => s.providers)
   const bootstrap = useRoxyStore((s) => s.bootstrap)
-  const [step, setStep] = useState<Step>('welcome')
+  const [step, setStep] = useState<Step>(providers.length > 0 ? 'provider' : 'welcome')
   const [finishing, setFinishing] = useState(false)
 
   const canFinish = providers.length > 0
@@ -41,7 +41,16 @@ export default function Onboarding(): JSX.Element {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
-      <header className="titlebar reserve-controls-left reserve-controls-right flex h-14 shrink-0 items-center px-5">
+      <header className="titlebar reserve-controls-left reserve-controls-right flex h-14 shrink-0 items-center gap-3 px-5">
+        {providers.length > 0 && (
+          <button
+            onClick={() => navigate(-1)}
+            title={t('common.back')}
+            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+        )}
         <div className="flex items-center gap-2.5">
           <img
             src={roxy}

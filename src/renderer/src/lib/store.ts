@@ -213,6 +213,7 @@ interface RoxyStore {
   refreshProviders: () => Promise<void>
   /** Persist the connected provider order (optimistic). `ids` = full list, top-to-bottom. */
   reorderProviders: (ids: string[]) => Promise<void>
+  renameProvider: (id: string, name: string) => Promise<void>
   /**
    * The config the OPEN session runs with: its own pinned values, falling back
    * to the global last-used ones. The single read path for the composer
@@ -1468,6 +1469,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       return { providers: [...reordered, ...rest] }
     })
     await api.providers.reorder(ids)
+    await get().refreshProviders()
+  },
+
+  renameProvider: async (id, name) => {
+    await api.providers.rename(id, name)
     await get().refreshProviders()
   },
 

@@ -42,7 +42,7 @@
  * who opted out must stay opted out across one. It also means tracking has no
  * dependency on the database being open or mid-migration.
  */
-import { isSeedProviderId } from '../../shared/providers'
+import { isOpenAiCompatible, isSeedProviderId } from '../../shared/providers'
 import { isFeatureId, type ActivationMilestone, type FeatureId } from '../../shared/telemetry'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -147,7 +147,12 @@ function sanitize(props?: Props): Props | undefined {
   const raw = props.provider
   return {
     ...props,
-    provider: typeof raw === 'string' && isSeedProviderId(raw) ? raw : 'other'
+    provider:
+      typeof raw === 'string' && (isSeedProviderId(raw) || isOpenAiCompatible(raw))
+        ? isOpenAiCompatible(raw)
+          ? 'openai-compatible'
+          : raw
+        : 'other'
   }
 }
 

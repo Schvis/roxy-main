@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { resolveSeed } from '../../shared/providers'
+import { isOpenAiCompatible, resolveSeed } from '../../shared/providers'
 import { normalizeServerConfig, type McpServerConfig, type McpServerRecord } from '../../shared/mcp'
 import { DEFAULT_BRANCH_PREFIX, normalizeBranchPrefix } from '../../shared/branch'
 import { DEFAULT_LANGUAGE, normalizeLanguage } from '../../shared/i18n'
@@ -671,9 +671,13 @@ function getProvider(id: string): ConnectedProvider | undefined {
 export function connectProvider(input: ConnectProviderInput): ConnectedProvider {
   const seed = resolveSeed(input.id)
   const now = Date.now()
+  const existing = getProvider(input.id)
+  const name = input.name?.trim() || existing?.name || seed.name
   const baseURL = input.baseURL?.trim() || seed.baseURL || null
   const defaultModel = input.defaultModel?.trim() || null
-  const discoverImageModels = input.id === 'openai-compatible' && input.discoverImageModels === true
+  const discoverImageModels =
+    (input.id === 'openai-compatible' || isOpenAiCompatible(input.id)) &&
+    input.discoverImageModels === true
   const db = getDb()
 
   const tx = db.transaction(() => {
@@ -689,15 +693,15 @@ export function connectProvider(input: ConnectProviderInput): ConnectedProvider 
          discover_image_models = excluded.discover_image_models,
          enabled = 1`
     ).run({
-      id: seed.id,
-      name: seed.name,
+      id: input.id,
+      name,
       wire: seed.wire,
       auth: seed.auth,
       base_url: baseURL,
       default_model: defaultModel,
       discover_image_models: discoverImageModels ? 1 : 0,
-      sort_order: -now,
-      created_at: now
+      sort_order: existing ? existing.sortOrder : -now,
+      created_at: existing ? existing.createdAt : now
     })
 
     const key = input.apiKey?.trim()
@@ -708,14 +712,25 @@ export function connectProvider(input: ConnectProviderInput): ConnectedProvider 
          VALUES(?, 'key', ?, ?, ?)
          ON CONFLICT(provider_id) DO UPDATE SET
            type = excluded.type, data = excluded.data, encrypted = excluded.encrypted`
-      ).run(seed.id, data, encrypted ? 1 : 0, now)
+      ).run(input.id, data, encrypted ? 1 : 0, now)
     }
   })
   tx()
 
-  const provider = getProvider(seed.id)
-  if (!provider) throw new Error(`Failed to connect provider ${seed.id}`)
+  const provider = getProvider(input.id)
+  if (!provider) throw new Error(`Failed to connect provider ${input.id}`)
   getDb().pragma('wal_checkpoint(TRUNCATE)')
+  return provider
+}
+
+export function renameProvider(id: string, name: string): ConnectedProvider {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Provider name cannot be empty')
+  const db = getDb()
+  const res = db.prepare('UPDATE providers SET name = ? WHERE id = ?').run(trimmed, id)
+  if (res.changes === 0) throw new Error(`Provider not found: ${id}`)
+  const provider = getProvider(id)
+  if (!provider) throw new Error(`Failed to read renamed provider: ${id}`)
   return provider
 }
 

@@ -7,6 +7,7 @@ import type { ReasoningEffort } from '../../shared/types'
 import { REASONING_EFFORTS } from '../../shared/session-config'
 import { getCopilotSessionKey, getProviderToken, listConnectedProviders } from '../db/repo'
 import { isCliProxyProvider } from '../../shared/cliproxy'
+import { isOpenAiCompatible } from '../../shared/providers'
 import { ensureRunning as ensureCliProxy, listProxyModels } from './cliproxy'
 import { copilotEndpoint, withCopilotRetry } from './llm'
 
@@ -413,7 +414,9 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
   if (providerId === 'github-copilot') return listCopilotModels()
   if (providerId === 'roxy') return listRoxyModels()
   if (isCliProxyProvider(providerId)) return listSubscriptionModels(providerId)
-  if (providerId === 'openai-compatible') return listOpenAiCompatibleModels(providerId)
+  if (providerId === 'openai-compatible' || isOpenAiCompatible(providerId)) {
+    return listOpenAiCompatibleModels(providerId)
+  }
   try {
     const data = await getCatalog()
     const models = data[providerId]?.models

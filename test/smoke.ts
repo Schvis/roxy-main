@@ -2840,7 +2840,7 @@ async function main(): Promise<void> {
   // killing the whole turn, losing its reasoning and every other tool result.
   {
     _resetToolRuns()
-    let aborted = false
+    let aborted: boolean = false
     const run = startToolRun({
       callId: 'call_1',
       tool: 'bash',
@@ -2851,7 +2851,7 @@ async function main(): Promise<void> {
     })
     check('a fresh tool run is not cancelled', run.wasCancelled() === false)
     check('cancelToolCall finds a running call', cancelToolCall('call_1') === true)
-    check('cancelToolCall aborts the call', aborted === true)
+    check('cancelToolCall aborts the call', (aborted as boolean) === true)
     // The flag is how the harness tells "the user did this" from "the tool
     // failed" — both abort the same signal, so only the registry knows which.
     check(
@@ -2904,7 +2904,10 @@ async function main(): Promise<void> {
       }
     })
     cancelToolCallsFor('sess_a')
-    check('cancelToolCallsFor is scoped to one session', mine === true && theirs === false)
+    check(
+      'cancelToolCallsFor is scoped to one session',
+      (mine as boolean) === true && (theirs as boolean) === false
+    )
     // A session-wide Stop aborts the same signal but must NOT mark the call as
     // individually cancelled: that flag makes the harness tell the model "you
     // cancelled this, carry on with the rest of your work" — a lie in a
@@ -2923,7 +2926,7 @@ async function main(): Promise<void> {
       }
     })
     cancelToolCallsFor('sess_b')
-    check('a throwing cancel does not break the sweep', theirs === true)
+    check('a throwing cancel does not break the sweep', (theirs as boolean) === true)
     a2.end()
     b2.end()
     boom.end()
@@ -4618,6 +4621,80 @@ async function main(): Promise<void> {
   } catch (e) {
     check(
       'custom OpenAI-compatible model discovery',
+      false,
+      e instanceof Error ? e.message : String(e)
+    )
+  }
+
+  // ---- multiple OpenAI-compatible endpoints & renaming & reordering ----
+  try {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ object: 'list', data: [{ id: 'custom-model-1' }] }))
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const addr = server.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+
+    // Connect endpoint 1
+    const p1 = repo.connectProvider({
+      id: 'openai-compatible',
+      name: 'Local Ollama',
+      baseURL: `http://127.0.0.1:${port}/v1/`
+    })
+    check('multiple endpoints: connects endpoint 1 with custom name', p1.name === 'Local Ollama')
+
+    // Connect endpoint 2 with distinct id and name
+    const p2Id = 'openai-compatible-test-2'
+    const p2 = repo.connectProvider({
+      id: p2Id,
+      name: 'vLLM Server',
+      baseURL: `http://127.0.0.1:${port}/v1/`
+    })
+    check(
+      'multiple endpoints: connects endpoint 2 with distinct id and name',
+      p2.id === p2Id && p2.name === 'vLLM Server'
+    )
+
+    // Both endpoints exist in connected providers list
+    const connected = repo.listConnectedProviders()
+    check(
+      'multiple endpoints: both exist in connected providers',
+      connected.some((p) => p.id === 'openai-compatible') && connected.some((p) => p.id === p2Id)
+    )
+
+    // Rename endpoint 1
+    const renamed = repo.renameProvider('openai-compatible', 'Fast Ollama')
+    check('renaming: renames provider successfully', renamed.name === 'Fast Ollama')
+    check(
+      'renaming: persists renamed provider in list',
+      repo.listConnectedProviders().find((p) => p.id === 'openai-compatible')?.name ===
+        'Fast Ollama'
+    )
+
+    // Model discovery for secondary endpoint
+    const p2Models = await listModels(p2Id)
+    check(
+      'multiple endpoints: discovers models on secondary custom endpoint',
+      p2Models.some((m) => m.id === 'custom-model-1')
+    )
+
+    // Reorder providers
+    repo.reorderProviders([p2Id, 'openai-compatible'])
+    const reordered = repo.listConnectedProviders()
+    const p2Idx = reordered.findIndex((p) => p.id === p2Id)
+    const p1Idx = reordered.findIndex((p) => p.id === 'openai-compatible')
+    check(
+      'reordering: reorders providers with custom endpoints',
+      p2Idx !== -1 && p1Idx !== -1 && p2Idx < p1Idx
+    )
+
+    await new Promise<void>((r) => server.close(() => r()))
+    repo.disconnectProvider('openai-compatible')
+    repo.disconnectProvider(p2Id)
+  } catch (e) {
+    check(
+      'multiple OpenAI-compatible endpoints & renaming',
       false,
       e instanceof Error ? e.message : String(e)
     )

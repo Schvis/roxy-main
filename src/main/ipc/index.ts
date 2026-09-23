@@ -740,6 +740,9 @@ export function registerIpc(): void {
     return repo.disconnectProvider(id)
   })
   ipcMain.handle(CHANNELS.providersReorder, (_e, ids: string[]) => repo.reorderProviders(ids))
+  ipcMain.handle(CHANNELS.providersRename, (_e, id: string, name: string) =>
+    repo.renameProvider(id, name)
+  )
 
   // ---- chats ----
   ipcMain.handle(CHANNELS.chatsList, () => repo.listChats())

@@ -14,11 +14,17 @@ import {
   Cpu,
   Briefcase,
   Sparkles,
-  RotateCcw
+  RotateCcw,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  Pencil,
+  Settings2
 } from 'lucide-react'
 import type { AppVersions, ConnectedProvider } from '@shared/types'
 import type { UpdateInfo } from '@shared/api'
-import { AUTH_LABELS } from '@shared/providers'
+import { AUTH_LABELS, isOpenAiCompatible } from '@shared/providers'
 import { LANGUAGES, SOURCE_LANGUAGE, normalizeLanguage } from '@shared/i18n'
 import { api } from '../lib/api'
 import { CodeHosts } from '../components/CodeHosts'
@@ -69,6 +75,7 @@ export default function Settings(): JSX.Element {
   const settings = useRoxyStore((s) => s.settings)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
+  const renameProvider = useRoxyStore((s) => s.renameProvider)
   const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
   const setIdeMode = useRoxyStore((s) => s.setIdeMode)
@@ -213,6 +220,74 @@ export default function Settings(): JSX.Element {
       await ensureModels(provider.id)
     } finally {
       setImageDiscoverySaving(false)
+    }
+  }
+
+  const [endpointModalOpen, setEndpointModalOpen] = useState(false)
+  const [editingEndpointProvider, setEditingEndpointProvider] = useState<ConnectedProvider | null>(
+    null
+  )
+  const [endpointName, setEndpointName] = useState('')
+  const [endpointBaseURL, setEndpointBaseURL] = useState('')
+  const [endpointApiKey, setEndpointApiKey] = useState('')
+  const [endpointDefaultModel, setEndpointDefaultModel] = useState('')
+  const [endpointDiscoverImages, setEndpointDiscoverImages] = useState(false)
+  const [savingEndpoint, setSavingEndpoint] = useState(false)
+  const [endpointError, setEndpointError] = useState<string | null>(null)
+
+  const sortProvidersByName = (): void => {
+    const sorted = [...providers].sort((a, b) => a.name.localeCompare(b.name)).map((p) => p.id)
+    void reorderProviders(sorted)
+  }
+
+  const moveProvider = (id: string, direction: 'up' | 'down'): void => {
+    const index = providers.findIndex((p) => p.id === id)
+    if (index === -1) return
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= providers.length) return
+    const ids = providers.map((p) => p.id)
+    const [moved] = ids.splice(index, 1)
+    ids.splice(targetIndex, 0, moved)
+    void reorderProviders(ids)
+  }
+
+  const openEndpointModal = (provider: ConnectedProvider | null): void => {
+    setEditingEndpointProvider(provider)
+    setEndpointName(provider?.name ?? 'OpenAI-compatible')
+    setEndpointBaseURL(provider?.baseURL ?? '')
+    setEndpointApiKey('')
+    setEndpointDefaultModel(provider?.defaultModel ?? '')
+    setEndpointDiscoverImages(provider?.discoverImageModels ?? false)
+    setEndpointError(null)
+    setEndpointModalOpen(true)
+  }
+
+  const saveEndpoint = async (): Promise<void> => {
+    setSavingEndpoint(true)
+    setEndpointError(null)
+    try {
+      const targetId = editingEndpointProvider
+        ? editingEndpointProvider.id
+        : !providers.some((p) => p.id === 'openai-compatible')
+          ? 'openai-compatible'
+          : `openai-compatible-${crypto.randomUUID()}`
+
+      clearModelCache(targetId)
+      await api.providers.connect({
+        id: targetId,
+        name: endpointName.trim() || undefined,
+        baseURL: endpointBaseURL.trim() || undefined,
+        apiKey: endpointApiKey.trim() || undefined,
+        defaultModel: endpointDefaultModel.trim() || undefined,
+        discoverImageModels: endpointDiscoverImages
+      })
+      await refreshProviders()
+      void ensureModels(targetId)
+      setEndpointModalOpen(false)
+    } catch (e) {
+      setEndpointError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSavingEndpoint(false)
     }
   }
 
@@ -925,9 +1000,22 @@ export default function Settings(): JSX.Element {
   const renderProviders = (): JSX.Element => (
     <>
       <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.providers.heading')}</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className={SECTION_HEADING}>{t('settings.providers.heading')}</h2>
+          {providers.length > 1 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={sortProvidersByName}
+              title={t('settings.providers.sortByName')}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              {t('settings.providers.sortByName')}
+            </Button>
+          )}
+        </div>
         <div className="flex flex-col gap-2">
-          {providers.map((p) => (
+          {providers.map((p, index) => (
             <div
               key={p.id}
               draggable={providers.length > 1}
@@ -973,6 +1061,12 @@ export default function Settings(): JSX.Element {
                 draggable={providers.length > 1}
                 dragging={dragProviderId === p.id}
                 onDisconnect={() => disconnect(p.id)}
+                onRename={(name) => void renameProvider(p.id, name)}
+                onMoveUp={index > 0 ? () => moveProvider(p.id, 'up') : undefined}
+                onMoveDown={
+                  index < providers.length - 1 ? () => moveProvider(p.id, 'down') : undefined
+                }
+                onEditEndpoint={isOpenAiCompatible(p.id) ? () => openEndpointModal(p) : undefined}
                 imageDiscoverySaving={imageDiscoverySaving}
                 onImageDiscoveryChange={(enabled) => void setImageDiscovery(p, enabled)}
               />
@@ -2367,6 +2461,106 @@ export default function Settings(): JSX.Element {
           </form>
         </div>
       )}
+
+      {endpointModalOpen && (
+        <div
+          className="animate-scrim-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+          onClick={() => !savingEndpoint && setEndpointModalOpen(false)}
+        >
+          <form
+            className="animate-modal-in w-full max-w-lg sq sq-2xl sq-ring rounded-2xl border border-border bg-surface p-5"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveEndpoint()
+            }}
+          >
+            <h2 className="text-lg font-semibold">
+              {t('settings.providers.editCustomEndpointTitle')}
+            </h2>
+            <div className="mt-4 flex flex-col gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-muted">
+                  {t('settings.providers.endpointName')}
+                </span>
+                <Input
+                  value={endpointName}
+                  onChange={(event) => setEndpointName(event.target.value)}
+                  placeholder="OpenAI-compatible"
+                  autoFocus
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-muted">
+                  {t('onboarding.baseUrl')}
+                </span>
+                <Input
+                  value={endpointBaseURL}
+                  onChange={(event) => setEndpointBaseURL(event.target.value)}
+                  placeholder="https://… or http://localhost:8000/v1"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-muted">
+                  {t('onboarding.apiKey')}
+                </span>
+                <Input
+                  type="password"
+                  value={endpointApiKey}
+                  onChange={(event) => setEndpointApiKey(event.target.value)}
+                  placeholder={
+                    editingEndpointProvider?.hasCredential ? '••••••••' : 'sk-… (optional)'
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-muted">
+                  {t('onboarding.modelId')}
+                </span>
+                <Input
+                  value={endpointDefaultModel}
+                  onChange={(event) => setEndpointDefaultModel(event.target.value)}
+                  placeholder={t('onboarding.modelIdPlaceholder')}
+                />
+              </label>
+              <label className="flex items-start gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={endpointDiscoverImages}
+                  onChange={(event) => setEndpointDiscoverImages(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-accent"
+                />
+                <span>
+                  <span className="block text-xs font-medium text-text">
+                    {t('onboarding.discoverImageModels')}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-text-subtle">
+                    {t('onboarding.discoverImageModelsBody')}
+                  </span>
+                </span>
+              </label>
+            </div>
+            {endpointError && <p className="mt-3 text-xs text-danger">{endpointError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEndpointModalOpen(false)}
+                disabled={savingEndpoint}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!endpointBaseURL.trim() || savingEndpoint}
+              >
+                {savingEndpoint ? t('settings.providers.saving') : t('settings.providers.save')}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </PageShell>
   )
 }
@@ -2377,6 +2571,10 @@ function ProviderRow({
   draggable,
   dragging,
   onDisconnect,
+  onRename,
+  onMoveUp,
+  onMoveDown,
+  onEditEndpoint,
   imageDiscoverySaving,
   onImageDiscoveryChange
 }: {
@@ -2385,10 +2583,29 @@ function ProviderRow({
   draggable: boolean
   dragging: boolean
   onDisconnect: () => void
+  onRename: (name: string) => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
+  onEditEndpoint?: () => void
   imageDiscoverySaving: boolean
   onImageDiscoveryChange: (enabled: boolean) => void
 }): JSX.Element {
   const { t } = useTranslation()
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(provider.name)
+
+  const handleRenameSubmit = (e: React.FormEvent): void => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === provider.name) {
+      setEditing(false)
+      setName(provider.name)
+      return
+    }
+    onRename(trimmed)
+    setEditing(false)
+  }
+
   return (
     <div
       className={cn(
@@ -2397,19 +2614,106 @@ function ProviderRow({
         draggable && !dragging && 'cursor-grab'
       )}
     >
-      <GripVertical
-        className={cn(
-          'h-4 w-4 shrink-0 text-text-subtle transition',
-          draggable ? 'opacity-70' : 'opacity-20'
+      <div className="flex items-center gap-1">
+        <GripVertical
+          className={cn(
+            'h-4 w-4 shrink-0 text-text-subtle transition',
+            draggable ? 'opacity-70' : 'opacity-20'
+          )}
+          aria-hidden="true"
+        />
+        {(onMoveUp || onMoveDown) && (
+          <div className="flex flex-col">
+            <button
+              type="button"
+              disabled={!onMoveUp}
+              onClick={(e) => {
+                e.stopPropagation()
+                onMoveUp?.()
+              }}
+              title={t('settings.providers.moveUp')}
+              className="p-0.5 text-text-subtle hover:text-text disabled:opacity-20"
+            >
+              <ArrowUp className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              disabled={!onMoveDown}
+              onClick={(e) => {
+                e.stopPropagation()
+                onMoveDown?.()
+              }}
+              title={t('settings.providers.moveDown')}
+              className="p-0.5 text-text-subtle hover:text-text disabled:opacity-20"
+            >
+              <ArrowDown className="h-3 w-3" />
+            </button>
+          </div>
         )}
-        aria-hidden="true"
-      />
+      </div>
       <div className="flex h-8 w-8 items-center justify-center sq sq-lg sq-ring rounded-lg border border-border bg-surface-2">
         <ProviderLogo id={provider.id} name={provider.name} size={18} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text">{provider.name}</span>
+          {editing ? (
+            <form
+              onSubmit={handleRenameSubmit}
+              className="flex items-center gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('settings.providers.namePlaceholder')}
+                className="h-7 text-xs w-48"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setEditing(false)
+                    setName(provider.name)
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                type="submit"
+                disabled={!name.trim()}
+                className="h-7 px-2"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                type="button"
+                onClick={() => {
+                  setEditing(false)
+                  setName(provider.name)
+                }}
+                className="h-7 px-2"
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </form>
+          ) : (
+            <>
+              <span className="text-sm font-medium text-text">{provider.name}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setName(provider.name)
+                  setEditing(true)
+                }}
+                title={t('settings.providers.renameProvider')}
+                className="rounded p-1 text-text-subtle hover:bg-white/10 hover:text-text"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </>
+          )}
           {active && (
             <span className="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success">
               {t('settings.providers.active')}
@@ -2429,7 +2733,7 @@ function ProviderRow({
             id is required: one sidecar holds every subscription's accounts, and
             a row must show only its own. */}
         {provider.auth === 'subscription' && <SubscriptionAccounts providerId={provider.id} />}
-        {provider.id === 'openai-compatible' && (
+        {isOpenAiCompatible(provider.id) && (
           <div className="mt-2 flex items-center gap-2">
             <Switch
               checked={provider.discoverImageModels}
@@ -2447,9 +2751,21 @@ function ProviderRow({
           </div>
         )}
       </div>
-      <Button size="sm" variant="ghost" onClick={onDisconnect}>
-        {t('settings.providers.disconnect')}
-      </Button>
+      <div className="flex items-center gap-1.5">
+        {onEditEndpoint && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onEditEndpoint}
+            title={t('settings.providers.editEndpoint')}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={onDisconnect}>
+          {t('settings.providers.disconnect')}
+        </Button>
+      </div>
     </div>
   )
 }

@@ -23,7 +23,8 @@ import {
   SEED_PROVIDERS,
   resolveSeed,
   isConnectableNow,
-  isSeedProviderId
+  isSeedProviderId,
+  isOpenAiCompatible
 } from '../src/shared/providers'
 import {
   CLAUDE_PROVIDER_ID,
@@ -504,6 +505,19 @@ check('isSeedProviderId: the empty string is not', !isSeedProviderId(''))
 check(
   'isSeedProviderId is stricter than resolveSeed',
   resolveSeed('__x__').id === '__x__' && !isSeedProviderId('__x__')
+)
+
+check('isOpenAiCompatible: base id matches', isOpenAiCompatible('openai-compatible'))
+check(
+  'isOpenAiCompatible: dash suffix matches',
+  isOpenAiCompatible('openai-compatible-my-endpoint')
+)
+check('isOpenAiCompatible: colon suffix matches', isOpenAiCompatible('openai-compatible:123'))
+check('isOpenAiCompatible: other provider does not match', !isOpenAiCompatible('anthropic'))
+check(
+  'resolveSeed: custom openai-compatible resolves custom name and openai-chat wire',
+  resolveSeed('openai-compatible-test').wire === 'openai-chat' &&
+    resolveSeed('openai-compatible-test').name === 'OpenAI-compatible (custom)'
 )
 
 // ---- telemetry vocabularies ----

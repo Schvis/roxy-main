@@ -285,7 +285,12 @@ export function ModelPicker(): JSX.Element {
 
   return (
     <div ref={rootRef} className="relative">
-      <button type="button" onClick={() => setOpen((o) => !o)} className={triggerClass}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={triggerClass}
+        title={activeProvider ? `${activeProvider.name}: ${triggerLabel}` : triggerLabel}
+      >
         {activeProvider && (
           <ProviderLogo id={activeProvider.id} name={activeProvider.name} size={14} />
         )}
