@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
-import { GripVertical, Globe, Plus, Trash2 } from 'lucide-react'
-import type { AppVersions, ConnectedProvider } from '@shared/types'
+import { Globe, Plus, Trash2 } from 'lucide-react'
+import type { AppVersions } from '@shared/types'
 import type { UpdateInfo } from '@shared/api'
-import { AUTH_LABELS } from '@shared/providers'
+import { resolveSeed } from '@shared/providers'
 import { LANGUAGES, SOURCE_LANGUAGE, normalizeLanguage } from '@shared/i18n'
 import { api } from '../lib/api'
 import { CodeHosts } from '../components/CodeHosts'
@@ -23,9 +23,8 @@ import { CookiePanel } from '../components/CookiePanel'
 import { ProxyPanel } from '../components/ProxyPanel'
 import { ConfigBackup } from '../components/ConfigBackup'
 import { ActivitySection } from '../components/ActivitySection'
-import { ProviderLogo } from '../lib/providerLogos'
-import { SubscriptionAccounts } from '../components/SubscriptionSetup'
-import { ModelVisibility } from '../components/ModelVisibility'
+import { ProviderSetup, AddAccount } from './onboarding/ProviderStep'
+import { ProviderAccount } from '../components/ProviderAccount'
 import { useRoxyStore } from '../lib/store'
 import { MotionSettings } from '../components/MotionSettings'
 
@@ -59,6 +58,12 @@ export default function Settings(): JSX.Element {
   const [dragProviderId, setDragProviderId] = useState<string | null>(null)
   const [dragOverProviderId, setDragOverProviderId] = useState<string | null>(null)
   const [dropAfterProvider, setDropAfterProvider] = useState(false)
+  const [setup, setSetup] = useState<{ seedId: string; connectionId?: string } | null>(null)
+  const [addingAccount, setAddingAccount] = useState(false)
+  const addAccountRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (!addingAccount) addAccountRef.current?.focus()
+  }, [addingAccount])
 
   const reorderWithinProviders = (
     sourceId: string,
@@ -99,11 +104,6 @@ export default function Settings(): JSX.Element {
     return off
   }, [refreshProviders])
 
-  const disconnect = async (id: string): Promise<void> => {
-    await api.providers.disconnect(id)
-    await refreshProviders()
-  }
-
   const resetEverything = async (): Promise<void> => {
     setResetting(true)
     await api.settings.reset()
@@ -135,21 +135,45 @@ export default function Settings(): JSX.Element {
 
   return (
     <PageShell title={t('settings.title')} onBack={() => navigate('/')}>
+      {addingAccount && (
+        <AddAccount
+          onClose={() => {
+            setAddingAccount(false)
+          }}
+        />
+      )}
+      {setup && (
+        <ProviderSetup
+          modal
+          seed={resolveSeed(setup.seedId)}
+          connectionId={setup.connectionId}
+          onClose={() => setSetup(null)}
+        />
+      )}
       <ActivitySection />
       <MotionSettings onChange={setMotion} />
 
       <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.providers.heading')}</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
+            {t('settings.providers.heading')}
+          </h2>
+          <Button
+            size="sm"
+            onClick={(e) => {
+              addAccountRef.current = e.currentTarget
+              setAddingAccount(true)
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t('settings.providers.addAccount')}
+          </Button>
+        </div>
+        <p className="mb-4 text-xs text-text-muted">{t('settings.providers.description')}</p>
         <div className="flex flex-col gap-2">
-          {providers.map((p) => (
+          {providers.map((p, index) => (
             <div
               key={p.id}
-              draggable={providers.length > 1}
-              onDragStart={(e) => {
-                setDragProviderId(p.id)
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', p.id)
-              }}
               onDragEnter={() =>
                 dragProviderId && dragProviderId !== p.id && setDragOverProviderId(p.id)
               }
@@ -181,29 +205,45 @@ export default function Settings(): JSX.Element {
                     : 'before:absolute before:inset-x-2 before:-top-1 before:h-0.5 before:rounded-full before:bg-accent')
               )}
             >
-              <ProviderRow
+              <ProviderAccount
                 provider={p}
                 active={settings?.activeProviderId === p.id}
-                draggable={providers.length > 1}
-                dragging={dragProviderId === p.id}
-                onDisconnect={() => disconnect(p.id)}
+                onDragStart={(e) => {
+                  setDragProviderId(p.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', p.id)
+                }}
+                onMoveUp={
+                  index > 0
+                    ? () => {
+                        const order = reorderWithinProviders(
+                          p.id,
+                          providers[index - 1].id,
+                          'before'
+                        )
+                        if (order) void reorderProviders(order)
+                      }
+                    : undefined
+                }
+                onMoveDown={
+                  index < providers.length - 1
+                    ? () => {
+                        const order = reorderWithinProviders(p.id, providers[index + 1].id, 'after')
+                        if (order) void reorderProviders(order)
+                      }
+                    : undefined
+                }
+                onAddAccount={() => setSetup({ seedId: p.seedId })}
+                onReconnect={() => setSetup({ seedId: p.seedId, connectionId: p.id })}
               />
             </div>
           ))}
-          <button
-            type="button"
-            onClick={() => navigate('/onboarding')}
-            className="press-scale flex items-center justify-center gap-2 sq sq-xl sq-ring sq-dashed rounded-xl border border-dashed border-border bg-surface/40 p-3.5 text-sm text-text-muted hover:border-border-strong hover:[--sq-ring:var(--color-border-strong)] hover:bg-surface hover:text-text"
-          >
-            <Plus className="h-4 w-4" /> {t('settings.providers.add')}
-          </button>
+          {providers.length === 0 && (
+            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-text-subtle">
+              {t('settings.providers.empty')}
+            </p>
+          )}
         </div>
-      </section>
-
-      {/* Under Providers: same list, minus what you never use. */}
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.models.heading')}</h2>
-        <ModelVisibility />
       </section>
 
       {/* A native <select> on purpose. The picker is read once and then never
@@ -439,67 +479,5 @@ export default function Settings(): JSX.Element {
         </div>
       </section>
     </PageShell>
-  )
-}
-
-function ProviderRow({
-  provider,
-  active,
-  draggable,
-  dragging,
-  onDisconnect
-}: {
-  provider: ConnectedProvider
-  active: boolean
-  draggable: boolean
-  dragging: boolean
-  onDisconnect: () => void
-}): JSX.Element {
-  const { t } = useTranslation()
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-3.5 transition',
-        dragging && 'cursor-grabbing',
-        draggable && !dragging && 'cursor-grab'
-      )}
-    >
-      <GripVertical
-        className={cn(
-          'h-4 w-4 shrink-0 text-text-subtle transition',
-          draggable ? 'opacity-70' : 'opacity-20'
-        )}
-        aria-hidden="true"
-      />
-      <div className="flex h-8 w-8 items-center justify-center sq sq-lg sq-ring rounded-lg border border-border bg-surface-2">
-        <ProviderLogo id={provider.id} name={provider.name} size={18} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text">{provider.name}</span>
-          {active && (
-            <span className="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success">
-              {t('settings.providers.active')}
-            </span>
-          )}
-        </div>
-        <p className="mt-0.5 text-xs text-text-subtle">
-          {AUTH_LABELS[provider.auth]} ·{' '}
-          {provider.auth === 'subscription'
-            ? t('settings.providers.signedInLocally')
-            : provider.hasCredential
-              ? t('settings.providers.keyStored')
-              : t('settings.providers.noCredential')}
-        </p>
-        {/* Subscription providers hold their credential in the sidecar, not in
-            Roxy - so the row lists the signed-in accounts instead of a key. The
-            id is required: one sidecar holds every subscription's accounts, and
-            a row must show only its own. */}
-        {provider.auth === 'subscription' && <SubscriptionAccounts providerId={provider.id} />}
-      </div>
-      <Button size="sm" variant="ghost" onClick={onDisconnect}>
-        {t('settings.providers.disconnect')}
-      </Button>
-    </div>
   )
 }
