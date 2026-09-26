@@ -758,7 +758,7 @@ function saveProviderConnection(input: ConnectProviderInput): string {
   `
     )
     .get(seed.id) as { last_number: number }
-  const id = isCustomCompatible && input.id !== 'openai-compatible' ? input.id : randomUUID()
+  const id = isCustomCompatible && !getProvider(input.id) ? input.id : randomUUID()
   const now = Date.now()
   const accountName = input.name?.trim() || providerAccountName(seed.id, counter.last_number)
   db.prepare(
