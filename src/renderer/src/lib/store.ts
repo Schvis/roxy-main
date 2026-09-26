@@ -2485,7 +2485,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         return true
       }
 
-// Persist the turn (always — even if the user navigated away) and clean up.
+      // Persist the turn (always — even if the user navigated away) and clean up.
       finishTurn = async (): Promise<void> => {
         // Capture the stop flag BEFORE clearStop() wipes it below — otherwise the
         // queue would drain even after the user hit Stop (the guard read `false`).

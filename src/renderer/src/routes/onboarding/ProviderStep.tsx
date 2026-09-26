@@ -292,7 +292,8 @@ export function ProviderSetup({
     dialog?.showModal()
     return () => dialog?.close()
   }, [])
-  const isCustomCompatible = seed.id === 'openai-compatible' || (connectionId ? isOpenAiCompatible(connectionId) : false)
+  const isCustomCompatible =
+    seed.id === 'openai-compatible' || (connectionId ? isOpenAiCompatible(connectionId) : false)
   const [apiKey, setApiKey] = useState('')
   const [name, setName] = useState(
     existing?.name ?? (isCustomCompatible ? 'OpenAI-compatible' : seed.name)
@@ -314,7 +315,8 @@ export function ProviderSetup({
   const isSubscription = seed.auth === 'subscription'
   const needsKey = seed.auth === 'api-key'
   const needsBaseURL = !seed.baseURL && seed.wire !== 'google'
-  const showBaseURL = needsBaseURL || seed.auth === 'none' || seed.id === 'openai-compatible' || isCustomCompatible
+  const showBaseURL =
+    needsBaseURL || seed.auth === 'none' || seed.id === 'openai-compatible' || isCustomCompatible
   const canConnect =
     isConnectableNow(seed) &&
     (!needsKey || isCustomCompatible || apiKey.trim().length > 0) &&
@@ -491,7 +493,7 @@ export function ProviderSetup({
                   />
                 </Field>
               )}
-{isCustomCompatible && (
+              {isCustomCompatible && (
                 <>
                   <Field label={t('onboarding.modelId')}>
                     <Input

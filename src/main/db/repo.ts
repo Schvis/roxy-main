@@ -733,9 +733,13 @@ function saveProviderConnection(input: ConnectProviderInput): string {
   const isCustomCompatible = input.id === 'openai-compatible' || isOpenAiCompatible(input.id)
   const discoverImageModels =
     input.discoverImageModels !== undefined
-      ? (input.discoverImageModels ? 1 : 0)
+      ? input.discoverImageModels
+        ? 1
+        : 0
       : existing
-        ? (existing.discoverImageModels ? 1 : 0)
+        ? existing.discoverImageModels
+          ? 1
+          : 0
         : 0
 
   if (existing) {

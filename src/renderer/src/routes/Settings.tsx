@@ -68,7 +68,7 @@ export default function Settings(): JSX.Element {
   const settings = useRoxyStore((s) => s.settings)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
-    const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
+  const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
   const setIdeMode = useRoxyStore((s) => s.setIdeMode)
   const [ideSaving, setIdeSaving] = useState(false)
@@ -145,7 +145,7 @@ export default function Settings(): JSX.Element {
   const [dragProviderId, setDragProviderId] = useState<string | null>(null)
   const [dragOverProviderId, setDragOverProviderId] = useState<string | null>(null)
   const [dropAfterProvider, setDropAfterProvider] = useState(false)
-    const customPrompts = useRoxyStore((s) => s.customPrompts)
+  const customPrompts = useRoxyStore((s) => s.customPrompts)
   const refreshCustomPrompts = useRoxyStore((s) => s.refreshCustomPrompts)
   const [promptDialogOpen, setPromptDialogOpen] = useState(false)
   const [promptName, setPromptName] = useState('')
@@ -185,12 +185,6 @@ export default function Settings(): JSX.Element {
     if (ids.every((id, i) => id === providers[i].id)) return null
     return ids
   }
-
-  
-
-  
-
-  
 
   const sortProvidersByName = (): void => {
     const sorted = [...providers].sort((a, b) => a.name.localeCompare(b.name)).map((p) => p.id)
@@ -289,7 +283,6 @@ export default function Settings(): JSX.Element {
     return off
   }, [refreshProviders])
 
-  
   const resetEverything = async (): Promise<void> => {
     setResetting(true)
     await api.settings.reset()
@@ -728,7 +721,6 @@ export default function Settings(): JSX.Element {
 
   const renderGeneral = (): JSX.Element => (
     <>
-
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('settings.language.heading')}</h2>
         <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -2399,7 +2391,6 @@ export default function Settings(): JSX.Element {
         </div>
       )}
 
-      
       {addingAccount && (
         <AddAccount
           onClose={() => {
@@ -2418,4 +2409,3 @@ export default function Settings(): JSX.Element {
     </PageShell>
   )
 }
-
