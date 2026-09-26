@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
 import {
-  GripVertical,
   Globe,
   Plus,
   Trash2,
@@ -15,20 +14,13 @@ import {
   Briefcase,
   Sparkles,
   RotateCcw,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Check,
-  Pencil,
-  Settings2
+  ArrowUpDown
 } from 'lucide-react'
-import type { AppVersions, ConnectedProvider } from '@shared/types'
-import type { UpdateInfo } from '@shared/api'
-import { AUTH_LABELS, isOpenAiCompatible } from '@shared/providers'
-import { LANGUAGES, SOURCE_LANGUAGE, normalizeLanguage } from '@shared/i18n'
 import { api } from '../lib/api'
-import { CodeHosts } from '../components/CodeHosts'
+import { useRoxyStore } from '../lib/store'
 import { Button, Input, Switch, Textarea } from '../components/ui'
+import { ProviderAccount } from '../components/ProviderAccount'
+import { ProviderSetup, AddAccount } from './onboarding/ProviderStep'
 import { cn } from '../lib/cn'
 import {
   DEFAULT_BRANCH_PREFIX,
@@ -39,14 +31,15 @@ import {
 import { randomSlug, slugToBranchSegment } from '@shared/slugs'
 import { PageShell } from '../components/PageShell'
 import { McpServers } from '../components/McpServers'
+import type { AppVersions } from '@shared/types'
+import type { UpdateInfo } from '@shared/api'
+import { resolveSeed } from '@shared/providers'
+import { LANGUAGES, SOURCE_LANGUAGE, normalizeLanguage } from '@shared/i18n'
+import { CodeHosts } from '../components/CodeHosts'
 import { CookiePanel } from '../components/CookiePanel'
 import { ProxyPanel } from '../components/ProxyPanel'
 import { ConfigBackup } from '../components/ConfigBackup'
 import { ActivitySection } from '../components/ActivitySection'
-import { ProviderLogo } from '../lib/providerLogos'
-import { SubscriptionAccounts } from '../components/SubscriptionSetup'
-import { ModelVisibility } from '../components/ModelVisibility'
-import { useRoxyStore } from '../lib/store'
 import { MotionSettings } from '../components/MotionSettings'
 import { recordKeybindFromEvent } from '../lib/keybind'
 import { AudioRecorder } from '../lib/audio-recorder'
@@ -75,8 +68,7 @@ export default function Settings(): JSX.Element {
   const settings = useRoxyStore((s) => s.settings)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
-  const renameProvider = useRoxyStore((s) => s.renameProvider)
-  const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
+    const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
   const setIdeMode = useRoxyStore((s) => s.setIdeMode)
   const [ideSaving, setIdeSaving] = useState(false)
@@ -119,8 +111,6 @@ export default function Settings(): JSX.Element {
   const setVtuberFollowCursor = useRoxyStore((s) => s.setVtuberFollowCursor)
   const resetVtuberPosition = useRoxyStore((s) => s.resetVtuberPosition)
   const setDiscordRpcEnabled = useRoxyStore((s) => s.setDiscordRpcEnabled)
-  const clearModelCache = useRoxyStore((s) => s.clearModelCache)
-  const ensureModels = useRoxyStore((s) => s.ensureModels)
   const [resetPositionSuccess, setResetPositionSuccess] = useState(false)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
@@ -155,13 +145,18 @@ export default function Settings(): JSX.Element {
   const [dragProviderId, setDragProviderId] = useState<string | null>(null)
   const [dragOverProviderId, setDragOverProviderId] = useState<string | null>(null)
   const [dropAfterProvider, setDropAfterProvider] = useState(false)
-  const [imageDiscoverySaving, setImageDiscoverySaving] = useState(false)
-  const customPrompts = useRoxyStore((s) => s.customPrompts)
+    const customPrompts = useRoxyStore((s) => s.customPrompts)
   const refreshCustomPrompts = useRoxyStore((s) => s.refreshCustomPrompts)
   const [promptDialogOpen, setPromptDialogOpen] = useState(false)
   const [promptName, setPromptName] = useState('')
   const [promptContent, setPromptContent] = useState('')
   const [creatingPrompt, setCreatingPrompt] = useState(false)
+  const [setup, setSetup] = useState<{ seedId: string; connectionId?: string } | null>(null)
+  const [addingAccount, setAddingAccount] = useState(false)
+  const addAccountRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (!addingAccount) addAccountRef.current?.focus()
+  }, [addingAccount])
 
   const createPrompt = async (): Promise<void> => {
     if (!promptName.trim() || !promptContent.trim() || creatingPrompt) return
@@ -191,104 +186,15 @@ export default function Settings(): JSX.Element {
     return ids
   }
 
-  const onProviderDrop = (targetId: string): void => {
-    const source = dragProviderId
-    const place = dropAfterProvider ? 'after' : 'before'
-    setDragProviderId(null)
-    setDragOverProviderId(null)
-    setDropAfterProvider(false)
-    if (!source || source === targetId) return
-    const order = reorderWithinProviders(source, targetId, place)
-    if (order) void reorderProviders(order)
-  }
+  
 
-  const setImageDiscovery = async (
-    provider: ConnectedProvider,
-    enabled: boolean
-  ): Promise<void> => {
-    if (imageDiscoverySaving) return
-    setImageDiscoverySaving(true)
-    try {
-      await api.providers.connect({
-        id: provider.id,
-        baseURL: provider.baseURL,
-        defaultModel: provider.defaultModel,
-        discoverImageModels: enabled
-      })
-      clearModelCache(provider.id)
-      await refreshProviders()
-      await ensureModels(provider.id)
-    } finally {
-      setImageDiscoverySaving(false)
-    }
-  }
+  
 
-  const [endpointModalOpen, setEndpointModalOpen] = useState(false)
-  const [editingEndpointProvider, setEditingEndpointProvider] = useState<ConnectedProvider | null>(
-    null
-  )
-  const [endpointName, setEndpointName] = useState('')
-  const [endpointBaseURL, setEndpointBaseURL] = useState('')
-  const [endpointApiKey, setEndpointApiKey] = useState('')
-  const [endpointDefaultModel, setEndpointDefaultModel] = useState('')
-  const [endpointDiscoverImages, setEndpointDiscoverImages] = useState(false)
-  const [savingEndpoint, setSavingEndpoint] = useState(false)
-  const [endpointError, setEndpointError] = useState<string | null>(null)
+  
 
   const sortProvidersByName = (): void => {
     const sorted = [...providers].sort((a, b) => a.name.localeCompare(b.name)).map((p) => p.id)
     void reorderProviders(sorted)
-  }
-
-  const moveProvider = (id: string, direction: 'up' | 'down'): void => {
-    const index = providers.findIndex((p) => p.id === id)
-    if (index === -1) return
-    const targetIndex = direction === 'up' ? index - 1 : index + 1
-    if (targetIndex < 0 || targetIndex >= providers.length) return
-    const ids = providers.map((p) => p.id)
-    const [moved] = ids.splice(index, 1)
-    ids.splice(targetIndex, 0, moved)
-    void reorderProviders(ids)
-  }
-
-  const openEndpointModal = (provider: ConnectedProvider | null): void => {
-    setEditingEndpointProvider(provider)
-    setEndpointName(provider?.name ?? 'OpenAI-compatible')
-    setEndpointBaseURL(provider?.baseURL ?? '')
-    setEndpointApiKey('')
-    setEndpointDefaultModel(provider?.defaultModel ?? '')
-    setEndpointDiscoverImages(provider?.discoverImageModels ?? false)
-    setEndpointError(null)
-    setEndpointModalOpen(true)
-  }
-
-  const saveEndpoint = async (): Promise<void> => {
-    setSavingEndpoint(true)
-    setEndpointError(null)
-    try {
-      const targetId = editingEndpointProvider
-        ? editingEndpointProvider.id
-        : !providers.some((p) => p.id === 'openai-compatible')
-          ? 'openai-compatible'
-          : `openai-compatible-${crypto.randomUUID()}`
-
-      clearModelCache(targetId)
-      await api.providers.connect({
-        id: targetId,
-        name: endpointName.trim() || undefined,
-        baseURL: endpointBaseURL.trim() || undefined,
-        apiKey: endpointApiKey.trim() || undefined,
-        defaultModel: endpointDefaultModel.trim() || undefined,
-        discoverImageModels: endpointDiscoverImages
-      })
-      await refreshProviders()
-      void ensureModels(targetId)
-      setEndpointModalOpen(false)
-    } catch (e) {
-      setEndpointError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSavingEndpoint(false)
-    }
   }
 
   useEffect(() => {
@@ -383,12 +289,7 @@ export default function Settings(): JSX.Element {
     return off
   }, [refreshProviders])
 
-  const disconnect = async (id: string): Promise<void> => {
-    await api.providers.disconnect(id)
-    clearModelCache(id)
-    await refreshProviders()
-  }
-
+  
   const resetEverything = async (): Promise<void> => {
     setResetting(true)
     await api.settings.reset()
@@ -827,6 +728,7 @@ export default function Settings(): JSX.Element {
 
   const renderGeneral = (): JSX.Element => (
     <>
+
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('settings.language.heading')}</h2>
         <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1000,91 +902,126 @@ export default function Settings(): JSX.Element {
   const renderProviders = (): JSX.Element => (
     <>
       <section className="mb-8">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className={SECTION_HEADING}>{t('settings.providers.heading')}</h2>
-          {providers.length > 1 && (
+          <div className="flex items-center gap-2">
+            {providers.length > 1 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={sortProvidersByName}
+                title={t('settings.providers.sortByName')}
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                {t('settings.providers.sortByName')}
+              </Button>
+            )}
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              onClick={sortProvidersByName}
-              title={t('settings.providers.sortByName')}
+              onClick={() => setSetup({ seedId: 'openai-compatible' })}
             >
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              {t('settings.providers.sortByName')}
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.providers.add')}
             </Button>
-          )}
+            <Button
+              size="sm"
+              onClick={(e) => {
+                addAccountRef.current = e.currentTarget
+                setAddingAccount(true)
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.providers.addAccount')}
+            </Button>
+          </div>
         </div>
+        <p className="mb-4 text-xs text-text-muted">{t('settings.providers.description')}</p>
         <div className="flex flex-col gap-2">
           {providers.map((p, index) => (
             <div
               key={p.id}
-              draggable={providers.length > 1}
-              onDragStart={(e) => {
-                setDragProviderId(p.id)
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', p.id)
-              }}
               onDragEnter={() =>
                 dragProviderId && dragProviderId !== p.id && setDragOverProviderId(p.id)
               }
               onDragOver={(e) => {
-                if (!dragProviderId) return
+                if (!dragProviderId || dragProviderId === p.id) return
                 e.preventDefault()
-                if (dragProviderId === p.id) return
                 const rect = e.currentTarget.getBoundingClientRect()
                 const after = e.clientY - rect.top > rect.height / 2
-                if (dragOverProviderId !== p.id) setDragOverProviderId(p.id)
-                if (after !== dropAfterProvider) setDropAfterProvider(after)
+                setDropAfterProvider(after)
+                e.dataTransfer.dropEffect = 'move'
+              }}
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                if (dragOverProviderId === p.id) {
+                  setDragOverProviderId(null)
+                  setDropAfterProvider(false)
+                }
               }}
               onDrop={(e) => {
                 e.preventDefault()
-                onProviderDrop(p.id)
-              }}
-              onDragEnd={() => {
+                const sourceId = e.dataTransfer.getData('text/plain') || dragProviderId
+                if (sourceId && sourceId !== p.id) {
+                  const ordered = reorderWithinProviders(
+                    sourceId,
+                    p.id,
+                    dropAfterProvider ? 'after' : 'before'
+                  )
+                  if (ordered) void reorderProviders(ordered)
+                }
                 setDragProviderId(null)
                 setDragOverProviderId(null)
                 setDropAfterProvider(false)
               }}
               className={cn(
-                'relative',
+                'relative transition-all duration-150',
                 dragProviderId === p.id && 'opacity-40',
                 dragOverProviderId === p.id &&
-                  dragProviderId !== p.id &&
                   (dropAfterProvider
                     ? 'after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-accent'
                     : 'before:absolute before:inset-x-2 before:-top-1 before:h-0.5 before:rounded-full before:bg-accent')
               )}
             >
-              <ProviderRow
+              <ProviderAccount
                 provider={p}
                 active={settings?.activeProviderId === p.id}
-                draggable={providers.length > 1}
-                dragging={dragProviderId === p.id}
-                onDisconnect={() => disconnect(p.id)}
-                onRename={(name) => void renameProvider(p.id, name)}
-                onMoveUp={index > 0 ? () => moveProvider(p.id, 'up') : undefined}
-                onMoveDown={
-                  index < providers.length - 1 ? () => moveProvider(p.id, 'down') : undefined
+                onDragStart={(e) => {
+                  setDragProviderId(p.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', p.id)
+                }}
+                onMoveUp={
+                  index > 0
+                    ? () => {
+                        const order = reorderWithinProviders(
+                          p.id,
+                          providers[index - 1].id,
+                          'before'
+                        )
+                        if (order) void reorderProviders(order)
+                      }
+                    : undefined
                 }
-                onEditEndpoint={isOpenAiCompatible(p.id) ? () => openEndpointModal(p) : undefined}
-                imageDiscoverySaving={imageDiscoverySaving}
-                onImageDiscoveryChange={(enabled) => void setImageDiscovery(p, enabled)}
+                onMoveDown={
+                  index < providers.length - 1
+                    ? () => {
+                        const order = reorderWithinProviders(p.id, providers[index + 1].id, 'after')
+                        if (order) void reorderProviders(order)
+                      }
+                    : undefined
+                }
+                onAddAccount={() => setSetup({ seedId: p.seedId })}
+                onReconnect={() => setSetup({ seedId: p.seedId, connectionId: p.id })}
               />
             </div>
           ))}
-          <button
-            type="button"
-            onClick={() => navigate('/onboarding')}
-            className="press-scale flex items-center justify-center gap-2 sq sq-xl sq-ring sq-dashed rounded-xl border border-dashed border-border bg-surface/40 p-3.5 text-sm text-text-muted hover:border-border-strong hover:[--sq-ring:var(--color-border-strong)] hover:bg-surface hover:text-text"
-          >
-            <Plus className="h-4 w-4" /> {t('settings.providers.add')}
-          </button>
+          {providers.length === 0 && (
+            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-text-subtle">
+              {t('settings.providers.empty')}
+            </p>
+          )}
         </div>
-      </section>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.models.heading')}</h2>
-        <ModelVisibility />
       </section>
 
       <section className="mb-8">
@@ -2462,310 +2399,23 @@ export default function Settings(): JSX.Element {
         </div>
       )}
 
-      {endpointModalOpen && (
-        <div
-          className="animate-scrim-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
-          onClick={() => !savingEndpoint && setEndpointModalOpen(false)}
-        >
-          <form
-            className="animate-modal-in w-full max-w-lg sq sq-2xl sq-ring rounded-2xl border border-border bg-surface p-5"
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={(event) => {
-              event.preventDefault()
-              void saveEndpoint()
-            }}
-          >
-            <h2 className="text-lg font-semibold">
-              {t('settings.providers.editCustomEndpointTitle')}
-            </h2>
-            <div className="mt-4 flex flex-col gap-3">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-muted">
-                  {t('settings.providers.endpointName')}
-                </span>
-                <Input
-                  value={endpointName}
-                  onChange={(event) => setEndpointName(event.target.value)}
-                  placeholder="OpenAI-compatible"
-                  autoFocus
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-muted">
-                  {t('onboarding.baseUrl')}
-                </span>
-                <Input
-                  value={endpointBaseURL}
-                  onChange={(event) => setEndpointBaseURL(event.target.value)}
-                  placeholder="https://… or http://localhost:8000/v1"
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-muted">
-                  {t('onboarding.apiKey')}
-                </span>
-                <Input
-                  type="password"
-                  value={endpointApiKey}
-                  onChange={(event) => setEndpointApiKey(event.target.value)}
-                  placeholder={
-                    editingEndpointProvider?.hasCredential ? '••••••••' : 'sk-… (optional)'
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-muted">
-                  {t('onboarding.modelId')}
-                </span>
-                <Input
-                  value={endpointDefaultModel}
-                  onChange={(event) => setEndpointDefaultModel(event.target.value)}
-                  placeholder={t('onboarding.modelIdPlaceholder')}
-                />
-              </label>
-              <label className="flex items-start gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-                <input
-                  type="checkbox"
-                  checked={endpointDiscoverImages}
-                  onChange={(event) => setEndpointDiscoverImages(event.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-accent"
-                />
-                <span>
-                  <span className="block text-xs font-medium text-text">
-                    {t('onboarding.discoverImageModels')}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] text-text-subtle">
-                    {t('onboarding.discoverImageModelsBody')}
-                  </span>
-                </span>
-              </label>
-            </div>
-            {endpointError && <p className="mt-3 text-xs text-danger">{endpointError}</p>}
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setEndpointModalOpen(false)}
-                disabled={savingEndpoint}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={!endpointBaseURL.trim() || savingEndpoint}
-              >
-                {savingEndpoint ? t('settings.providers.saving') : t('settings.providers.save')}
-              </Button>
-            </div>
-          </form>
-        </div>
+      
+      {addingAccount && (
+        <AddAccount
+          onClose={() => {
+            setAddingAccount(false)
+          }}
+        />
+      )}
+      {setup && (
+        <ProviderSetup
+          modal
+          seed={resolveSeed(setup.seedId)}
+          connectionId={setup.connectionId}
+          onClose={() => setSetup(null)}
+        />
       )}
     </PageShell>
   )
 }
 
-function ProviderRow({
-  provider,
-  active,
-  draggable,
-  dragging,
-  onDisconnect,
-  onRename,
-  onMoveUp,
-  onMoveDown,
-  onEditEndpoint,
-  imageDiscoverySaving,
-  onImageDiscoveryChange
-}: {
-  provider: ConnectedProvider
-  active: boolean
-  draggable: boolean
-  dragging: boolean
-  onDisconnect: () => void
-  onRename: (name: string) => void
-  onMoveUp?: () => void
-  onMoveDown?: () => void
-  onEditEndpoint?: () => void
-  imageDiscoverySaving: boolean
-  onImageDiscoveryChange: (enabled: boolean) => void
-}): JSX.Element {
-  const { t } = useTranslation()
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState(provider.name)
-
-  const handleRenameSubmit = (e: React.FormEvent): void => {
-    e.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed || trimmed === provider.name) {
-      setEditing(false)
-      setName(provider.name)
-      return
-    }
-    onRename(trimmed)
-    setEditing(false)
-  }
-
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-3.5 transition',
-        dragging && 'cursor-grabbing',
-        draggable && !dragging && 'cursor-grab'
-      )}
-    >
-      <div className="flex items-center gap-1">
-        <GripVertical
-          className={cn(
-            'h-4 w-4 shrink-0 text-text-subtle transition',
-            draggable ? 'opacity-70' : 'opacity-20'
-          )}
-          aria-hidden="true"
-        />
-        {(onMoveUp || onMoveDown) && (
-          <div className="flex flex-col">
-            <button
-              type="button"
-              disabled={!onMoveUp}
-              onClick={(e) => {
-                e.stopPropagation()
-                onMoveUp?.()
-              }}
-              title={t('settings.providers.moveUp')}
-              className="p-0.5 text-text-subtle hover:text-text disabled:opacity-20"
-            >
-              <ArrowUp className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
-              disabled={!onMoveDown}
-              onClick={(e) => {
-                e.stopPropagation()
-                onMoveDown?.()
-              }}
-              title={t('settings.providers.moveDown')}
-              className="p-0.5 text-text-subtle hover:text-text disabled:opacity-20"
-            >
-              <ArrowDown className="h-3 w-3" />
-            </button>
-          </div>
-        )}
-      </div>
-      <div className="flex h-8 w-8 items-center justify-center sq sq-lg sq-ring rounded-lg border border-border bg-surface-2">
-        <ProviderLogo id={provider.id} name={provider.name} size={18} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          {editing ? (
-            <form
-              onSubmit={handleRenameSubmit}
-              className="flex items-center gap-1.5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t('settings.providers.namePlaceholder')}
-                className="h-7 text-xs w-48"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setEditing(false)
-                    setName(provider.name)
-                  }
-                }}
-              />
-              <Button
-                size="sm"
-                variant="primary"
-                type="submit"
-                disabled={!name.trim()}
-                className="h-7 px-2"
-              >
-                <Check className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                type="button"
-                onClick={() => {
-                  setEditing(false)
-                  setName(provider.name)
-                }}
-                className="h-7 px-2"
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </form>
-          ) : (
-            <>
-              <span className="text-sm font-medium text-text">{provider.name}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setName(provider.name)
-                  setEditing(true)
-                }}
-                title={t('settings.providers.renameProvider')}
-                className="rounded p-1 text-text-subtle hover:bg-white/10 hover:text-text"
-              >
-                <Pencil className="h-3 w-3" />
-              </button>
-            </>
-          )}
-          {active && (
-            <span className="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success">
-              {t('settings.providers.active')}
-            </span>
-          )}
-        </div>
-        <p className="mt-0.5 text-xs text-text-subtle">
-          {AUTH_LABELS[provider.auth]} ·{' '}
-          {provider.auth === 'subscription'
-            ? t('settings.providers.signedInLocally')
-            : provider.hasCredential
-              ? t('settings.providers.keyStored')
-              : t('settings.providers.noCredential')}
-        </p>
-        {/* Subscription providers hold their credential in the sidecar, not in
-            Roxy - so the row lists the signed-in accounts instead of a key. The
-            id is required: one sidecar holds every subscription's accounts, and
-            a row must show only its own. */}
-        {provider.auth === 'subscription' && <SubscriptionAccounts providerId={provider.id} />}
-        {isOpenAiCompatible(provider.id) && (
-          <div className="mt-2 flex items-center gap-2">
-            <Switch
-              checked={provider.discoverImageModels}
-              onChange={onImageDiscoveryChange}
-              disabled={imageDiscoverySaving}
-            />
-            <div>
-              <div className="text-xs font-medium text-text">
-                {t('settings.providers.discoverImageModels')}
-              </div>
-              <div className="text-[11px] text-text-subtle">
-                {t('settings.providers.discoverImageModelsBody')}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5">
-        {onEditEndpoint && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onEditEndpoint}
-            title={t('settings.providers.editEndpoint')}
-          >
-            <Settings2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" onClick={onDisconnect}>
-          {t('settings.providers.disconnect')}
-        </Button>
-      </div>
-    </div>
-  )
-}

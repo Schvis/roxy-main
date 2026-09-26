@@ -633,6 +633,24 @@ export interface ModelInfo {
   cost?: ModelCost
 }
 
+/** Account catalog result; errors are safe, fixed codes rather than provider details. */
+export interface ModelCatalogResult {
+  models: ModelInfo[]
+  error?: 'authentication' | 'unavailable'
+}
+
+export type ProviderVerificationError =
+  | 'invalidKey'
+  | 'forbidden'
+  | 'invalidEndpoint'
+  | 'rateLimited'
+  | 'unavailable'
+  | 'unsupported'
+
+export type ConnectProviderResult =
+  | { ok: true; provider: ConnectedProvider }
+  | { ok: false; error: ProviderVerificationError }
+
 /** USD price per 1,000,000 tokens, split by kind (as models.dev reports it). */
 export interface ModelCost {
   /** Fresh input (prompt) tokens. */
@@ -1031,8 +1049,9 @@ export interface RoxyApi {
   }
   providers: {
     listConnected(): Promise<ConnectedProvider[]>
-    connect(input: ConnectProviderInput): Promise<ConnectedProvider>
+    connect(input: ConnectProviderInput): Promise<ConnectProviderResult>
     disconnect(id: string): Promise<void>
+    rename(id: string, name: string): Promise<ConnectedProvider>
     /** Reorder connected providers; `ids` is the full Settings list, top-to-bottom. */
     reorder(ids: string[]): Promise<void>
     /** Rename a connected provider. */
@@ -1301,9 +1320,9 @@ export interface RoxyApi {
     onStatus(callback: (state: UpdateState) => void): () => void
   }
   copilot: {
-    needsReauthentication(): Promise<boolean>
+    needsReauthentication(connectionId?: string): Promise<boolean>
     start(): Promise<DeviceFlowStart>
-    poll(deviceCode: string, interval: number): Promise<ConnectedProvider>
+    poll(deviceCode: string, interval: number, connectionId?: string): Promise<ConnectedProvider>
   }
   /**
    * The CLIProxyAPI sidecar behind the subscription providers (ChatGPT/Codex and
@@ -1320,13 +1339,13 @@ export interface RoxyApi {
     /**
      * Run one provider's whole sign-in: install + start the sidecar if needed,
      * open its OAuth page in the user's browser, wait for the callback, then
-     * connect the provider. Resolves when the flow reaches a terminal state.
+     * connect an account. `providerId` is the catalog seed; optional
+     * `connectionId` reconnects an existing account instead of adding one.
      */
-    login(providerId: string): Promise<CliProxyLoginResult>
+    login(providerId: string, connectionId?: string): Promise<CliProxyLoginResult>
     /**
-     * Sign one account out by deleting its token file. The provider id is what
-     * decides whether that was its LAST account, and so whether the provider row
-     * should be dropped.
+     * Sign one account out by deleting its bound token file. `providerId` is
+     * the connection ID; sibling accounts remain connected.
      */
     signOut(providerId: string, file: string): Promise<CliProxyState>
     /** Stop the local proxy (keeps the install and the signed-in accounts). */
@@ -1474,8 +1493,8 @@ export interface RoxyApi {
     onDelta(callback: (payload: SubagentDelta) => void): () => void
   }
   models: {
-    /** Live model list for a provider id, from models.dev. */
-    list(providerId: string): Promise<ModelInfo[]>
+    /** Live account-aware model catalog, with safe discovery failure codes. */
+    list(providerId: string): Promise<ModelCatalogResult>
     /** Last 5 distinct model picks for a provider, newest first. */
     recent(providerId: string): Promise<{ model: string; usedAt: number }[]>
     /** Every model the user has hidden, across every provider. */

@@ -21,6 +21,7 @@ import type {
   LlmEvent,
   LlmResult,
   ModelInfo,
+  ModelCatalogResult,
   RemoteDelta,
   RemoteState,
   SessionsUpdated,
@@ -85,7 +86,7 @@ interface RoxyStore {
    */
   telemetryEnabled: boolean
   providers: ConnectedProvider[]
-  copilotNeedsReauthentication: boolean
+  copilotNeedsReauthentication: Record<string, boolean>
   /** Provider model lists; Copilot availability is refreshed from the account. */
   modelCatalog: Record<string, ModelInfo[]>
   /**
@@ -97,6 +98,10 @@ interface RoxyStore {
    * the whole menu behind whichever provider was slowest.
    */
   modelsTried: Record<string, boolean>
+  /** Safe catalog failure per connection; cleared when discovery is retried. */
+  modelErrors: Record<string, ModelCatalogResult['error']>
+  /** Actual in-flight discovery, including retries after a previous attempt. */
+  modelsLoading: Record<string, boolean>
   /** Last 5 distinct model picks per provider, lazy-loaded + refreshed on selection. */
   recentModels: Record<string, { model: string; usedAt: number }[]>
   /**
@@ -997,9 +1002,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   // the toggle would otherwise flicker off on every Settings open.
   telemetryEnabled: true,
   providers: [],
-  copilotNeedsReauthentication: false,
+  copilotNeedsReauthentication: {},
   modelCatalog: {},
   modelsTried: {},
+  modelErrors: {},
+  modelsLoading: {},
   recentModels: {},
   hiddenModels: new Set<string>(),
   chats: [],
@@ -1179,6 +1186,9 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       telemetryEnabled,
       modelCatalog: {},
       modelsTried: {},
+      modelErrors: {},
+      modelsLoading: {},
+      copilotNeedsReauthentication: {},
       recentModels: {},
       hiddenModels: new Set(),
       customPrompts,
@@ -1447,17 +1457,35 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     ])
     // A reconnect can keep the same provider id while changing the account.
     // Invalidate pending responses too, so an old account cannot refill the UI.
-    modelCatalogInflight.delete('github-copilot')
+    const invalidated = new Set([
+      ...get().providers.map((p) => p.id),
+      ...providers.map((p) => p.id)
+    ])
+    invalidated.forEach((id) => modelCatalogInflight.delete(id))
     set((s) => {
       const modelCatalog = { ...s.modelCatalog }
       const modelsTried = { ...s.modelsTried }
-      delete modelCatalog['github-copilot']
-      delete modelsTried['github-copilot']
-      return { providers, settings, modelCatalog, modelsTried, copilotNeedsReauthentication: false }
+      const modelErrors = { ...s.modelErrors }
+      const modelsLoading = { ...s.modelsLoading }
+      invalidated.forEach((id) => {
+        delete modelCatalog[id]
+        delete modelsTried[id]
+        delete modelErrors[id]
+        delete modelsLoading[id]
+      })
+      return {
+        providers,
+        settings,
+        modelCatalog,
+        modelsTried,
+        modelErrors,
+        modelsLoading,
+        copilotNeedsReauthentication: {}
+      }
     })
-    if (providers.some((p) => p.id === 'github-copilot')) {
-      await get().ensureModels('github-copilot')
-    }
+    await Promise.all(
+      providers.filter((p) => p.seedId === 'github-copilot').map((p) => get().ensureModels(p.id))
+    )
   },
 
   reorderProviders: async (ids) => {
@@ -1720,8 +1748,9 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
 
   ensureModels: async (providerId) => {
-    const accountAware = providerId === 'github-copilot'
-    if (accountAware && !get().providers.some((p) => p.id === providerId)) return
+    const provider = get().providers.find((p) => p.id === providerId)
+    if (!provider) return
+    const accountAware = provider.seedId === 'github-copilot'
     const existing = get().modelCatalog[providerId]
     // Main owns Copilot's short TTL. Never keep its first success forever here.
     if (!accountAware && existing && existing.length > 0) return
@@ -1730,33 +1759,49 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     if (pending) return pending
     const load = Promise.resolve().then(async () => {
       try {
-        const list = await api.models.list(providerId)
+        const result = await api.models.list(providerId)
         const needsReauthentication = accountAware
-          ? await api.copilot.needsReauthentication()
+          ? await api.copilot.needsReauthentication(providerId)
           : false
         if (modelCatalogInflight.get(providerId) !== load) return
-        // Copilot's empty list revokes old entries. Other providers still retry
-        // empty lists when a proxy or connection is starting up.
-        if (accountAware || list.length > 0) {
-          set((s) => ({
-            modelCatalog: { ...s.modelCatalog, [providerId]: list },
-            ...(accountAware ? { copilotNeedsReauthentication: needsReauthentication } : {})
-          }))
-        }
+        // Empty catalogs revoke old entries but remain retryable. Errors contain
+        // only fixed codes, never the provider's exception or credentials.
+        set((s) => ({
+          modelCatalog: { ...s.modelCatalog, [providerId]: result.models },
+          modelErrors: { ...s.modelErrors, [providerId]: result.error },
+          ...(accountAware
+            ? {
+                copilotNeedsReauthentication: {
+                  ...s.copilotNeedsReauthentication,
+                  [providerId]: needsReauthentication
+                }
+              }
+            : {})
+        }))
       } catch {
-        if (accountAware && modelCatalogInflight.get(providerId) === load) {
-          set((s) => ({ modelCatalog: { ...s.modelCatalog, [providerId]: [] } }))
+        if (modelCatalogInflight.get(providerId) === load) {
+          set((s) => ({
+            modelCatalog: { ...s.modelCatalog, [providerId]: [] },
+            modelErrors: { ...s.modelErrors, [providerId]: 'unavailable' }
+          }))
         }
       } finally {
         // Mark the attempt either way, so the picker can stop showing a
         // provider as "loading" once it has actually been asked.
         if (modelCatalogInflight.get(providerId) === load) {
           modelCatalogInflight.delete(providerId)
-          set((s) => ({ modelsTried: { ...s.modelsTried, [providerId]: true } }))
+          set((s) => ({
+            modelsTried: { ...s.modelsTried, [providerId]: true },
+            modelsLoading: { ...s.modelsLoading, [providerId]: false }
+          }))
         }
       }
     })
     modelCatalogInflight.set(providerId, load)
+    set((s) => ({
+      modelErrors: { ...s.modelErrors, [providerId]: undefined },
+      modelsLoading: { ...s.modelsLoading, [providerId]: true }
+    }))
     return load
   },
 
@@ -2440,7 +2485,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         return true
       }
 
-      // Persist the turn (always — even if the user navigated away) and clean up.
+// Persist the turn (always — even if the user navigated away) and clean up.
       finishTurn = async (): Promise<void> => {
         // Capture the stop flag BEFORE clearStop() wipes it below — otherwise the
         // queue would drain even after the user hit Stop (the guard read `false`).
@@ -2558,7 +2603,15 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         settings
       )
       const provider =
-        get().providers.find((p) => p.id === config.providerId) ?? get().providers[0] ?? null
+        (config.providerId
+          ? get().providers.find((p) => p.id === config.providerId)
+          : get().providers[0]) ?? null
+      if (config.providerId && !provider) {
+        parts = [...parts, { type: 'text', text: i18n.t('models.accountDisconnected') }]
+        setStreaming(parts)
+        await finishTurn()
+        return
+      }
       if (provider && (provider.hasCredential || provider.auth === 'none')) {
         // Resolve the model's capabilities (reasoning support + context window) so
         // we only send reasoning params when valid and cut history to the budget.
@@ -2735,11 +2788,17 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           chatRequests.delete(chatId)
         }
         if (!result.ok && !stopped()) {
-          if (provider.id === 'github-copilot') {
+          if (provider.seedId === 'github-copilot') {
             // Read the failure without another discovery request masking its auth status.
             const providers = get().providers
-            const needed = await api.copilot.needsReauthentication().catch(() => false)
-            if (get().providers === providers) set({ copilotNeedsReauthentication: needed })
+            const needed = await api.copilot.needsReauthentication(provider.id).catch(() => false)
+            if (get().providers === providers)
+              set((s) => ({
+                copilotNeedsReauthentication: {
+                  ...s.copilotNeedsReauthentication,
+                  [provider.id]: needed
+                }
+              }))
           }
           const errText = result.error ?? 'Model request failed.'
           if (!parts.some((p) => p.type === 'text' && p.text.includes(errText))) {
@@ -2914,7 +2973,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       get().chats.find((c) => c.id === chatId),
       settings
     )
-    const provider = providers.find((p) => p.id === config.providerId) ?? providers[0] ?? null
+    const provider =
+      (config.providerId ? providers.find((p) => p.id === config.providerId) : providers[0]) ?? null
     if (!provider || !(provider.hasCredential || provider.auth === 'none')) return
     await get().ensureModels(provider.id)
     const model = resolveProviderModel(

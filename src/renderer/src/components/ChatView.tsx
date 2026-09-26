@@ -321,7 +321,9 @@ export function ChatView({
   }, [activeChatId])
   const activeChat = chats.find((c) => c.id === activeChatId)
   const selectedProvider = settings ? resolveSessionConfig(activeChat, settings).providerId : null
-  const provider = providers.find((p) => p.id === selectedProvider) ?? providers[0]
+  const provider = selectedProvider
+    ? providers.find((p) => p.id === selectedProvider)
+    : providers[0]
   const isSub = activeChat?.kind === 'sub'
   const parentChat = activeChat?.parentId
     ? chats.find((c) => c.id === activeChat.parentId)
@@ -656,11 +658,16 @@ export function ChatView({
           </div>
         )}
 
-        <div hidden={provider?.id !== 'github-copilot'}>
-          <CopilotReconnect needed={copilotNeedsReauthentication} onConnected={refreshProviders} />
-        </div>
+      {provider?.seedId === 'github-copilot' && (
+        <CopilotReconnect
+          key={provider.id}
+          connectionId={provider.id}
+          needed={copilotNeedsReauthentication[provider.id] ?? false}
+          onConnected={refreshProviders}
+        />
+      )}
 
-        {/* A subagent's session can now be stopped from its own composer: the Stop
+      {/* A subagent's session can now be stopped from its own composer: the Stop
           cancels the DELEGATE (there is no local request here to abort), which
           is what the button visibly means in this view. */}
         {latestCommand && !isSessionDismissed && dismissedCommand !== latestCommand.title && (

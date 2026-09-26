@@ -250,7 +250,7 @@ export default function App(): JSX.Element {
   const settings = useRoxyStore((s) => s.settings)
   const bootstrap = useRoxyStore((s) => s.bootstrap)
   const ensureModels = useRoxyStore((s) => s.ensureModels)
-  const copilotConnected = useRoxyStore((s) => s.providers.some((p) => p.id === 'github-copilot'))
+  const providers = useRoxyStore((s) => s.providers)
 
   useEffect(() => {
     bootstrap()
@@ -258,9 +258,10 @@ export default function App(): JSX.Element {
   }, [bootstrap])
 
   useEffect(() => {
-    if (!ready || !copilotConnected) return
+    const copilots = providers.filter((p) => p.seedId === 'github-copilot')
+    if (!ready || !copilots.length) return
     const refresh = (): void => {
-      if (document.visibilityState !== 'hidden') void ensureModels('github-copilot')
+      if (document.visibilityState !== 'hidden') copilots.forEach((p) => void ensureModels(p.id))
     }
     refresh()
     const timer = window.setInterval(refresh, 60_000)
@@ -273,7 +274,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('online', refresh)
       document.removeEventListener('visibilitychange', refresh)
     }
-  }, [ready, copilotConnected, ensureModels])
+  }, [ready, providers, ensureModels])
 
   if (!ready) return <Splash />
 

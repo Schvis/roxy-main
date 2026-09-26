@@ -1,5 +1,47 @@
 import type { Database } from 'better-sqlite3'
 import { createPerfIndexes } from './perf-indexes'
+import { resolveSeed } from '../../shared/providers'
+
+/** Automatic initial labels; renames are never recomputed on reconnect/repair. */
+export function providerAccountName(seedId: string, accountNumber: number): string {
+  const names: Record<string, string> = {
+    'codex-subscription': 'ChatGPT',
+    'gemini-subscription': 'Gemini',
+    'claude-subscription': 'Claude'
+  }
+  return `${names[seedId] ?? resolveSeed(seedId).name} ${accountNumber}`
+}
+
+/** Idempotent upgrade, also used for databases whose version ran ahead of their schema. */
+function repairProviderAccounts(db: Database): void {
+  addColumnIfMissing(db, 'providers', 'seed_id', 'TEXT')
+  addColumnIfMissing(db, 'providers', 'account_number', 'INTEGER NOT NULL DEFAULT 1')
+  addColumnIfMissing(db, 'providers', 'identity', 'TEXT')
+  addColumnIfMissing(db, 'providers', 'proxy_auth_file', 'TEXT')
+  addColumnIfMissing(db, 'providers', 'proxy_prefix', 'TEXT')
+  db.exec(`CREATE TABLE IF NOT EXISTS provider_account_counters (
+    seed_id TEXT PRIMARY KEY,
+    last_number INTEGER NOT NULL
+  )`)
+  // A missing seed marks an untouched legacy row. Keep its id (and every chat,
+  // credential, usage and model preference referencing it), but give it account 1.
+  const legacy = db.prepare('SELECT id FROM providers WHERE seed_id IS NULL').all() as {
+    id: string
+  }[]
+  const update = db.prepare(
+    'UPDATE providers SET seed_id = id, account_number = 1, name = ? WHERE id = ?'
+  )
+  for (const row of legacy) update.run(providerAccountName(row.id, 1), row.id)
+  // Only raise counters: deleting the last account must NEVER recycle its number.
+  db.exec(`
+    INSERT INTO provider_account_counters(seed_id, last_number)
+      SELECT seed_id, MAX(account_number) FROM providers WHERE seed_id IS NOT NULL GROUP BY seed_id
+      ON CONFLICT(seed_id) DO UPDATE SET last_number = MAX(last_number, excluded.last_number);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_number ON providers(seed_id, account_number);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_auth_file ON providers(seed_id, proxy_auth_file)
+      WHERE proxy_auth_file IS NOT NULL;
+  `)
+}
 
 /**
  * A migration is either raw SQL or a function, for steps that must INSPECT the
@@ -109,11 +151,17 @@ const REPAIR_SCHEMA_SQL = /* sql */ `
       );
   CREATE TABLE IF NOT EXISTS providers (
         id            TEXT PRIMARY KEY,
+        seed_id       TEXT,
+        account_number INTEGER NOT NULL DEFAULT 1,
+        identity      TEXT,
+        proxy_auth_file TEXT,
+        proxy_prefix  TEXT,
         name          TEXT NOT NULL,
         wire          TEXT NOT NULL,
         auth          TEXT NOT NULL,
         base_url      TEXT,
         default_model TEXT,
+        discover_image_models INTEGER NOT NULL DEFAULT 0,
         enabled       INTEGER NOT NULL DEFAULT 1,
         sort_order    INTEGER NOT NULL DEFAULT 0,
         created_at    INTEGER NOT NULL
@@ -124,6 +172,10 @@ const REPAIR_SCHEMA_SQL = /* sql */ `
         content    TEXT NOT NULL,
         created_at INTEGER NOT NULL
       , images TEXT);
+  CREATE TABLE IF NOT EXISTS provider_account_counters (
+        seed_id TEXT PRIMARY KEY,
+        last_number INTEGER NOT NULL
+      );
   CREATE TABLE IF NOT EXISTS recent_models (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         provider_id TEXT NOT NULL,
@@ -542,7 +594,10 @@ export const MIGRATIONS: Migration[] = [
   //                             poll, run every minute forever.
   //   idx_usage_chat          — per-session spend roll-ups on the usage view.
   // All CREATE INDEX IF NOT EXISTS, so re-running is a no-op.
-  (db) => createPerfIndexes(db)
+  (db) => createPerfIndexes(db),
+
+  // ---- v28: independently addressable provider accounts ----
+  repairProviderAccounts
 ]
 
 /**
@@ -568,6 +623,9 @@ export const MIGRATIONS: Migration[] = [
  */
 export function repairSchema(db: Database): void {
   db.exec(REPAIR_SCHEMA_SQL)
+  // Derived legacy account metadata is safe to repair, like project membership.
+  // Never overwrite a migrated label or lower a persisted account counter.
+  db.transaction(() => repairProviderAccounts(db))()
   // NOTE: the perf indexes are created at the END of this function, after the
   // addColumnIfMissing calls below — some of them index columns that only those
   // calls introduce, so creating them up here would fail on an old database.
