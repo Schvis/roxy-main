@@ -367,6 +367,8 @@
     "activeSummary": "Active: {{scheme}}://{{host}}:{{port}}"
   },
   "queue": {
+    "userRequest": "You",
+    "toCollaborator": "to @{{username}}",
     "image": "Image",
     "empty": "(empty)",
     "running": "Running",
