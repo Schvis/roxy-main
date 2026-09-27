@@ -6,6 +6,7 @@ import { CanvasSurface, type CanvasLayoutContext } from './CanvasSurface'
 import { transcriptCache, layoutTranscript } from './transcript'
 import type { HitAction } from './scene'
 import { promptEntries } from './prompt-history'
+import { ACTIVITY_PHRASE_ROTATION_MS } from './activity-status'
 import roxyLogo from '../assets/roxy.png'
 import { useRoxyStore } from '../lib/store'
 import { botAvatarUrl } from '../components/BotAvatar'
@@ -57,7 +58,6 @@ export function CanvasTranscript({
   const mounted = useRef(false)
   const [logo, setLogo] = useState(() => decodedLogo)
   const [clock, setClock] = useState(0)
-  const [quietSignature, setQuietSignature] = useState<string | null>(null)
   const prompts = useMemo(() => promptEntries(messages), [messages])
   const bots = useRoxyStore((s) => s.bots)
   const queue = useRoxyStore((s) => s.queue)
@@ -67,7 +67,6 @@ export function CanvasTranscript({
   const ownBot = bots.find((bot) => bot.chatId === chatId)
   const speaker = useRoxyStore((s) => (chatId ? s.automationSpeakers[chatId] : undefined))
   const signature = streaming === null ? null : streamSignature(streaming)
-  const quiet = signature !== null && quietSignature === signature
 
   useEffect(() => () => cache.detach(), [cache])
 
@@ -87,18 +86,18 @@ export function CanvasTranscript({
   }, [])
 
   useEffect(() => {
-    if (signature === null) {
-      setQuietSignature(null)
-      return
-    }
-    // After visible output goes quiet, restore the working row. The same tick
-    // also reveals cancellation for a long-running tool with no new deltas.
-    const timer = setTimeout(() => {
-      setQuietSignature(signature)
-      setClock((n) => n + 1)
-    }, 1250)
-    return () => clearTimeout(timer)
+    if (signature === null) return
+    // Reveal cancellation for a long-running tool even when it emits no new deltas.
+    const reveal = setTimeout(() => setClock((n) => n + 1), 1250)
+    return () => clearTimeout(reveal)
   }, [signature])
+
+  useEffect(() => {
+    if (streaming === null) return
+    // Keep this independent of token signatures: active output must not postpone rotation.
+    const rotation = setInterval(() => setClock((n) => n + 1), ACTIVITY_PHRASE_ROTATION_MS)
+    return () => clearInterval(rotation)
+  }, [streaming !== null])
 
   const buildScene = useCallback(
     (context: CanvasLayoutContext) => {
@@ -116,7 +115,6 @@ export function CanvasTranscript({
           queue,
           queueLoaded,
           botAvatar: botAvatarUrl,
-          quiet,
           canCancel: (part) => {
             if (part.tool === 'task') return Boolean(part.subChatId)
             return (
@@ -128,19 +126,7 @@ export function CanvasTranscript({
         cache
       )
     },
-    [
-      messages,
-      streaming,
-      quiet,
-      clock,
-      logo,
-      cache,
-      bots,
-      queue,
-      queueLoaded,
-      ownBot?.username,
-      speaker
-    ]
+    [messages, streaming, clock, logo, cache, bots, queue, queueLoaded, ownBot?.username, speaker]
   )
 
   const onAction = (action: HitAction): void => {
