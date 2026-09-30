@@ -1,4 +1,4 @@
-                                                                                                                                          /**
+/**
  * The agent loop — the thing that makes Roxy *do* the work instead of just
  * describing it. It gives the model the executable tools, streams its turn,
  * runs any tool calls it makes (in the session's workspace), feeds the results
