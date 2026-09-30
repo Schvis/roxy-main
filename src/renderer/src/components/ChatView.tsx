@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   AppWindow,
@@ -12,7 +12,6 @@ import {
   ListTree,
   Loader2,
   MessageSquare,
-  Repeat,
   RotateCw,
   Settings,
   Square,
@@ -20,10 +19,11 @@ import {
   X
 } from 'lucide-react'
 import type { Chat, MessagePart } from '@shared/types'
+import { isVisibleQueueItem } from '@shared/queue'
 import { resolveSessionConfig } from '@shared/session-config'
 import { useRoxyStore } from '../lib/store'
-import { useTranslation, Trans } from 'react-i18next'
-import { formatInterval } from '@shared/format'
+import { visibleMessages, visibleQueue } from '../lib/optimistic-messages'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/cn'
 import { api } from '../lib/api'
 import { writeClipboardText } from '../lib/clipboard'
@@ -31,8 +31,9 @@ import { CanvasTranscript } from '../canvas/CanvasTranscript'
 import { CommandsDialog } from './CommandsDialog'
 import { ContextFilePickerModal } from './ContextFilePickerModal'
 import { Composer } from './Composer'
+import { BotSettingsPane } from './BotSettingsPane'
+import { BotAvatar } from './BotAvatar'
 import { CopilotReconnect } from './CopilotReconnect'
-import { LoopDetailsPane } from './LoopDetailsPane'
 import { SessionInfo } from './SessionInfo'
 import { AgentFileChangesPopup } from './AgentFileChangesPopup'
 import { AgentStepsPopup } from './AgentStepsPopup'
@@ -212,26 +213,51 @@ export function ChatView({
   const { pathname } = useLocation()
   const isOverlay = propIsOverlay ?? pathname === '/overlay'
   const { t } = useTranslation()
-  const messages = useRoxyStore((s) => s.messages)
+  const storedMessages = useRoxyStore((s) => s.messages)
+  const optimisticMessages = useRoxyStore((s) =>
+    s.activeChatId ? s.optimisticMessages[s.activeChatId] : undefined
+  )
+  const messages = useMemo(
+    () => visibleMessages(storedMessages, optimisticMessages),
+    [storedMessages, optimisticMessages]
+  )
+  const sentMessageSignal = useRoxyStore((s) =>
+    s.activeChatId ? (s.sentMessageSignal[s.activeChatId] ?? 0) : 0
+  )
   const messagesChatId = useRoxyStore((s) => s.messagesChatId)
   const messagesError = useRoxyStore((s) => s.messagesError)
   const streaming = useRoxyStore((s) =>
     s.activeChatId ? (s.streamingChats[s.activeChatId] ?? null) : null
   )
-  const sending = useRoxyStore((s) => (s.activeChatId ? !!s.sendingChats[s.activeChatId] : false))
+  const sending = useRoxyStore((s) =>
+    s.activeChatId
+      ? !!s.sendingChats[s.activeChatId] || !!s.runningAutomation[s.activeChatId]
+      : false
+  )
   const submit = useRoxyStore((s) => s.submit)
   const stop = useRoxyStore((s) => s.stop)
-  const queue = useRoxyStore((s) => s.queue)
+  const storedQueue = useRoxyStore((s) => s.queue)
+  const optimisticQueue = useRoxyStore((s) =>
+    s.activeChatId ? s.optimisticQueue[s.activeChatId] : undefined
+  )
+  const allQueued = useMemo(
+    () => visibleQueue(storedQueue, optimisticQueue),
+    [storedQueue, optimisticQueue]
+  )
+  // A running item's prompt is already persisted to the transcript by the main
+  // process, so showing its queue row too renders the same message twice.
+  // Only user requests appear here; automated handoffs and schedules stay hidden.
+  const queue = useMemo(() => allQueued.filter(isVisibleQueueItem), [allQueued])
   const newSession = useRoxyStore((s) => s.newSession)
   const selectChat = useRoxyStore((s) => s.selectChat)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const chats = useRoxyStore((s) => s.chats)
+  const bots = useRoxyStore((s) => s.bots)
   const settings = useRoxyStore((s) => s.settings)
   const providers = useRoxyStore((s) => s.providers)
   const copilotNeedsReauthentication = useRoxyStore((s) => s.copilotNeedsReauthentication)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
-  const loops = useRoxyStore((s) => s.loops)
   // Subscribe to the STORED array, not a defaulted copy. A selector returning
   // `?? []` builds a new array every call, so zustand's Object.is check never
   // matches and the component re-renders forever ("getSnapshot should be
@@ -266,7 +292,9 @@ export function ChatView({
   // Wait for history even when live tokens are available, so arrival paints the complete tail once.
   const loading = !messagesError && messagesChatId !== activeChatId
   const isEmpty = !hasContent && !loading
-  const [loopPaneOpen, setLoopPaneOpen] = useState(false)
+  const botSettings = useRoxyStore((s) => s.botSettings)
+  const setBotSettings = useRoxyStore((s) => s.setBotSettings)
+  const botCloseRequest = useRef<(() => void) | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
@@ -320,6 +348,9 @@ export function ChatView({
     setInfoOpen(false)
   }, [activeChatId])
   const activeChat = chats.find((c) => c.id === activeChatId)
+  const queueHasUserRequests = queue.some(
+    (item) => !item.scheduleId && (item.fromUser || !item.sourceChatId)
+  )
   const selectedProvider = settings ? resolveSessionConfig(activeChat, settings).providerId : null
   const provider = selectedProvider
     ? providers.find((p) => p.id === selectedProvider)
@@ -339,7 +370,8 @@ export function ChatView({
     null
   const effectiveWorkspaceRoot = workspaceRoot || (ideMode ? ideSelectedRoot : null)
 
-  const activeLoop = loops.find((l) => l.chatId === activeChatId)
+  const activeBot = bots.find((bot) => bot.chatId === activeChatId)
+  const botPaneOpen = !!activeBot && botSettings?.botId === activeBot.id
   const sessionTasks = activeChat?.tasks ?? []
   const tasksDone = sessionTasks.filter((t) => t.status === 'completed').length
   // Any session can carry a description + checklist: the `general` subagent has
@@ -392,42 +424,31 @@ export function ChatView({
   }
 
   return (
-    <div
-      className={cn(
-        'relative flex h-full flex-1 flex-row bg-bg overflow-hidden',
-        isOverlay ? 'min-w-[300px] min-h-[320px]' : 'min-w-[380px] min-h-[300px]'
+    <div className="@container/chat relative flex h-full min-w-0 flex-1 bg-bg">
+      {botPaneOpen && activeBot && (
+        <BotSettingsPane
+          key={activeBot.id}
+          bot={activeBot}
+          onClose={() => setBotSettings(null)}
+          closeRequest={botCloseRequest}
+        />
       )}
-    >
-      <div
-        className={cn(
-          'relative flex h-full flex-1 flex-col min-w-0',
-          isOverlay ? 'min-w-[300px] min-h-[320px]' : 'min-w-[380px] min-h-[300px]'
-        )}
-      >
-        <header
-          className={cn(
-            'flex h-12 shrink-0 items-center justify-between gap-3 px-4',
-            isOverlay && 'titlebar'
-          )}
-        >
-          {activeLoop ? (
+      <div key="conversation" className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="titlebar reserve-controls-right flex h-12 shrink-0 items-center justify-between gap-3 px-4">
+          {activeBot ? (
             <div className="flex min-w-0 items-center gap-2">
-              <Repeat className="h-4 w-4 shrink-0 text-text-muted" />
-              <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
-              <span className="truncate text-xs text-text-subtle">
-                {t('chat.loopEvery', { interval: formatInterval(activeLoop.intervalMinutes) })}
-                {activeLoop.enabled ? t('chat.loopRunning') : t('chat.loopPaused')}
-              </span>
+              <BotAvatar username={activeBot.username} size={28} />
+              <div className="min-w-0 truncate text-sm font-medium">@{activeBot.username}</div>
             </div>
           ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               {ideMode && onCollapse ? (
                 <button
                   type="button"
                   onClick={onCollapse}
                   title={t('ide.collapseChat')}
                   aria-label={t('ide.collapseChat')}
-                  className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+                  className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
                 >
                   <MessageSquare className="h-4 w-4" />
                 </button>
@@ -436,9 +457,7 @@ export function ChatView({
               ) : (
                 <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
               )}
-              <span className="min-w-0 max-w-[140px] sm:max-w-[180px] truncate text-sm font-medium">
-                {activeChat.title}
-              </span>
+              <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
               {/* A delegate's session is only legible in context — who sent it, and
                 a way back. The folder path is the parent's business. */}
               {isSub
@@ -523,18 +542,23 @@ export function ChatView({
             </div>
           )}
           <div className="flex shrink-0 items-center gap-2">
-            {activeLoop && (
+            {activeBot && (
               <button
-                onClick={() => setLoopPaneOpen((o) => !o)}
-                title={t('chat.loopSettings')}
+                onClick={() => {
+                  if (botPaneOpen) botCloseRequest.current?.()
+                  else setBotSettings(activeBot.id)
+                }}
+                title={t('bots.settings')}
+                aria-expanded={botPaneOpen}
+                aria-controls={botPaneOpen ? 'bot-settings-pane' : undefined}
                 className={cn(
                   'press-scale flex h-7 shrink-0 items-center gap-1.5 sq sq-lg rounded-lg px-2 text-xs',
-                  loopPaneOpen
+                  botPaneOpen
                     ? 'bg-elevated text-text'
                     : 'text-text-muted hover:bg-white/5 hover:text-text'
                 )}
               >
-                <Settings className="h-3.5 w-3.5" /> {t('chat.settings')}
+                <Settings className="h-3.5 w-3.5" /> {t('bots.settings')}
               </button>
             )}
             {ideMode && <IdeChatDock compact />}
@@ -545,7 +569,7 @@ export function ChatView({
                 onClick={() => void api.showMainWindow()}
                 title={t('chat.goToMainWindow')}
                 aria-label={t('chat.goToMainWindow')}
-                className="press-scale flex h-7 w-7 shrink-0 items-center justify-center sq sq-lg rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+                className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
               >
                 <AppWindow className="h-4 w-4" />
               </button>
@@ -554,7 +578,6 @@ export function ChatView({
         </header>
 
         <AgentFileChangesPopup />
-
         {infoOpen && <SessionInfo chat={activeChat} />}
 
         {messagesError ? (
@@ -571,22 +594,21 @@ export function ChatView({
           // Deliberately blank: a transcript read is a local SQLite query, so it
           // resolves within a frame or two and a spinner would be a flash of
           // chrome rather than information. This branch exists to stop the EMPTY
-          // state (and its loop copy) from claiming the session has no messages
+          // state from claiming the session has no messages
           // before we know that.
           <div className="min-h-0 flex-1" />
         ) : isEmpty ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-            {activeLoop ? (
-              <p className="max-w-xs text-sm text-text-muted">
-                <Trans
-                  i18nKey="chat.loopEmpty"
-                  values={{
-                    title: activeChat.title,
-                    interval: formatInterval(activeLoop.intervalMinutes)
-                  }}
-                  components={{ strong: <span className="font-medium text-text" /> }}
-                />
-              </p>
+            {activeBot ? (
+              <div className="flex flex-col items-center gap-4">
+                <BotAvatar username={activeBot.username} size={56} />
+                <div className="flex max-w-xs flex-col gap-2">
+                  <p className="text-sm font-medium text-text">
+                    {t('bots.talkingTo', { username: activeBot.username })}
+                  </p>
+                  <p className="text-sm text-text-muted">{t('bots.intro')}</p>
+                </div>
+              </div>
             ) : (
               <p className="text-sm text-text-muted"></p>
             )}
@@ -603,6 +625,7 @@ export function ChatView({
               parentChat?.workspacePath ??
               null
             }
+            pinSignal={sentMessageSignal}
             onCancelSubagent={(subChatId) => void cancelSubagent(subChatId)}
             onCancelTool={(callId) => void cancelToolCall(callId)}
           />
@@ -639,7 +662,7 @@ export function ChatView({
                       count={queue.length}
                       icon={<ListTree className="h-3.5 w-3.5 text-text-subtle" />}
                     />
-                    {sending && (
+                    {sending && queueHasUserRequests && (
                       <span className="ml-auto text-[10px] text-text-subtle">
                         {t('chat.runsAfterReply')}
                       </span>
@@ -648,7 +671,13 @@ export function ChatView({
                   <QueueSectionContent>
                     <QueueList>
                       {queue.map((item, i) => (
-                        <QueuedMessage key={item.id} item={item} index={i} total={queue.length} />
+                        <QueuedMessage
+                          key={item.id}
+                          item={item}
+                          index={i}
+                          total={queue.length}
+                          pending={!!optimisticQueue?.some((entry) => entry.id === item.id)}
+                        />
                       ))}
                     </QueueList>
                   </QueueSectionContent>
@@ -816,7 +845,10 @@ export function ChatView({
         <AgentQuestionPopup />
 
         <Composer
+          key={activeChatId}
+          chatId={activeChat.id}
           onSend={submit}
+          variant={activeChat.kind === 'bot' ? 'bot' : 'session'}
           sending={sending || subagentRunning}
           onStop={
             subagentRunning && activeChatId ? () => void cancelSubagent(activeChatId) : () => stop()
@@ -827,15 +859,7 @@ export function ChatView({
           }}
         />
 
-        <WorkstreamStrip />
-
-        {loopPaneOpen && activeLoop && (
-          <LoopDetailsPane
-            loop={activeLoop}
-            chat={activeChat}
-            onClose={() => setLoopPaneOpen(false)}
-          />
-        )}
+        {!activeBot && activeChat.kind !== 'bot' && <WorkstreamStrip />}
       </div>
 
       {commandsOpen && !ideMode && activeChat && (

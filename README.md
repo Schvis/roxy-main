@@ -34,9 +34,9 @@ tool-calling loop, per-model tuned system prompts, Plan/Build agents and subagen
 context management, and integrations for MCP servers, language-server diagnostics, and `SKILL.md`
 skills.
 
-Beyond the agent loop, Roxy integrates a built-in IDE with Git conflict resolution, an interactive
-Live2D companion with local GPU-accelerated RVC voice synthesis, a self-hosted Remote Workspace
-relay server for mobile control, scheduled autonomous loops, and native terminals.
+Beyond the agent harness, Roxy integrates a built-in IDE with Git conflict resolution, an interactive
+Live2D companion with local GPU-accelerated RVC voice synthesis, a Remote Workspace relay for mobile
+control, persistent scheduled bots, and native terminals.
 
 ## Key Features
 
@@ -44,6 +44,7 @@ relay server for mobile control, scheduled autonomous loops, and native terminal
 - **Multi-Provider & Custom Endpoints** — Native support for OpenAI, Copilot (with automatic token refresh), Anthropic, Google Gemini via Vercel AI SDK, local models, and custom image generation endpoints.
 - **Integrated IDE & Git Operations** — Built-in code editor with syntax highlighting (Shiki), line diff decorations, visual merge conflict solver, interactive git commit graph, and multi-repo workspace management.
 - **Embedded Terminal** — Hardware-accelerated terminal emulator powered by `@xterm/xterm` and `node-pty` supporting persistent shell sessions, standalone popouts, and command history.
+- **Persistent Bots** — Top-level bot chats with saved roles, explicit project-session handoffs, message queues, and interval or cron schedules. Bots run through the desktop harness while Roxy is running; see [Bots](BOTS.md).
 - **Live2D Companion & Voice Synthesis** — Interactive Roxy Migurdia Live2D avatar with animated expressions and reactions (headpat/chest interactions), coupled with offline GPU-accelerated RVC (Retrieval-based Voice Conversion) v2 TTS, faster-whisper STT voice input, or Fish Audio cloud voice.
 - **Remote Workspace & Mobile Relay** — Pair with a phone or tablet via QR code and PIN without routing code through third parties; defaults to `https://roxy.schvis.com` (configurable via `ROXY_REMOTE_BASE`), with support for a standalone self-hosted Next.js App Router relay server in `remote-server/` (uncommitted / git-ignored).
 - **Ecosystem & Extensibility** — Model Context Protocol (MCP) client + Windows MCP, Language Server Protocol (LSP) diagnostics feedback, `SKILL.md` skill runner, persistent Chromium browser automation, and Discord Rich Presence.
@@ -88,10 +89,10 @@ roxy/
 ├── src/
 │   ├── main/               # Electron main process (Node.js)
 │   │   ├── index.ts        # App lifecycle, window creation, service startup
-│   │   ├── harness/        # Agent loop: agent.ts (turn loop, tool schemas), tools.ts (dispatch)
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── harness/        # Agent turn loop and tool dispatch
+│   │   ├── services/       # Providers, bots, browser, remote workspace, voice, MCP and LSP
 │   │   ├── db/             # better-sqlite3 store: schema, migrations, repository layer
-│   │   └── ipc/            # ipcMain handlers wiring the renderer to harness and services
+│   │   └── ipc/            # ipcMain handlers wiring renderer to harness and services
 │   ├── preload/            # Secure bridge between main and renderer (window.api)
 │   ├── renderer/           # React app (Chromium): routes, components, store
 │   │   └── src/
@@ -138,25 +139,27 @@ You can also enable **Fish Audio API** under Settings for cloud-based voice synt
 
 ## Useful scripts
 
-| Script                   | Description                                                               |
-| ------------------------ | ------------------------------------------------------------------------- |
-| `npm run dev`            | Start desktop application with hot reload                                 |
-| `npm run build`          | Type-check and compile main, preload, and renderer                        |
-| `npm run typecheck`      | Type-check both Node (`tsconfig.node.json`) and Web (`tsconfig.web.json`) |
-| `npm run start`          | Preview production build                                                  |
-| `npm run tts:server`     | Start the local RVC TTS Python voice server                               |
-| `npm run smoke`          | Run full smoke suite (shared, i18n, store, multirepo, app)                |
-| `npm run smoke:shared`   | Run fast Node-only shared module smoke tests                              |
-| `npm run smoke:store`    | Verify database schema and migration guards                               |
-| `npm run smoke:i18n`     | Verify translation catalogs against `default.json` schema                 |
-| `npm run i18n`           | Report translation completion status across all 10 locales                |
-| `npm run i18n:sync`      | Synchronize translation catalog keys with `default.json`                  |
-| `npm run i18n:translate` | Translate missing keys using OpenRouter                                   |
-| `npm run format`         | Format code with Prettier                                                 |
-| `npm run format:check`   | Check code formatting                                                     |
-| `npm run build:win`      | Build Windows executable / installer                                      |
-| `npm run build:mac`      | Build macOS application bundle                                            |
-| `npm run build:linux`    | Build Linux distribution packages (AppImage, deb)                         |
+| Script                             | Description                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `npm run dev`                      | Start desktop application with hot reload                                   |
+| `npm run build`                    | Type-check and compile main, preload, and renderer                          |
+| `npm run typecheck`                | Type-check both Node (`tsconfig.node.json`) and Web (`tsconfig.web.json`)   |
+| `npm run start`                    | Preview production build                                                    |
+| `npm run tts:server`               | Start the local RVC TTS Python voice server                                 |
+| `npm run smoke`                    | Run shared, i18n, store, multirepo, live, cookies, browser proxy, app tests |
+| `npm run smoke:bots`               | Run bot scheduling, handoff, and Electron runtime tests                     |
+| `npm run smoke:agent-file-changes` | Check agent file-change tracking                                            |
+| `npm run smoke:shared`             | Run fast Node-only shared module smoke tests                                |
+| `npm run smoke:store`              | Verify database schema and migration guards                                 |
+| `npm run smoke:i18n`               | Verify translation catalogs against `default.json` schema                   |
+| `npm run i18n`                     | Report translation completion status across all 10 locales                  |
+| `npm run i18n:sync`                | Synchronize translation catalog keys with `default.json`                    |
+| `npm run i18n:translate`           | Translate missing keys using OpenRouter                                     |
+| `npm run format`                   | Format code with Prettier                                                   |
+| `npm run format:check`             | Check code formatting                                                       |
+| `npm run build:win`                | Build Windows executable / installer                                        |
+| `npm run build:mac`                | Build macOS application bundle                                              |
+| `npm run build:linux`              | Build Linux distribution packages (AppImage, deb)                           |
 
 ## Architecture notes
 
@@ -189,9 +192,9 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 - **Ecosystem** — external tool servers via the MCP client
   ([`services/mcp.ts`](src/main/services/mcp.ts)), language-server diagnostics fed back after edits
   ([`services/lsp.ts`](src/main/services/lsp.ts)), and on-demand `SKILL.md` skills
-  ([`services/skills.ts`](src/main/services/skills.ts)). Roxy's persistent browser toolset
-  ([`services/browser.ts`](src/main/services/browser.ts)) and recurring scheduled loops
-  ([`services/loops.ts`](src/main/services/loops.ts)) run through the same loop.
+  ([`services/skills.ts`](src/main/services/skills.ts)). The persistent browser toolset
+  ([`services/browser.ts`](src/main/services/browser.ts)) and [bots](BOTS.md)
+  ([`services/automation.ts`](src/main/services/automation.ts)) use the same harness.
 
 ### Integrated IDE & Git Workflow
 
@@ -214,6 +217,13 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 - **Speech-to-Text** — [`src/main/services/stt.ts`](src/main/services/stt.ts) captures voice prompts and
   transcribes locally using faster-whisper ([`script/transcribe.py`](script/transcribe.py)).
 
+### Bots
+
+Bots keep their own identity, role, chat, model, and queue. Invoke collaborators explicitly with
+`bot_invoke` or use **Send to @username** in a project chat; plain mentions do not route prompts.
+Schedule interval, cron, or one-time jobs with `bot_schedule`. Roxy must remain running for jobs
+to execute. See [BOTS.md](BOTS.md) for queue behavior, migration, and checks.
+
 ### Remote Workspace
 
 Take a running session to your phone. **Remote Workspace** (bottom-left **CUSTOMIZE** group in the
@@ -225,7 +235,7 @@ transcript and streamed agent events are relayed.
   (configured via `ROXY_REMOTE_BASE`, defaulting to `https://roxy.schvis.com`), holds the **host token**, and maintains
   a persistent WebSocket. On a guest `hello` it sends a transcript snapshot; on a guest `prompt` it runs the turn
   locally, streaming every `LlmEvent` to the phone and local renderer simultaneously.
-- **One loop, no drift** — Local `llm:start` IPC calls and remote prompts both execute through
+- **Shared turn path** — Local `llm:start` IPC calls and remote prompts both execute through
   [`main/services/session-turn.ts`](src/main/services/session-turn.ts) `runSessionTurn`.
 - **Security** — Zero-login authentication: a short-lived HMAC guest token passes through the URL fragment
   and the phone must provide the 6-digit **PIN** displayed on desktop. Rooms are automatically revoked on stop,

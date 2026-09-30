@@ -1251,14 +1251,22 @@ export async function speakSentenceAndWait(
   if (settings.ttsProvider === 'openai') {
     const cleanText = stripEmotionTags(trimmed).trim() || trimmed
     try {
-      const lang = targetLang || (settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja')
-      const textToSynthesize = settings.ttsTranslate && lang !== 'none'
-        ? await translateText(cleanText, lang, apiKey?.trim() || settings.ttsApiKey?.trim() || undefined)
-        : cleanText
+      const lang =
+        targetLang || (settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja')
+      const textToSynthesize =
+        settings.ttsTranslate && lang !== 'none'
+          ? await translateText(
+              cleanText,
+              lang,
+              apiKey?.trim() || settings.ttsApiKey?.trim() || undefined
+            )
+          : cleanText
       const audio = await synthesizeOpenaiAudio(textToSynthesize, settings, signal)
       return await playAudioBufferInRenderer(audio, 'audio/mpeg', cleanText, signal)
     } catch (err) {
-      appendTtsServerLog(`[OpenAI-compatible TTS] Failed: ${err instanceof Error ? err.message : String(err)}\n`)
+      appendTtsServerLog(
+        `[OpenAI-compatible TTS] Failed: ${err instanceof Error ? err.message : String(err)}\n`
+      )
       return { duration: 0, serverOk: false }
     }
   }

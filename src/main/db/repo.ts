@@ -8,6 +8,7 @@ import { DEFAULT_LANGUAGE, normalizeLanguage } from '../../shared/i18n'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, normalizeMotion, type MotionPreference } from '../../shared/motion'
 import { DEFAULT_DISCORD_CLIENT_ID } from '../../shared/discord'
+import { isVisibleQueueItem } from '../../shared/queue'
 import type {
   AddMessageInput,
   AppSettings,
@@ -15,7 +16,6 @@ import type {
   ConnectedProvider,
   ConnectProviderInput,
   IntegrationConnection,
-  Loop,
   Message,
   MessagePart,
   MessageRole,
@@ -32,7 +32,7 @@ import type {
   WorktreeIntent
 } from '../../shared/types'
 import { parseRepoLinks, serializeRepoLinks, type RepoLink } from '../../shared/repos'
-import type { CreateChatInput, CreateLoopInput } from '../../shared/api'
+import type { CreateChatInput } from '../../shared/api'
 import {
   parseReasoningEffort,
   seedSessionConfig,
@@ -96,6 +96,8 @@ interface MessageRow {
   content: string
   parts: string | null
   created_at: number
+  bot_id: string | null
+  bot_username: string | null
 }
 
 interface IntegrationRow {
@@ -406,7 +408,11 @@ export function setUserProfile(profile: { name: string; avatar: string }): AppSe
   const name = profile.name.trim()
   if (name.length > 80) throw new Error('Profile name is too long')
   const avatar = profile.avatar
-  if (avatar && (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar) || avatar.length > 1_400_000)) {
+  if (
+    avatar &&
+    (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar) ||
+      avatar.length > 1_400_000)
+  ) {
     throw new Error('Invalid profile image')
   }
   setSetting('user_profile_name', name)
@@ -457,9 +463,9 @@ export function setVoiceSttConfig(config: {
 }
 
 export function getVoiceSttApiKey(): string {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get('voice_stt_api_key') as
-    | { value: string }
-    | undefined
+  const row = getDb()
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('voice_stt_api_key') as { value: string } | undefined
   return row ? decryptSecret(JSON.parse(row.value)) : ''
 }
 
@@ -574,9 +580,9 @@ export function setTtsOpenaiConfig(config: {
 }
 
 export function getTtsOpenaiApiKey(): string {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get('tts_openai_api_key') as
-    | { value: string }
-    | undefined
+  const row = getDb()
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('tts_openai_api_key') as { value: string } | undefined
   return row ? decryptSecret(JSON.parse(row.value)) : ''
 }
 
@@ -1386,7 +1392,7 @@ export function createChat(input: CreateChatInput = {}): Chat {
       input.kind ?? 'main',
       providerId,
       model,
-      seed.agentId,
+      input.kind === 'bot' ? 'build' : seed.agentId,
       seed.reasoningEffort,
       seed.contextLimit,
       seed.promptId,
@@ -1400,7 +1406,7 @@ export function createChat(input: CreateChatInput = {}): Chat {
   // A new main session or loop in a workspace registers that project (appended
   // to the bottom of the project list) the first time we see that folder. Sub-
   // agent sessions group under their parent, so they never register a project.
-  if (input.workspacePath && (input.kind ?? 'main') !== 'sub') ensureProject(input.workspacePath)
+  if (input.workspacePath && (input.kind ?? 'main') === 'main') ensureProject(input.workspacePath)
   const chat = getChat(id)
   if (!chat) throw new Error('Failed to create chat')
   return chat
@@ -1455,11 +1461,11 @@ export function forkChat(sourceId: string, input: { title?: string } = {}): Chat
   const now = Date.now()
   const title = input.title?.trim() || `${source.title} (fork)`
   const messages = db
-    .prepare('SELECT role, content, parts, created_at FROM messages WHERE chat_id = ?')
-    .all(sourceId) as Pick<MessageRow, 'role' | 'content' | 'parts' | 'created_at'>[]
+    .prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at, rowid')
+    .all(sourceId) as MessageRow[]
 
   const insertMessage = db.prepare(
-    'INSERT INTO messages(id, chat_id, role, content, parts, created_at) VALUES(?, ?, ?, ?, ?, ?)'
+    'INSERT INTO messages(id, chat_id, role, content, parts, created_at, bot_id, bot_username) VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
   )
   db.transaction(() => {
     db.prepare(
@@ -1483,7 +1489,16 @@ export function forkChat(sourceId: string, input: { title?: string } = {}): Chat
       now
     )
     for (const m of messages) {
-      insertMessage.run(randomUUID(), id, m.role, m.content, m.parts, m.created_at)
+      insertMessage.run(
+        randomUUID(),
+        id,
+        m.role,
+        m.content,
+        m.parts,
+        m.created_at,
+        m.bot_id,
+        m.bot_username
+      )
     }
   })()
 
@@ -1746,9 +1761,7 @@ export function ensureProject(path: string): void {
 export function pruneProjectIfEmpty(path: string): void {
   const db = getDb()
   const { n } = db
-    .prepare(
-      "SELECT COUNT(*) AS n FROM chats WHERE workspace_path IS ? AND kind IN ('main', 'loop')"
-    )
+    .prepare("SELECT COUNT(*) AS n FROM chats WHERE workspace_path IS ? AND kind = 'main'")
     .get(path) as { n: number }
   if (n === 0) db.prepare('DELETE FROM projects WHERE path = ?').run(path)
 }
@@ -1804,27 +1817,38 @@ function rowToMessage(row: MessageRow): Message {
     role: row.role as MessageRole,
     content: row.content,
     parts: parseParts(row.parts, row.content),
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    ...(row.bot_id ? { botId: row.bot_id } : {}),
+    ...(row.bot_username ? { botUsername: row.bot_username } : {})
   }
 }
 
 export function listMessages(chatId: string): Message[] {
   const rows = prepareCached(
-    'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC'
+    'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC'
   ).all(chatId) as MessageRow[]
   return rows.map(rowToMessage)
 }
 
 export function addMessage(input: AddMessageInput): Message {
-  const id = randomUUID()
+  const id = input.id ?? randomUUID()
   const now = Date.now()
   const parts: MessagePart[] = input.parts ?? [{ type: 'text', text: input.content }]
   const partsJson = JSON.stringify(parts)
   const db = getDb()
   const tx = db.transaction(() => {
     prepareCached(
-      'INSERT INTO messages(id, chat_id, role, content, parts, created_at) VALUES(?, ?, ?, ?, ?, ?)'
-    ).run(id, input.chatId, input.role, input.content, partsJson, now)
+      'INSERT INTO messages(id, chat_id, role, content, parts, created_at, bot_id, bot_username) VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      id,
+      input.chatId,
+      input.role,
+      input.content,
+      partsJson,
+      now,
+      input.botId ?? null,
+      input.botUsername ?? null
+    )
     prepareCached('UPDATE chats SET updated_at = ? WHERE id = ?').run(now, input.chatId)
     // One assistant message = one agent turn. Credited to the durable ledger in
     // the SAME transaction as the message, so the graph can never disagree with
@@ -1840,112 +1864,10 @@ export function addMessage(input: AddMessageInput): Message {
     role: input.role,
     content: input.content,
     parts,
-    createdAt: now
+    createdAt: now,
+    ...(input.botId ? { botId: input.botId } : {}),
+    ...(input.botUsername ? { botUsername: input.botUsername } : {})
   }
-}
-
-// ---- Loops -------------------------------------------------------------------
-
-interface LoopRow {
-  id: string
-  name: string
-  prompt: string
-  interval_minutes: number
-  enabled: number
-  chat_id: string
-  last_run_at: number | null
-  next_run_at: number
-  created_at: number
-}
-
-function rowToLoop(row: LoopRow): Loop {
-  return {
-    id: row.id,
-    name: row.name,
-    prompt: row.prompt,
-    intervalMinutes: row.interval_minutes,
-    enabled: row.enabled > 0,
-    chatId: row.chat_id,
-    lastRunAt: row.last_run_at,
-    nextRunAt: row.next_run_at,
-    createdAt: row.created_at
-  }
-}
-
-function getLoop(id: string): Loop | undefined {
-  const row = getDb().prepare('SELECT * FROM loops WHERE id = ?').get(id) as LoopRow | undefined
-  return row ? rowToLoop(row) : undefined
-}
-
-export function listLoops(): Loop[] {
-  const rows = getDb().prepare('SELECT * FROM loops ORDER BY created_at DESC').all() as LoopRow[]
-  return rows.map(rowToLoop)
-}
-
-export function createLoop(input: CreateLoopInput): Loop {
-  const id = randomUUID()
-  const now = Date.now()
-  const interval = Math.max(1, Math.floor(input.intervalMinutes))
-  const name = input.name.trim() || 'Loop'
-  const chat = createChat({ title: name, kind: 'loop', workspacePath: input.workspacePath ?? null })
-  getDb()
-    .prepare(
-      `INSERT INTO loops(id, name, prompt, interval_minutes, enabled, chat_id, last_run_at, next_run_at, created_at)
-       VALUES(?, ?, ?, ?, 1, ?, NULL, ?, ?)`
-    )
-    .run(id, name, input.prompt, interval, chat.id, now, now)
-  const loop = getLoop(id)
-  if (!loop) throw new Error('Failed to create loop')
-  return loop
-}
-
-export function setLoopEnabled(id: string, enabled: boolean): void {
-  if (enabled) {
-    getDb()
-      .prepare('UPDATE loops SET enabled = 1, next_run_at = ? WHERE id = ?')
-      .run(Date.now(), id)
-  } else {
-    getDb().prepare('UPDATE loops SET enabled = 0 WHERE id = ?').run(id)
-  }
-}
-
-export function removeLoop(id: string): void {
-  const loop = getLoop(id)
-  if (!loop) return
-  // The PROJECT folder (not sessionCwd) — same reason as removeChat.
-  const workspace = getChatWorkspace(loop.chatId)
-  // Deleting the chat cascades to the loop row and its messages.
-  getDb().prepare('DELETE FROM chats WHERE id = ?').run(loop.chatId)
-  if (workspace) pruneProjectIfEmpty(workspace)
-}
-
-export function dueLoops(now: number): Loop[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM loops WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at ASC')
-    .all(now) as LoopRow[]
-  return rows.map(rowToLoop)
-}
-
-/** Append one heartbeat run (scheduled prompt + response) and schedule the next. */
-export function appendLoopRun(loopId: string, userContent: string, assistantContent: string): void {
-  const loop = getLoop(loopId)
-  if (!loop) return
-  const now = Date.now()
-  addMessage({ chatId: loop.chatId, role: 'user', content: userContent })
-  addMessage({ chatId: loop.chatId, role: 'assistant', content: assistantContent })
-  getDb()
-    .prepare('UPDATE loops SET last_run_at = ?, next_run_at = ? WHERE id = ?')
-    .run(now, now + loop.intervalMinutes * 60_000, loopId)
-}
-
-/** Advance a loop's schedule after a beat fires (the agent turn runs separately). */
-export function markLoopRan(loopId: string): void {
-  const loop = getLoop(loopId)
-  if (!loop) return
-  const now = Date.now()
-  getDb()
-    .prepare('UPDATE loops SET last_run_at = ?, next_run_at = ? WHERE id = ?')
-    .run(now, now + loop.intervalMinutes * 60_000, loopId)
 }
 
 // ---- Sessions status (list_sessions / check_session tools) -------------------
@@ -1991,18 +1913,40 @@ interface QueueRow {
   content: string
   images: string | null
   created_at: number
+  source_chat_id: string | null
+  reply_to_chat_id: string | null
+  hops: number
+  not_before: number
+  state: 'pending' | 'running' | 'failed'
+  error: string | null
+  bot_id: string | null
+  bot_username: string | null
+  as_bot_id: string | null
+  schedule_id: string | null
+  from_user: number
 }
 
 export function listQueue(chatId: string): QueueItem[] {
   const rows = getDb()
-    .prepare('SELECT * FROM queue WHERE chat_id = ? ORDER BY created_at ASC')
+    .prepare('SELECT * FROM queue WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC')
     .all(chatId) as QueueRow[]
   return rows.map((r) => ({
     id: r.id,
     chatId: r.chat_id,
     content: r.content,
     ...(r.images ? { images: JSON.parse(r.images) as QueueImage[] } : {}),
-    createdAt: r.created_at
+    createdAt: r.created_at,
+    sourceChatId: r.source_chat_id ?? undefined,
+    replyToChatId: r.reply_to_chat_id ?? undefined,
+    hops: r.hops,
+    notBefore: r.not_before,
+    state: r.state,
+    error: r.error ?? undefined,
+    botId: r.bot_id ?? undefined,
+    botUsername: r.bot_username ?? undefined,
+    asBotId: r.source_chat_id ? (r.as_bot_id ?? undefined) : undefined,
+    fromUser: !!r.from_user,
+    scheduleId: r.schedule_id ?? undefined
   }))
 }
 
@@ -2017,7 +1961,24 @@ export function enqueue(chatId: string, content: string, images?: QueueImage[]):
 }
 
 export function removeQueueItem(id: string): void {
-  getDb().prepare('DELETE FROM queue WHERE id = ?').run(id)
+  const db = getDb()
+  db.transaction(() => {
+    const row = db
+      .prepare('SELECT state, chat_id, source_chat_id, message_id FROM queue WHERE id = ?')
+      .get(id) as
+      | { state: string; chat_id: string; source_chat_id: string | null; message_id: string | null }
+      | undefined
+    if (row?.state === 'running')
+      throw new Error('Stop the session before removing its running message')
+    // Send to @bot persists its user bubble before delivery. Cancelling that
+    // pending request must remove it from history too, not just stop delivery.
+    if (row?.state === 'pending' && row.source_chat_id === row.chat_id && row.message_id)
+      db.prepare("DELETE FROM messages WHERE id = ? AND chat_id = ? AND role = 'user'").run(
+        row.message_id,
+        row.chat_id
+      )
+    db.prepare(`DELETE FROM queue WHERE id = ? AND state != 'running'`).run(id)
+  })()
 }
 
 /** Edit a queued item's text + images in place, keeping its `created_at` (so its
@@ -2027,34 +1988,57 @@ export function updateQueueItem(
   content: string,
   images?: QueueImage[]
 ): QueueItem | undefined {
+  if (!content.trim() && !images?.length) throw new Error('A prompt is required')
   const imagesJson = images && images.length ? JSON.stringify(images) : null
-  getDb()
-    .prepare('UPDATE queue SET content = ?, images = ? WHERE id = ?')
-    .run(content, imagesJson, id)
+  const db = getDb()
+  const previous = db
+    .prepare('SELECT content, images, message_id, state FROM queue WHERE id = ?')
+    .get(id) as
+    | {
+        content: string
+        images: string | null
+        message_id: string | null
+        state: string
+      }
+    | undefined
+  if (previous?.state === 'running') throw new Error('This message is already running')
+  // Pending collaborator prompts already have a user bubble. Edit that bubble
+  // in place; detaching it leaves stale history and loses the user's authorship.
+  // Failed turns keep their history and append a correction when edited.
+  const changed = previous && (previous.content !== content || previous.images !== imagesJson)
+  const editMessage = changed && previous.state === 'pending' && previous.message_id
+  db.transaction(() => {
+    if (editMessage)
+      db.prepare('UPDATE messages SET content = ?, parts = ? WHERE id = ?').run(
+        content,
+        JSON.stringify([
+          { type: 'text', text: content },
+          ...(images ?? []).map((image) => ({ type: 'image', ...image }))
+        ]),
+        editMessage
+      )
+    db.prepare(
+      `UPDATE queue SET content = ?, images = ?, state = 'pending', error = NULL,
+    message_id = CASE WHEN ? THEN NULL ELSE message_id END WHERE id = ? AND state != 'running'`
+    ).run(content, imagesJson, Number(!!changed && !editMessage), id)
+  })()
   const row = getDb().prepare('SELECT * FROM queue WHERE id = ?').get(id) as QueueRow | undefined
   if (!row) return undefined
-  return {
-    id: row.id,
-    chatId: row.chat_id,
-    content: row.content,
-    ...(row.images ? { images: JSON.parse(row.images) as QueueImage[] } : {}),
-    createdAt: row.created_at
-  }
+  return listQueue(row.chat_id).find((item) => item.id === id)
 }
 
 /** Reorder a chat's queue to match `orderedIds` (front = runs next). Assigns
  *  small strictly-increasing sort keys (1,2,3…) — far below any real `Date.now()`
  *  so newly-enqueued items still append after. No-op unless the full set of the
- *  chat's queue ids is passed. */
+ *  chat's queue ids is passed, or if a running/automated row would change slots. */
 export function reorderQueue(chatId: string, orderedIds: string[]): void {
   const db = getDb()
-  const existing = db.prepare('SELECT id FROM queue WHERE chat_id = ?').all(chatId) as {
-    id: string
-  }[]
+  const existing = listQueue(chatId)
   if (existing.length < 2) return
   const valid = new Set(existing.map((r) => r.id))
   const ids = orderedIds.filter((id) => valid.has(id))
-  if (ids.length !== existing.length) return
+  if (ids.length !== existing.length || new Set(ids).size !== ids.length) return
+  if (existing.some((row, index) => !isVisibleQueueItem(row) && ids[index] !== row.id)) return
   const update = db.prepare('UPDATE queue SET created_at = ? WHERE id = ?')
   db.transaction(() => ids.forEach((id, i) => update.run(i + 1, id)))()
 }

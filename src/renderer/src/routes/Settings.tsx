@@ -260,14 +260,22 @@ export default function Settings(): JSX.Element {
   const saveTtsOpenai = async (clearApiKey = false): Promise<void> => {
     setTtsOpenaiError('')
     try {
-      await setTtsOpenaiConfig({ url: ttsOpenaiUrl, model: ttsOpenaiModel, apiKey: ttsOpenaiKey, clearApiKey })
+      await setTtsOpenaiConfig({
+        url: ttsOpenaiUrl,
+        model: ttsOpenaiModel,
+        apiKey: ttsOpenaiKey,
+        clearApiKey
+      })
       setTtsOpenaiKey('')
     } catch (error) {
       setTtsOpenaiError(error instanceof Error ? error.message : String(error))
     }
   }
 
-  const saveSttConfig = async (provider: 'local' | 'openai', clearApiKey = false): Promise<void> => {
+  const saveSttConfig = async (
+    provider: 'local' | 'openai',
+    clearApiKey = false
+  ): Promise<void> => {
     setSttConfigError('')
     try {
       await setVoiceSttConfig({
@@ -815,16 +823,34 @@ export default function Settings(): JSX.Element {
             {profileAvatar ? (
               <img src={profileAvatar} alt="" className="h-14 w-14 rounded-xl object-cover" />
             ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-surface-2 text-text-muted" aria-hidden="true">{(profileName || t('transcript.you')).charAt(0)}</div>
+              <div
+                className="flex h-14 w-14 items-center justify-center rounded-xl bg-surface-2 text-text-muted"
+                aria-hidden="true"
+              >
+                {(profileName || t('transcript.you')).charAt(0)}
+              </div>
             )}
             <label className="cursor-pointer rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-text hover:bg-surface-3">
               {t('settings.profile.chooseImage')}
-              <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => {
-                handleProfileImage(event.target.files?.[0])
-                event.target.value = ''
-              }} />
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                onChange={(event) => {
+                  handleProfileImage(event.target.files?.[0])
+                  event.target.value = ''
+                }}
+              />
             </label>
-            {profileAvatar && <button type="button" className="text-xs text-text-muted hover:text-text" onClick={() => setProfileAvatar('')}>{t('settings.profile.removeImage')}</button>}
+            {profileAvatar && (
+              <button
+                type="button"
+                className="text-xs text-text-muted hover:text-text"
+                onClick={() => setProfileAvatar('')}
+              >
+                {t('settings.profile.removeImage')}
+              </button>
+            )}
           </div>
           {profileImageFile && (
             <ProfileImageCropper
@@ -838,10 +864,31 @@ export default function Settings(): JSX.Element {
           )}
           <label className="mt-4 grid max-w-sm gap-1 text-xs text-text-muted">
             {t('settings.profile.name')}
-            <input value={profileName} maxLength={80} onChange={(event) => setProfileName(event.target.value)} placeholder={t('transcript.you')} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+            <input
+              value={profileName}
+              maxLength={80}
+              onChange={(event) => setProfileName(event.target.value)}
+              placeholder={t('transcript.you')}
+              className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+            />
           </label>
-          {profileError && <p role="alert" className="mt-2 text-xs text-danger">{profileError}</p>}
-          <Button type="submit" className="mt-4" disabled={savingProfile || profileImageFile !== null || (profileName === (settings?.userProfileName ?? '') && profileAvatar === (settings?.userProfileAvatar ?? ''))}>{t('common.save')}</Button>
+          {profileError && (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {profileError}
+            </p>
+          )}
+          <Button
+            type="submit"
+            className="mt-4"
+            disabled={
+              savingProfile ||
+              profileImageFile !== null ||
+              (profileName === (settings?.userProfileName ?? '') &&
+                profileAvatar === (settings?.userProfileAvatar ?? ''))
+            }
+          >
+            {t('common.save')}
+          </Button>
         </form>
       </section>
       <section className="mb-8">
@@ -1448,122 +1495,138 @@ export default function Settings(): JSX.Element {
               <p className="mt-1 text-xs text-text-muted">
                 {t('settings.voiceInput.providerDescription')}
               </p>
-              {settings?.voiceSttProvider === 'openai' && <form
-                className="mt-3 grid gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  void saveSttConfig('openai')
-                }}
-              >
-                <label className="grid gap-1 text-xs text-text-muted">
-                  {t('settings.voiceInput.endpointTitle')}
-                  <input
-                    type="url"
-                    required
-                    value={sttUrl}
-                    onChange={(e) => setSttUrl(e.target.value)}
-                    placeholder="https://example.com/v1/audio/transcriptions"
-                    className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs text-text-muted">
-                  {t('settings.voiceInput.remoteModelTitle')}
-                  <input
-                    required
-                    value={sttModel}
-                    onChange={(e) => setSttModel(e.target.value)}
-                    placeholder="hf/openai/whisper-large-v3"
-                    className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs text-text-muted">
-                  {t('settings.voiceInput.apiKeyTitle')}
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={sttApiKey}
-                    onChange={(e) => setSttApiKey(e.target.value)}
-                    placeholder={settings?.voiceSttHasApiKey ? t('settings.voiceInput.apiKeySaved') : 'sk-…'}
-                    className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-                  />
-                </label>
-                <div className="flex items-center gap-3">
-                  <Button type="submit" size="sm">{t('settings.voiceInput.saveEndpoint')}</Button>
-                  {settings?.voiceSttHasApiKey && (
-                    <button type="button" onClick={() => void saveSttConfig(settings.voiceSttProvider, true)} className="text-xs text-text-muted hover:text-text">
-                      {t('settings.voiceInput.clearApiKey')}
-                    </button>
-                  )}
-                </div>
-              </form>}
-              {sttConfigError && <p role="alert" className="mt-2 text-xs text-red-400">{sttConfigError}</p>}
-            </div>
-
-            {settings?.voiceSttProvider !== 'openai' && <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-text">
-                      {t('settings.voiceInput.engineTitle')}
-                    </span>
-                    <span
-                      className={cn(
-                        'h-2 w-2 rounded-full',
-                        sttStatus?.installed
-                          ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
-                          : 'bg-amber-400'
-                      )}
-                    />
-                    <span className="text-xs font-medium text-text-subtle">
-                      {sttStatus?.installed
-                        ? t('settings.voiceInput.engineInstalled')
-                        : t('settings.voiceInput.engineNotInstalled')}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-text-muted">
-                    {t('settings.voiceInput.engineDescription')}
-                  </p>
-                  {sttFeedback && (
-                    <p className="mt-2 text-xs font-medium text-accent">{sttFeedback}</p>
-                  )}
-                </div>
-                <Button
-                  variant={sttStatus?.installed ? 'ghost' : 'secondary'}
-                  onClick={() => void handleInstallSttDependencies()}
-                  disabled={installingStt}
-                  className="shrink-0"
+              {settings?.voiceSttProvider === 'openai' && (
+                <form
+                  className="mt-3 grid gap-3"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void saveSttConfig('openai')
+                  }}
                 >
-                  {installingStt
-                    ? t('settings.voiceInput.installingEngine')
-                    : sttStatus?.installed
-                      ? t('settings.voiceInput.reinstallEngine')
-                      : t('settings.voiceInput.installEngine')}
-                </Button>
-              </div>
-
-              {(installingStt || sttLogs) && (
-                <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
-                  <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
-                    <span>{t('settings.tts.consoleTitle')}</span>
-                    {sttLogs && !installingStt && (
+                  <label className="grid gap-1 text-xs text-text-muted">
+                    {t('settings.voiceInput.endpointTitle')}
+                    <input
+                      type="url"
+                      required
+                      value={sttUrl}
+                      onChange={(e) => setSttUrl(e.target.value)}
+                      placeholder="https://example.com/v1/audio/transcriptions"
+                      className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs text-text-muted">
+                    {t('settings.voiceInput.remoteModelTitle')}
+                    <input
+                      required
+                      value={sttModel}
+                      onChange={(e) => setSttModel(e.target.value)}
+                      placeholder="hf/openai/whisper-large-v3"
+                      className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs text-text-muted">
+                    {t('settings.voiceInput.apiKeyTitle')}
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={sttApiKey}
+                      onChange={(e) => setSttApiKey(e.target.value)}
+                      placeholder={
+                        settings?.voiceSttHasApiKey ? t('settings.voiceInput.apiKeySaved') : 'sk-…'
+                      }
+                      className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                    />
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <Button type="submit" size="sm">
+                      {t('settings.voiceInput.saveEndpoint')}
+                    </Button>
+                    {settings?.voiceSttHasApiKey && (
                       <button
                         type="button"
-                        onClick={() => setSttLogs('')}
-                        className="text-xs text-text-subtle hover:text-text transition-colors"
+                        onClick={() => void saveSttConfig(settings.voiceSttProvider, true)}
+                        className="text-xs text-text-muted hover:text-text"
                       >
-                        {t('settings.tts.clearConsole')}
+                        {t('settings.voiceInput.clearApiKey')}
                       </button>
                     )}
                   </div>
-                  <pre
-                    ref={sttConsoleEndRef}
-                    className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
-                  >
-                    {sttLogs || t('settings.voiceInput.installingEngine')}
-                  </pre>
-                </div>
+                </form>
               )}
-            </div>}
+              {sttConfigError && (
+                <p role="alert" className="mt-2 text-xs text-red-400">
+                  {sttConfigError}
+                </p>
+              )}
+            </div>
+
+            {settings?.voiceSttProvider !== 'openai' && (
+              <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-text">
+                        {t('settings.voiceInput.engineTitle')}
+                      </span>
+                      <span
+                        className={cn(
+                          'h-2 w-2 rounded-full',
+                          sttStatus?.installed
+                            ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
+                            : 'bg-amber-400'
+                        )}
+                      />
+                      <span className="text-xs font-medium text-text-subtle">
+                        {sttStatus?.installed
+                          ? t('settings.voiceInput.engineInstalled')
+                          : t('settings.voiceInput.engineNotInstalled')}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      {t('settings.voiceInput.engineDescription')}
+                    </p>
+                    {sttFeedback && (
+                      <p className="mt-2 text-xs font-medium text-accent">{sttFeedback}</p>
+                    )}
+                  </div>
+                  <Button
+                    variant={sttStatus?.installed ? 'ghost' : 'secondary'}
+                    onClick={() => void handleInstallSttDependencies()}
+                    disabled={installingStt}
+                    className="shrink-0"
+                  >
+                    {installingStt
+                      ? t('settings.voiceInput.installingEngine')
+                      : sttStatus?.installed
+                        ? t('settings.voiceInput.reinstallEngine')
+                        : t('settings.voiceInput.installEngine')}
+                  </Button>
+                </div>
+
+                {(installingStt || sttLogs) && (
+                  <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
+                    <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
+                      <span>{t('settings.tts.consoleTitle')}</span>
+                      {sttLogs && !installingStt && (
+                        <button
+                          type="button"
+                          onClick={() => setSttLogs('')}
+                          className="text-xs text-text-subtle hover:text-text transition-colors"
+                        >
+                          {t('settings.tts.clearConsole')}
+                        </button>
+                      )}
+                    </div>
+                    <pre
+                      ref={sttConsoleEndRef}
+                      className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
+                    >
+                      {sttLogs || t('settings.voiceInput.installingEngine')}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -1710,123 +1773,125 @@ export default function Settings(): JSX.Element {
               </select>
             </div>
 
-            {settings?.voiceSttProvider !== 'openai' && <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-text">
-                      {t('settings.voiceInput.modelTitle')}
-                    </span>
-                    {installedModels.includes(settings?.voiceModel ?? 'base') && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        {t('settings.voiceInput.modelInstalled')}
+            {settings?.voiceSttProvider !== 'openai' && (
+              <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-text">
+                        {t('settings.voiceInput.modelTitle')}
                       </span>
-                    )}
+                      {installedModels.includes(settings?.voiceModel ?? 'base') && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          {t('settings.voiceInput.modelInstalled')}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      {t('settings.voiceInput.modelDescription')}
+                    </p>
                   </div>
-                  <p className="mt-0.5 text-xs text-text-muted">
-                    {t('settings.voiceInput.modelDescription')}
-                  </p>
-                </div>
-                <select
-                  value={settings?.voiceModel ?? 'base'}
-                  disabled={downloadingModel !== null}
-                  onChange={(e) => void handleSelectAndDownloadModel(e.target.value)}
-                  className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
-                >
-                  <option value="tiny">
-                    {t('settings.voiceInput.modelTiny')}{' '}
-                    {installedModels.includes('tiny')
-                      ? `(${t('settings.voiceInput.modelInstalled')})`
-                      : ''}
-                  </option>
-                  <option value="base">
-                    {t('settings.voiceInput.modelBase')}{' '}
-                    {installedModels.includes('base')
-                      ? `(${t('settings.voiceInput.modelInstalled')})`
-                      : ''}
-                  </option>
-                  <option value="small">
-                    {t('settings.voiceInput.modelSmall')}{' '}
-                    {installedModels.includes('small')
-                      ? `(${t('settings.voiceInput.modelInstalled')})`
-                      : ''}
-                  </option>
-                  <option value="medium">
-                    {t('settings.voiceInput.modelMedium')}{' '}
-                    {installedModels.includes('medium')
-                      ? `(${t('settings.voiceInput.modelInstalled')})`
-                      : ''}
-                  </option>
-                  <option value="distil-large-v3">
-                    {t('settings.voiceInput.modelDistilLarge')}{' '}
-                    {installedModels.includes('distil-large-v3')
-                      ? `(${t('settings.voiceInput.modelInstalled')})`
-                      : ''}
-                  </option>
-                  <option value="large-v3">
-                    {t('settings.voiceInput.modelLarge')}{' '}
-                    {installedModels.includes('large-v3')
-                      ? `(${t('settings.voiceInput.modelInstalled')})`
-                      : ''}
-                  </option>
-                </select>
-              </div>
-
-              {downloadingModel && (
-                <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-border bg-surface-2 p-3">
-                  <div className="flex items-center justify-between text-xs text-text">
-                    <span className="font-medium flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-accent animate-ping" />
-                      {t('settings.voiceInput.modelDownloading', { model: downloadingModel })}
-                    </span>
-                    <span className="font-mono text-text-muted">
-                      {downloadProgress !== null ? `${Math.round(downloadProgress)}%` : '0%'}
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3 border border-border/50">
-                    <div
-                      className="h-full bg-accent transition-all duration-200"
-                      style={{ width: `${Math.max(4, downloadProgress ?? 0)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {!downloadingModel && downloadError && (
-                <div className="mt-3 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-400">
-                  <span>{downloadError}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleSelectAndDownloadModel(settings?.voiceModel ?? 'base')
-                    }
-                    className="ml-2 underline font-medium text-text hover:text-text-muted"
+                  <select
+                    value={settings?.voiceModel ?? 'base'}
+                    disabled={downloadingModel !== null}
+                    onChange={(e) => void handleSelectAndDownloadModel(e.target.value)}
+                    className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
                   >
-                    {t('settings.voiceInput.downloadModelButton')}
-                  </button>
+                    <option value="tiny">
+                      {t('settings.voiceInput.modelTiny')}{' '}
+                      {installedModels.includes('tiny')
+                        ? `(${t('settings.voiceInput.modelInstalled')})`
+                        : ''}
+                    </option>
+                    <option value="base">
+                      {t('settings.voiceInput.modelBase')}{' '}
+                      {installedModels.includes('base')
+                        ? `(${t('settings.voiceInput.modelInstalled')})`
+                        : ''}
+                    </option>
+                    <option value="small">
+                      {t('settings.voiceInput.modelSmall')}{' '}
+                      {installedModels.includes('small')
+                        ? `(${t('settings.voiceInput.modelInstalled')})`
+                        : ''}
+                    </option>
+                    <option value="medium">
+                      {t('settings.voiceInput.modelMedium')}{' '}
+                      {installedModels.includes('medium')
+                        ? `(${t('settings.voiceInput.modelInstalled')})`
+                        : ''}
+                    </option>
+                    <option value="distil-large-v3">
+                      {t('settings.voiceInput.modelDistilLarge')}{' '}
+                      {installedModels.includes('distil-large-v3')
+                        ? `(${t('settings.voiceInput.modelInstalled')})`
+                        : ''}
+                    </option>
+                    <option value="large-v3">
+                      {t('settings.voiceInput.modelLarge')}{' '}
+                      {installedModels.includes('large-v3')
+                        ? `(${t('settings.voiceInput.modelInstalled')})`
+                        : ''}
+                    </option>
+                  </select>
                 </div>
-              )}
 
-              {!downloadingModel &&
-                !downloadError &&
-                !installedModels.includes(settings?.voiceModel ?? 'base') && (
-                  <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-surface-2 p-2.5 text-xs text-text">
-                    <span className="text-text-muted">
-                      {settings?.voiceModel ?? 'base'} is not yet downloaded.
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
+                {downloadingModel && (
+                  <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-border bg-surface-2 p-3">
+                    <div className="flex items-center justify-between text-xs text-text">
+                      <span className="font-medium flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-accent animate-ping" />
+                        {t('settings.voiceInput.modelDownloading', { model: downloadingModel })}
+                      </span>
+                      <span className="font-mono text-text-muted">
+                        {downloadProgress !== null ? `${Math.round(downloadProgress)}%` : '0%'}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3 border border-border/50">
+                      <div
+                        className="h-full bg-accent transition-all duration-200"
+                        style={{ width: `${Math.max(4, downloadProgress ?? 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {!downloadingModel && downloadError && (
+                  <div className="mt-3 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-400">
+                    <span>{downloadError}</span>
+                    <button
+                      type="button"
                       onClick={() =>
                         void handleSelectAndDownloadModel(settings?.voiceModel ?? 'base')
                       }
+                      className="ml-2 underline font-medium text-text hover:text-text-muted"
                     >
                       {t('settings.voiceInput.downloadModelButton')}
-                    </Button>
+                    </button>
                   </div>
                 )}
-            </div>}
+
+                {!downloadingModel &&
+                  !downloadError &&
+                  !installedModels.includes(settings?.voiceModel ?? 'base') && (
+                    <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-surface-2 p-2.5 text-xs text-text">
+                      <span className="text-text-muted">
+                        {settings?.voiceModel ?? 'base'} is not yet downloaded.
+                      </span>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          void handleSelectAndDownloadModel(settings?.voiceModel ?? 'base')
+                        }
+                      >
+                        {t('settings.voiceInput.downloadModelButton')}
+                      </Button>
+                    </div>
+                  )}
+              </div>
+            )}
 
             <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
               <div className="text-sm font-medium text-text">
@@ -1879,7 +1944,9 @@ export default function Settings(): JSX.Element {
                   </div>
                   <select
                     value={ttsProvider}
-                    onChange={(e) => void setTtsProvider(e.target.value as 'local' | 'fish' | 'openai')}
+                    onChange={(e) =>
+                      void setTtsProvider(e.target.value as 'local' | 'fish' | 'openai')
+                    }
                     className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
                   >
                     <option value="local">{t('settings.tts.providerLocal')}</option>
@@ -1899,30 +1966,73 @@ export default function Settings(): JSX.Element {
                     >
                       <label className="grid gap-1 text-xs text-text-muted">
                         {t('settings.tts.openaiEndpoint')}
-                        <input type="url" required value={ttsOpenaiUrl} onChange={(e) => setTtsOpenaiUrl(e.target.value)} placeholder="https://example.com/v1/audio/speech" className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+                        <input
+                          type="url"
+                          required
+                          value={ttsOpenaiUrl}
+                          onChange={(e) => setTtsOpenaiUrl(e.target.value)}
+                          placeholder="https://example.com/v1/audio/speech"
+                          className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                        />
                       </label>
                       <label className="grid gap-1 text-xs text-text-muted">
                         {t('settings.tts.openaiModel')}
-                        <input required value={ttsOpenaiModel} onChange={(e) => setTtsOpenaiModel(e.target.value)} placeholder="fish/s2.1-pro-free" className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+                        <input
+                          required
+                          value={ttsOpenaiModel}
+                          onChange={(e) => setTtsOpenaiModel(e.target.value)}
+                          placeholder="fish/s2.1-pro-free"
+                          className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                        />
                       </label>
                       <label className="grid gap-1 text-xs text-text-muted">
                         {t('settings.tts.openaiKey')}
-                        <input type="password" autoComplete="off" value={ttsOpenaiKey} onChange={(e) => setTtsOpenaiKey(e.target.value)} placeholder={settings?.ttsOpenaiHasApiKey ? t('settings.tts.openaiKeySaved') : 'sk-…'} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          value={ttsOpenaiKey}
+                          onChange={(e) => setTtsOpenaiKey(e.target.value)}
+                          placeholder={
+                            settings?.ttsOpenaiHasApiKey ? t('settings.tts.openaiKeySaved') : 'sk-…'
+                          }
+                          className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                        />
                       </label>
                       <div className="flex items-center gap-3">
-                        <Button type="submit" size="sm">{t('settings.tts.openaiSave')}</Button>
+                        <Button type="submit" size="sm">
+                          {t('settings.tts.openaiSave')}
+                        </Button>
                         {settings?.ttsOpenaiHasApiKey && (
-                          <button type="button" onClick={() => void saveTtsOpenai(true)} className="text-xs text-text-muted hover:text-text">
+                          <button
+                            type="button"
+                            onClick={() => void saveTtsOpenai(true)}
+                            className="text-xs text-text-muted hover:text-text"
+                          >
                             {t('settings.tts.openaiClearKey')}
                           </button>
                         )}
                       </div>
                     </form>
-                    {ttsOpenaiError && <p role="alert" className="mt-2 text-xs text-red-400">{ttsOpenaiError}</p>}
-                    <Button variant="secondary" className="mt-3" onClick={() => void handleTestVoice()} disabled={testingVoice || !settings?.ttsOpenaiUrl || !settings?.ttsOpenaiModel}>
-                      {testingVoice ? t('settings.tts.testingVoice') : t('settings.tts.testVoiceButton')}
+                    {ttsOpenaiError && (
+                      <p role="alert" className="mt-2 text-xs text-red-400">
+                        {ttsOpenaiError}
+                      </p>
+                    )}
+                    <Button
+                      variant="secondary"
+                      className="mt-3"
+                      onClick={() => void handleTestVoice()}
+                      disabled={
+                        testingVoice || !settings?.ttsOpenaiUrl || !settings?.ttsOpenaiModel
+                      }
+                    >
+                      {testingVoice
+                        ? t('settings.tts.testingVoice')
+                        : t('settings.tts.testVoiceButton')}
                     </Button>
-                    {testVoiceFeedback && <p className="mt-2 text-xs text-text-muted">{testVoiceFeedback}</p>}
+                    {testVoiceFeedback && (
+                      <p className="mt-2 text-xs text-text-muted">{testVoiceFeedback}</p>
+                    )}
                   </div>
                 ) : ttsProvider === 'fish' ? (
                   <>

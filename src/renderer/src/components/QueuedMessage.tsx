@@ -1,6 +1,16 @@
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, ChevronUp, ImagePlus, Pencil, X, Zap } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ImagePlus,
+  Loader2,
+  Pencil,
+  UserRound,
+  X
+} from 'lucide-react'
 import type { QueueItem as QueueItemType } from '@shared/types'
 import { useRoxyStore } from '../lib/store'
 import { imageFilesFrom, readImageFile, type ComposerImage } from '../lib/images'
@@ -26,35 +36,40 @@ function toComposerImages(item: QueueItemType): ComposerImage[] {
 }
 
 /**
- * One row of the pending queue. Read-only by default (content + image
- * thumbnails + reorder/remove/edit actions); the pencil flips it into an inline
- * editor that preserves the item's queue position and lets you rewrite the text
- * and add/remove attached images before saving.
+ * One user-authored prompt in the composer queue, including requests to collaborators.
  */
 export function QueuedMessage({
   item,
   index,
-  total
+  total,
+  pending = false
 }: {
   item: QueueItemType
   index: number
   total: number
+  pending?: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   const editQueued = useRoxyStore((s) => s.editQueued)
   const removeQueued = useRoxyStore((s) => s.removeQueued)
   const moveQueued = useRoxyStore((s) => s.moveQueued)
-  const forceQueued = useRoxyStore((s) => s.forceQueued)
+  const bots = useRoxyStore((s) => s.bots)
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [draftImages, setDraftImages] = useState<ComposerImage[]>([])
   const [dragging, setDragging] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const running = item.state === 'running'
+  const failed = item.state === 'failed'
+  const recipient = item.asBotId ? bots.find((bot) => bot.id === item.asBotId) : undefined
   const textRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const startEditing = (): void => {
+    if (running || pending) return
+    setError('')
     setDraft(item.content)
     setDraftImages(toComposerImages(item))
     setEditing(true)
@@ -93,9 +108,12 @@ export function QueuedMessage({
       return
     }
     setSaving(true)
+    setError('')
     try {
       await editQueued(item.id, text, draftImages.length ? draftImages : undefined)
       cancelEditing()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -185,6 +203,7 @@ export function QueuedMessage({
             placeholder={t('queue.editPlaceholder')}
             onChange={(e) => {
               setDraft(e.target.value)
+              setError('')
               autoGrow()
             }}
             onKeyDown={onKeyDown}
@@ -198,7 +217,7 @@ export function QueuedMessage({
               title={t('queue.attachImages')}
               className="press-scale flex h-6 items-center gap-1 sq sq-md sq-ring rounded-md border border-border bg-surface-2 px-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
             >
-              <ImagePlus className="h-3.5 w-3.5" /> Image
+              <ImagePlus className="h-3.5 w-3.5" /> {t('queue.image')}
             </button>
             <div className="flex items-center gap-1.5">
               <button
@@ -214,11 +233,16 @@ export function QueuedMessage({
                 disabled={saving}
                 className="press-scale flex h-6 items-center gap-1 sq sq-md rounded-md bg-white px-2 text-[11px] font-medium text-black hover:bg-white/90 disabled:opacity-40"
               >
-                <Check className="h-3.5 w-3.5" /> {t('common.save')}
+                <Check className="h-3.5 w-3.5" /> {failed ? t('queue.saveRetry') : t('common.save')}
               </button>
             </div>
           </div>
         </div>
+        {error && (
+          <p role="alert" className="px-2.5 pb-2 text-xs text-danger">
+            {error}
+          </p>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -237,8 +261,30 @@ export function QueuedMessage({
   // ---- Read-only row ---------------------------------------------------------
   return (
     <QueueItem>
-      <QueueItemIndicator />
+      {running ? (
+        <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
+      ) : failed ? (
+        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+      ) : (
+        <QueueItemIndicator />
+      )}
       <div className="min-w-0 flex-1">
+        <div className="mb-0.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide">
+          <span className="inline-flex items-center gap-1 text-text-muted">
+            <UserRound className="h-3 w-3" />
+            {t('queue.userRequest')}
+          </span>
+          {recipient && (
+            <span className="normal-case tracking-normal text-text-subtle">
+              {t('queue.toCollaborator', { username: recipient.username })}
+            </span>
+          )}
+          {(running || failed) && (
+            <span className={failed ? 'text-danger' : 'text-accent'}>
+              {failed ? t('queue.failed') : t('queue.running')}
+            </span>
+          )}
+        </div>
         {item.content && <QueueItemContent>{item.content}</QueueItemContent>}
         {item.images && item.images.length > 0 && (
           <QueueItemAttachment>
@@ -248,19 +294,32 @@ export function QueuedMessage({
           </QueueItemAttachment>
         )}
         {!item.content && (!item.images || item.images.length === 0) && (
-          <QueueItemContent className="italic text-text-subtle">(empty)</QueueItemContent>
+          <QueueItemContent className="italic text-text-subtle">
+            {t('queue.empty')}
+          </QueueItemContent>
+        )}
+        {item.error && (
+          <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-danger">
+            {item.error}
+          </p>
+        )}
+        {item.notBefore != null && item.notBefore > Date.now() && (
+          <p className="mt-1 text-[11px] text-text-subtle">
+            {t('queue.notBefore', { time: new Date(item.notBefore).toLocaleString() })}
+          </p>
         )}
       </div>
       <QueueItemActions>
-        <QueueItemAction onClick={() => void forceQueued(item.id)} title={t('queue.forceRun')}>
-          <Zap className="h-3.5 w-3.5" />
-        </QueueItemAction>
-        <QueueItemAction onClick={startEditing} title={t('queue.editMessage')}>
+        <QueueItemAction
+          onClick={startEditing}
+          disabled={running || pending}
+          title={failed ? t('queue.editRetry') : t('queue.editMessage')}
+        >
           <Pencil className="h-3.5 w-3.5" />
         </QueueItemAction>
         <QueueItemAction
           onClick={() => moveQueued(item.id, 'up')}
-          disabled={index === 0}
+          disabled={running || pending || index === 0}
           title={t('queue.moveUp')}
           className="disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-subtle"
         >
@@ -268,13 +327,17 @@ export function QueuedMessage({
         </QueueItemAction>
         <QueueItemAction
           onClick={() => moveQueued(item.id, 'down')}
-          disabled={index === total - 1}
+          disabled={running || pending || index === total - 1}
           title={t('queue.moveDown')}
           className="disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-subtle"
         >
           <ChevronDown className="h-3.5 w-3.5" />
         </QueueItemAction>
-        <QueueItemAction onClick={() => removeQueued(item.id)} title={t('queue.removeFromQueue')}>
+        <QueueItemAction
+          disabled={running || pending}
+          onClick={() => removeQueued(item.id)}
+          title={t('queue.removeFromQueue')}
+        >
           <X className="h-3.5 w-3.5" />
         </QueueItemAction>
       </QueueItemActions>

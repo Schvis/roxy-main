@@ -39,10 +39,12 @@ export function ProfileImageCropper({ file, onApply, onCancel }: Props): JSX.Ele
 
   const move = (event: PointerEvent<HTMLDivElement>): void => {
     if (!drag.current) return
-    setOffset(clamp(
-      drag.current.originX + event.clientX - drag.current.x,
-      drag.current.originY + event.clientY - drag.current.y
-    ))
+    setOffset(
+      clamp(
+        drag.current.originX + event.clientX - drag.current.x,
+        drag.current.originY + event.clientY - drag.current.y
+      )
+    )
   }
 
   const apply = (): void => {
@@ -82,11 +84,20 @@ export function ProfileImageCropper({ file, onApply, onCancel }: Props): JSX.Ele
         aria-label={t('settings.profile.cropPreview')}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
-          drag.current = { x: event.clientX, y: event.clientY, originX: offset.x, originY: offset.y }
+          drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            originX: offset.x,
+            originY: offset.y
+          }
         }}
         onPointerMove={move}
-        onPointerUp={() => { drag.current = null }}
-        onPointerCancel={() => { drag.current = null }}
+        onPointerUp={() => {
+          drag.current = null
+        }}
+        onPointerCancel={() => {
+          drag.current = null
+        }}
       >
         {image && (
           <img
@@ -94,7 +105,12 @@ export function ProfileImageCropper({ file, onApply, onCancel }: Props): JSX.Ele
             alt=""
             draggable={false}
             className="pointer-events-none absolute max-w-none select-none"
-            style={{ width, height, left: (PREVIEW_SIZE - width) / 2 + offset.x, top: (PREVIEW_SIZE - height) / 2 + offset.y }}
+            style={{
+              width,
+              height,
+              left: (PREVIEW_SIZE - width) / 2 + offset.x,
+              top: (PREVIEW_SIZE - height) / 2 + offset.y
+            }}
           />
         )}
       </div>
@@ -110,8 +126,14 @@ export function ProfileImageCropper({ file, onApply, onCancel }: Props): JSX.Ele
             if (!image) return
             const next = Number(event.target.value)
             setOffset({
-              x: Math.max((PREVIEW_SIZE - image.width * baseScale * next) / 2, Math.min((image.width * baseScale * next - PREVIEW_SIZE) / 2, offset.x)),
-              y: Math.max((PREVIEW_SIZE - image.height * baseScale * next) / 2, Math.min((image.height * baseScale * next - PREVIEW_SIZE) / 2, offset.y))
+              x: Math.max(
+                (PREVIEW_SIZE - image.width * baseScale * next) / 2,
+                Math.min((image.width * baseScale * next - PREVIEW_SIZE) / 2, offset.x)
+              ),
+              y: Math.max(
+                (PREVIEW_SIZE - image.height * baseScale * next) / 2,
+                Math.min((image.height * baseScale * next - PREVIEW_SIZE) / 2, offset.y)
+              )
             })
             setZoom(next)
           }}
@@ -120,8 +142,12 @@ export function ProfileImageCropper({ file, onApply, onCancel }: Props): JSX.Ele
         />
       </label>
       <div className="mt-4 flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onCancel}>{t('settings.profile.cancelCrop')}</Button>
-        <Button type="button" disabled={!image} onClick={apply}>{t('settings.profile.applyCrop')}</Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          {t('settings.profile.cancelCrop')}
+        </Button>
+        <Button type="button" disabled={!image} onClick={apply}>
+          {t('settings.profile.applyCrop')}
+        </Button>
       </div>
     </div>
   )

@@ -16,6 +16,7 @@ import { alpha, mix } from './theme'
 import { linkUrl } from './links'
 import { resolveImageSrc } from '../../../shared/images'
 import { detectFilePath, splitTextWithFilePaths } from '../../../shared/context'
+import { isKnownMention } from '../../../shared/mentions'
 
 /** Gap after each block kind — the prose rhythm. */
 const BLOCK_GAP = 10
@@ -66,7 +67,10 @@ export function toSpans(
         offset: frag.offset
       }
     }
-    const weight = frag.bold ? 600 : base.weight
+    // A mention reads the way the composer shows one while typing it: same
+    // accent as a link, but never underlined — it isn't clickable here.
+    const mention = frag.mention && isKnownMention(frag.text, builder.botUsernames)
+    const weight = frag.bold || mention ? 600 : base.weight
     const italic = frag.italic || style.italic
     return {
       text: frag.text,
@@ -76,7 +80,7 @@ export function toSpans(
         base.family,
         italic ? 'italic' : 'normal'
       ),
-      color: href ? palette.accent : style.color,
+      color: href || mention ? palette.accent : style.color,
       underline: Boolean(href),
       strike: frag.strike,
       href,

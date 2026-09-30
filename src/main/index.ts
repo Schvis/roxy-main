@@ -6,7 +6,8 @@ import icon from '../../resources/icon.png?asset'
 import macDockIcon from '../../resources/icon-mac.png?asset'
 import { registerIpc } from './ipc'
 import { getDb } from './db/database'
-import { startLoopScheduler } from './services/loops'
+import { startAutomation, stopAutomation } from './services/automation'
+import { stopAllTurns } from './services/turn-state'
 import { listModels } from './services/models'
 import { backfillUsageFromHistory } from './services/usage'
 import { listConnectedProviders } from './db/repo'
@@ -271,7 +272,7 @@ if (!gotTheLock) {
     // and IPC are up so nothing here can delay the first window, and it owns its
     // own storage - a failure in it can't touch either.
     initTracking()
-    startLoopScheduler()
+    startAutomation()
     // Sweep tool-output spill files older than the retention window (best-effort).
     void cleanupToolOutputs()
     // One-time: seed the usage/cost table from existing message history so the
@@ -324,6 +325,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   isQuitting = true
   flushAllActiveTurns('interrupted')
+  stopAutomation()
+  stopAllTurns()
   shutdownTracking()
 })
 

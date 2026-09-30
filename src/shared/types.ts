@@ -112,9 +112,9 @@ export interface DeviceFlowStart {
 /**
  * Every chat row is a session. Main sessions are the ones a user opens against a
  * workspace; sub sessions are spawned by the harness (e.g. the `task` tool);
- * loop sessions are driven by a scheduled Loop.
+ * bot sessions belong to persistent top-level bots and may have scheduled jobs.
  */
-export type SessionKind = 'main' | 'sub' | 'loop'
+export type SessionKind = 'main' | 'sub' | 'bot'
 
 /** A single item in a session's agent-maintained task checklist. */
 export interface SessionTask {
@@ -289,13 +289,20 @@ export interface Message {
   /** Ordered parts for rich rendering; falls back to a single text part. */
   parts: MessagePart[]
   createdAt: number
+  /** Bot identity is snapshotted so deleting/renaming a bot keeps old replies attributed. */
+  botId?: string
+  botUsername?: string
 }
 
 export interface AddMessageInput {
+  /** Optional client-generated ID for reconciling an optimistic send. */
+  id?: string
   chatId: string
   role: MessageRole
   content: string
   parts?: MessagePart[]
+  botId?: string
+  botUsername?: string
 }
 
 /** An attached workspace file or folder providing context for the chat. */
@@ -361,7 +368,23 @@ export interface QueueImage {
   name?: string
 }
 
-/** A pending prompt queued on a chat (FIFO). Generic across sessions/loops/subagents. */
+/**
+ * Optional routing for `queue.add`. `asBotId` / `recipientId` only apply when
+ * `sourceChatId` is set — same contract as `bot_invoke` → `enqueuePrompt`.
+ * Plain `queue.add(chatId, text)` stays an ordinary user prompt to the session owner.
+ */
+export interface QueueAddOptions {
+  sourceChatId?: string
+  asBotId?: string
+  recipientId?: string
+  /**
+   * Composer "Send to @bot": persist the prompt as a user message before the
+   * guest turn runs. Tool handoffs omit this so the request stays an assistant row.
+   */
+  fromUser?: boolean
+}
+
+/** A pending prompt queued on a chat (FIFO). Generic across sessions/bots/subagents. */
 export interface QueueItem {
   id: string
   chatId: string
@@ -369,6 +392,24 @@ export interface QueueItem {
   /** Images to send with the prompt when it's dequeued. */
   images?: QueueImage[]
   createdAt: number
+  sourceChatId?: string
+  /** Cross-chat requests may return their result to the source without starting another turn. */
+  replyToChatId?: string
+  /** Bounded across queued handoffs to prevent bot ping-pong. */
+  hops?: number
+  notBefore?: number
+  error?: string
+  /** Claimed items remain durable until their result has been persisted. */
+  state?: 'pending' | 'running' | 'failed'
+  /** Set when a bot, not the user, wrote this prompt — the transcript attributes it. */
+  botId?: string
+  botUsername?: string
+  /** Bot that should ANSWER this prompt, when it isn't the session's own bot. */
+  asBotId?: string
+  /** Composer "Send to @bot" remains user-authored even though it has a source chat. */
+  fromUser?: boolean
+  /** Scheduled prompts name their originating job so the UI does not present them as user drafts. */
+  scheduleId?: string
 }
 
 // ---- Integrations & skills ---------------------------------------------------

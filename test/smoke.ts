@@ -13,10 +13,11 @@ import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow } from 'electron'
 
 import * as repo from '../src/main/db/repo'
+import * as bots from '../src/main/db/bots'
 import { testProviderPersistence } from './provider-persistence'
 import { getActivityStats } from '../src/main/services/activity'
 import { localDay } from '../src/shared/cost'
-import { closeDb } from '../src/main/db/database'
+import { closeDb, getDb } from '../src/main/db/database'
 import {
   runTool,
   killSessionBackground,
@@ -720,6 +721,49 @@ async function main(): Promise<void> {
       .map((x) => x.content)
       .join() === 'q2,q1'
   )
+  const qRunning = repo.enqueue(chat.id, 'running')
+  const qPending = repo.enqueue(chat.id, 'pending')
+  repo.reorderQueue(chat.id, [qRunning.id, q2.id, q1.id, qPending.id])
+  getDb().prepare(`UPDATE queue SET state = 'running' WHERE id = ?`).run(qRunning.id)
+  repo.reorderQueue(chat.id, [qRunning.id, q2.id, qPending.id, q1.id])
+  check(
+    'queue reorder keeps working behind a running row',
+    repo
+      .listQueue(chat.id)
+      .map((item) => item.id)
+      .join() === [qRunning.id, q2.id, qPending.id, q1.id].join()
+  )
+  repo.reorderQueue(chat.id, [q2.id, qRunning.id, qPending.id, q1.id])
+  check(
+    'queue reorder cannot move the running row',
+    repo
+      .listQueue(chat.id)
+      .map((item) => item.id)
+      .join() === [qRunning.id, q2.id, qPending.id, q1.id].join()
+  )
+  getDb().prepare(`UPDATE queue SET state = 'pending' WHERE id = ?`).run(qRunning.id)
+  repo.removeQueueItem(qRunning.id)
+  repo.removeQueueItem(qPending.id)
+  const handoff = repo.enqueue(chat.id, 'automated handoff')
+  getDb().prepare('UPDATE queue SET source_chat_id = ? WHERE id = ?').run(chat.id, handoff.id)
+  const beforeMove = repo.listQueue(chat.id).map((item) => item.id)
+  repo.reorderQueue(chat.id, [handoff.id, q2.id, q1.id])
+  check(
+    'queue reorder rejects moving automated handoffs',
+    repo
+      .listQueue(chat.id)
+      .map((item) => item.id)
+      .join() === beforeMove.join()
+  )
+  repo.reorderQueue(chat.id, [q1.id, q2.id, handoff.id])
+  check(
+    'queue reorder swaps user prompts while preserving an automated slot',
+    repo
+      .listQueue(chat.id)
+      .map((item) => item.id)
+      .join() === [q1.id, q2.id, handoff.id].join()
+  )
+  repo.removeQueueItem(handoff.id)
   repo.removeQueueItem(q1.id)
   check(
     'queue remove',
@@ -845,30 +889,33 @@ async function main(): Promise<void> {
   )
   check('getChat reflects summary', repo.getChat(chat.id)?.contextSummary === 'compact summary')
 
-  // ---- loops ----
-  const loop = repo.createLoop({ name: 'PR watcher', prompt: 'check the PR', intervalMinutes: 5 })
-  check('createLoop (enabled, owns loop-kind chat)', loop.enabled === true)
+  // ---- bots ----
+  const bot = bots.createBot('pr-watcher')
   check(
-    'loop chat is kind=loop',
-    repo.listChats().some((c) => c.id === loop.chatId && c.kind === 'loop')
+    'createBot owns a top-level chat',
+    repo.getChat(bot.chatId)?.kind === 'bot' && repo.getChatWorkspace(bot.chatId) === null
   )
-  check(
-    'dueLoops includes enabled loop',
-    repo.dueLoops(Date.now() + 1000).some((l) => l.id === loop.id)
-  )
-  repo.appendLoopRun(loop.id, 'scheduled prompt', 'heartbeat reply')
-  check('appendLoopRun posts into loop chat', repo.listMessages(loop.chatId).length === 2)
-  const projLoop = repo.createLoop({
-    name: 'P',
-    prompt: 'go',
-    intervalMinutes: 3,
-    workspacePath: ws
+  const job = bots.saveJob({
+    botId: bot.id,
+    name: 'PR watcher',
+    prompt: 'check the PR',
+    schedule: { kind: 'interval', minutes: 5 }
   })
-  check('createLoop scopes to a project workspace', repo.getChatWorkspace(projLoop.chatId) === ws)
-  const dueBefore = repo.dueLoops(Date.now() + 1000).some((l) => l.id === projLoop.id)
-  repo.markLoopRan(projLoop.id)
-  const dueAfter = repo.dueLoops(Date.now() + 1000).some((l) => l.id === projLoop.id)
-  check('markLoopRan advances the schedule', dueBefore === true && dueAfter === false)
+  bots.enqueueDueJobs(job.nextRunAt!)
+  const scheduled = repo.listQueue(bot.chatId)
+  check('scheduled bot prompt is durably queued', scheduled.length === 1)
+  check('scheduled bot prompt exposes its origin', scheduled[0]?.scheduleId === job.id)
+  const scheduledUser = repo.enqueue(bot.chatId, 'user after scheduled work')
+  repo.reorderQueue(bot.chatId, [scheduledUser.id, scheduled[0].id])
+  check(
+    'queue reorder cannot move scheduled work',
+    repo
+      .listQueue(bot.chatId)
+      .map((item) => item.id)
+      .join() === [scheduled[0].id, scheduledUser.id].join()
+  )
+  repo.removeQueueItem(scheduledUser.id)
+  check('schedule advances after enqueue', bots.listJobs(bot.id)[0].nextRunAt! > job.nextRunAt!)
 
   // ---- sessions status excludes loop chats ----
   const status = repo.listSessionsStatus()
@@ -876,7 +923,7 @@ async function main(): Promise<void> {
     'listSessionsStatus includes the main session',
     status.some((s) => s.id === chat.id)
   )
-  check('listSessionsStatus excludes loop chats', !status.some((s) => s.id === loop.chatId))
+  check('listSessionsStatus excludes bot chats', !status.some((s) => s.id === bot.chatId))
   check('checkSession reports message count', repo.checkSession(chat.id)?.messageCount === 2)
 
   // ---- harness file/bash tools (real fs, sandboxed to ws) ----
@@ -2031,6 +2078,30 @@ async function main(): Promise<void> {
         repo.removeChat(auto.id)
       }
 
+      // ---- cancellation before worktree creation ----
+      const cancelled = repo.createChat({
+        title: 'cancelled worktree',
+        kind: 'main',
+        workspacePath: gitRepo,
+        worktree: { mode: 'new' }
+      })
+      const stopped = new AbortController()
+      stopped.abort()
+      const skipped = await materializePendingWorktree(cancelled.id, stopped.signal)
+      check('stopped materialization does not create a worktree', !skipped.ok)
+      check(
+        'stopped materialization retains the intent',
+        !!repo.getChat(cancelled.id)?.worktreePending
+      )
+      check(
+        'stopped materialization leaves no worktree path',
+        !repo.getChat(cancelled.id)?.worktreePath
+      )
+      const resumed = await materializePendingWorktree(cancelled.id)
+      check('the next turn can create the pending worktree', resumed.ok, resumed.error ?? '')
+      await removeWorktreeForChat(cancelled.id)
+      repo.removeChat(cancelled.id)
+
       // ---- lazy materialization ----
       const lazy = repo.createChat({
         title: 'lazy worktree',
@@ -2731,20 +2802,15 @@ async function main(): Promise<void> {
   const escape = await run('read', { path: '../../../etc/hosts' })
   check('path-escape is rejected (sandbox)', !escape.ok)
 
-  // ---- loop tools via runTool ----
-  const ll = await run('loop_list', {})
-  check('loop_list tool', ll.ok && ll.output.includes('PR watcher'))
-  const le = await run('loop_enable', { loop: 'PR watcher' })
+  // ---- bot tools via runTool ----
+  const listedBots = await run('bot_manage', { action: 'list' })
+  check('bot_manage lists bots', listedBots.ok && listedBots.output.includes('pr-watcher'))
+  const disabledJob = await run('bot_schedule', { action: 'update', id: job.id, enabled: false })
+  check('bot_schedule pauses by id', disabledJob.ok && !bots.listJobs(bot.id)[0].enabled)
   check(
-    'loop_enable by name',
-    le.ok && repo.listLoops().find((l) => l.id === loop.id)?.enabled === true
+    'bot tool rejects unknown bot',
+    !(await run('bot_manage', { action: 'read', id: 'nope' })).ok
   )
-  const ld = await run('loop_disable', { loop: loop.id })
-  check(
-    'loop_disable by id',
-    ld.ok && repo.listLoops().find((l) => l.id === loop.id)?.enabled === false
-  )
-  check('loop tool rejects unknown loop', !(await run('loop_disable', { loop: 'nope' })).ok)
 
   // ---- background-task registry (Phase 11: parallel + background subagents) ----
   {
@@ -3956,6 +4022,58 @@ async function main(): Promise<void> {
       'browser_console captures the page error',
       con.output.toLowerCase().includes('boom-smoke-error'),
       con.output.slice(0, 120)
+    )
+    await withTimeout(
+      browser.navigate('http://127.0.0.1:1/roxy-browser-unreachable'),
+      15_000,
+      'browser error page'
+    )
+    let errorHtml = ''
+    for (let attempt = 0; attempt < 50 && !errorHtml.includes('roxy-browser-error'); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      errorHtml = await browser.getHtml('#roxy-browser-error').catch(() => '')
+    }
+    check(
+      'browser navigation failure shows the friendly error page',
+      errorHtml.includes("We couldn't reach") && errorHtml.includes('Try again'),
+      errorHtml.slice(0, 160)
+    )
+    const failedTab = browser.listTabs().find((tab) => tab.active)
+    check(
+      'browser error page keeps the failed URL in tab state',
+      failedTab?.url === 'http://127.0.0.1:1/roxy-browser-unreachable' &&
+        failedTab.title.includes("Couldn't reach"),
+      JSON.stringify(failedTab)
+    )
+    browser.applyThemeToErrorPages({
+      id: 'smoke-light',
+      name: 'Smoke Light',
+      appearance: 'light',
+      vars: {
+        '--color-bg': '#ffffff',
+        '--color-surface': '#f7f7f8',
+        '--color-border': '#e2e2e5',
+        '--color-text': '#1a1a1c',
+        '--color-text-muted': '#5c5c66',
+        '--color-text-subtle': '#8a8a94',
+        '--color-accent': '#2563eb',
+        '--color-accent-hover': '#1d4ed8',
+        '--color-white': '#18181b',
+        '--color-black': '#ffffff'
+      }
+    })
+    let themedHtml = ''
+    for (let attempt = 0; attempt < 20 && !themedHtml.includes('--error-bg: #ffffff'); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      themedHtml = await browser.getHtml('html')
+    }
+    check(
+      'browser error page follows live light-theme changes',
+      themedHtml.includes('color-scheme: light') &&
+        themedHtml.includes('--error-bg: #ffffff') &&
+        themedHtml.includes('--error-contrast: #18181b') &&
+        themedHtml.includes('--error-contrast-text: #ffffff'),
+      themedHtml.slice(0, 320)
     )
     // Tab reorder (drag-to-reorganize): move the first tab to the end.
     browser.newTab('about:blank')
