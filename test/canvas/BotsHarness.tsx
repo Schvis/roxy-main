@@ -205,6 +205,7 @@ Object.assign(window.roxy, {
   },
   chats: {
     list: async () => [...chats],
+    setActive: async () => {},
     setConfig: async (id: string, patch: Partial<Chat>) => {
       const chat = chats.find((entry) => entry.id === id)!
       Object.assign(chat, patch)

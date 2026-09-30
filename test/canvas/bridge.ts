@@ -82,6 +82,12 @@ CanvasRenderingContext2D.prototype.fillText = function (text: string, ...args: n
   Reflect.apply(fillText, this, [text, ...args])
 }
 window.roxy = {
+  stt: {
+    setRecordingState: async () => {},
+    onStartRecording: () => () => {},
+    onStopRecording: () => () => {},
+    transcribe: async () => ({ text: '' })
+  },
   copilot: {
     start: async () => {
       window.__canvasTest.copilotStarts++

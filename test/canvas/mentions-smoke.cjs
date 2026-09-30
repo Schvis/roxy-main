@@ -33,7 +33,7 @@ const highlights = () =>
   evaluate(
     `return [...document.querySelectorAll('[aria-hidden] span.text-accent')].map(el => el.textContent)`
   )
-const send = () => click('button[title="Send"], button[title="Add to queue"]')
+const send = () => click('button[title="Send"], button[title="Add to queue (Enter)"]')
 async function run() {
   let url = process.env.BOTS_TEST_URL
   if (!url) {
