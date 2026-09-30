@@ -41,6 +41,9 @@ import { AgentQuestionPopup } from './AgentQuestionPopup'
 import { WorkstreamStrip } from './WorkstreamStrip'
 import { QueuedMessage } from './QueuedMessage'
 import { UsageMeter } from './UsageMeter'
+import { QuotaMeter } from './QuotaMeter'
+import { upstreamFor } from '@shared/cliproxy'
+import { planSource } from '@shared/quota'
 import {
   Queue,
   QueueList,
@@ -351,7 +354,8 @@ export function ChatView({
   const queueHasUserRequests = queue.some(
     (item) => !item.scheduleId && (item.fromUser || !item.sourceChatId)
   )
-  const selectedProvider = settings ? resolveSessionConfig(activeChat, settings).providerId : null
+  const sessionConfig = settings ? resolveSessionConfig(activeChat, settings) : null
+  const selectedProvider = sessionConfig?.providerId ?? null
   const provider = selectedProvider
     ? providers.find((p) => p.id === selectedProvider)
     : providers[0]
@@ -562,7 +566,14 @@ export function ChatView({
               </button>
             )}
             {ideMode && <IdeChatDock compact />}
-            <UsageMeter />
+            {/* Plan-billed (subscriptions, Copilot): remaining allowance. Per-token: recent spend. */}
+            {activeChat && provider && selectedProvider ? (
+              planSource(provider.seedId, upstreamFor) ? (
+                <QuotaMeter provider={provider} model={sessionConfig?.model} />
+              ) : (
+                <UsageMeter provider={provider} />
+              )
+            ) : null}
             {isOverlay && (
               <button
                 type="button"
