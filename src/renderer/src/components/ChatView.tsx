@@ -434,7 +434,7 @@ export function ChatView({
         />
       )}
       <div key="conversation" className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="titlebar reserve-controls-right flex h-12 shrink-0 items-center justify-between gap-3 px-4">
+        <header className="titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           {activeBot ? (
             <div className="flex min-w-0 items-center gap-2">
               <BotAvatar username={activeBot.username} size={28} />
