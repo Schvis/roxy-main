@@ -7,6 +7,7 @@ import { transcriptCache, layoutTranscript } from './transcript'
 import type { HitAction } from './scene'
 import { promptEntries } from './prompt-history'
 import roxyLogo from '../assets/roxy.png'
+import { useRoxyStore } from '../lib/store'
 
 export type { CanvasProbe } from './CanvasSurface'
 
@@ -53,7 +54,10 @@ export function CanvasTranscript({
   onCancelTool,
   onScrollStateChange
 }: CanvasTranscriptProps): JSX.Element {
+  const userProfileName = useRoxyStore((s) => s.settings?.userProfileName ?? '')
+  const userProfileAvatar = useRoxyStore((s) => s.settings?.userProfileAvatar ?? '')
   const cache = useMemo(() => transcriptCache(chatId ?? ''), [chatId])
+  const cachedProfile = useRef<{ cache: typeof cache; name: string; avatar: string } | null>(null)
   const mounted = useRef(false)
   const [logo, setLogo] = useState(() => decodedLogo)
   const [clock, setClock] = useState(0)
@@ -96,6 +100,11 @@ export function CanvasTranscript({
   const buildScene = useCallback(
     (context: CanvasLayoutContext) => {
       void clock
+      const previous = cachedProfile.current
+      if (previous?.cache !== cache || previous.name !== userProfileName || previous.avatar !== userProfileAvatar) {
+        cache.clear()
+        cachedProfile.current = { cache, name: userProfileName, avatar: userProfileAvatar }
+      }
       cache.prune(messages)
       if (logo) context.view.images.set('__roxy__', logo)
       return layoutTranscript(
@@ -104,6 +113,8 @@ export function CanvasTranscript({
           messages,
           streaming,
           workspacePath,
+          userProfileName,
+          userProfileAvatar,
           quiet,
           canCancel: (part) => {
             if (part.tool === 'task') return Boolean(part.subChatId)
@@ -116,7 +127,7 @@ export function CanvasTranscript({
         cache
       )
     },
-    [messages, streaming, quiet, clock, logo, cache, workspacePath]
+    [messages, streaming, quiet, clock, logo, cache, workspacePath, userProfileName, userProfileAvatar]
   )
 
   const onAction = (action: HitAction): void => {

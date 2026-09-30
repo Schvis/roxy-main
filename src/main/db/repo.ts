@@ -149,9 +149,15 @@ export function getSettings(): AppSettings {
           : 'right',
     overlayKeybind: map.get('overlay_keybind') ?? 'CommandOrControl+Shift+Space',
     voiceKeybind: map.get('voice_keybind') ?? 'Alt+V',
+    userProfileName: map.get('user_profile_name') ?? '',
+    userProfileAvatar: map.get('user_profile_avatar') ?? '',
     voiceAutoSend: map.get('voice_auto_send') === '1',
     voiceLang: map.get('voice_lang') ?? 'auto',
     voiceModel: map.get('voice_model') ?? 'base',
+    voiceSttProvider: map.get('voice_stt_provider') === 'openai' ? 'openai' : 'local',
+    voiceSttUrl: map.get('voice_stt_url') ?? '',
+    voiceSttModel: map.get('voice_stt_model') ?? '',
+    voiceSttHasApiKey: Boolean(map.get('voice_stt_api_key')),
     voiceInputDevice: map.get('voice_input_device') ?? 'default',
     voiceWakeWord: map.get('voice_wake_word') === '1',
     voiceWakeWords: (() => {
@@ -188,7 +194,15 @@ export function getSettings(): AppSettings {
     ttsLang: map.get('tts_lang') ?? 'ja',
     ttsSpeed: map.has('tts_speed') ? Number(map.get('tts_speed')) : 15,
     ttsApiKey: map.get('tts_api_key') ?? '',
-    ttsProvider: map.get('tts_provider') === 'fish' ? 'fish' : 'local',
+    ttsProvider:
+      map.get('tts_provider') === 'fish'
+        ? 'fish'
+        : map.get('tts_provider') === 'openai'
+          ? 'openai'
+          : 'local',
+    ttsOpenaiUrl: map.get('tts_openai_url') ?? '',
+    ttsOpenaiModel: map.get('tts_openai_model') ?? '',
+    ttsOpenaiHasApiKey: Boolean(map.get('tts_openai_api_key')),
     fishAudioApiKey: map.get('fish_audio_api_key') ?? '',
     fishAudioModel: map.get('fish_audio_model') ?? 's2.1-pro',
     fishAudioVoice: map.get('fish_audio_voice') ?? '',
@@ -385,6 +399,21 @@ export function setVoiceKeybind(keybind: string): AppSettings {
   return getSettings()
 }
 
+export function setUserProfile(profile: { name: string; avatar: string }): AppSettings {
+  if (typeof profile?.name !== 'string' || typeof profile.avatar !== 'string') {
+    throw new Error('Invalid profile')
+  }
+  const name = profile.name.trim()
+  if (name.length > 80) throw new Error('Profile name is too long')
+  const avatar = profile.avatar
+  if (avatar && (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar) || avatar.length > 1_400_000)) {
+    throw new Error('Invalid profile image')
+  }
+  setSetting('user_profile_name', name)
+  setSetting('user_profile_avatar', avatar)
+  return getSettings()
+}
+
 export function setVoiceAutoSend(enabled: boolean): AppSettings {
   setSetting('voice_auto_send', enabled ? '1' : '0')
   return getSettings()
@@ -398,6 +427,40 @@ export function setVoiceLang(lang: string): AppSettings {
 export function setVoiceModel(model: string): AppSettings {
   setSetting('voice_model', model.trim() || 'base')
   return getSettings()
+}
+
+export function setVoiceSttConfig(config: {
+  provider: 'local' | 'openai'
+  url: string
+  model: string
+  apiKey?: string
+  clearApiKey?: boolean
+}): AppSettings {
+  if (config.provider !== 'local' && config.provider !== 'openai') {
+    throw new Error('Invalid transcription provider')
+  }
+  const url = config.url.trim()
+  if (config.provider === 'openai' && url) {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+      throw new Error('Transcription endpoint must be an HTTPS URL without credentials')
+    }
+  }
+  setSetting('voice_stt_url', url)
+  setSetting('voice_stt_model', config.model.trim())
+  if (config.clearApiKey) setSetting('voice_stt_api_key', null)
+  else if (config.apiKey?.trim()) {
+    setSetting('voice_stt_api_key', JSON.stringify(encryptSecret(config.apiKey.trim())))
+  }
+  setSetting('voice_stt_provider', config.provider)
+  return getSettings()
+}
+
+export function getVoiceSttApiKey(): string {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get('voice_stt_api_key') as
+    | { value: string }
+    | undefined
+  return row ? decryptSecret(JSON.parse(row.value)) : ''
 }
 
 export function setVoiceInputDevice(deviceId: string): AppSettings {
@@ -479,9 +542,42 @@ export function setTtsApiKey(apiKey: string): AppSettings {
   return getSettings()
 }
 
-export function setTtsProvider(provider: 'local' | 'fish'): AppSettings {
-  setSetting('tts_provider', provider === 'fish' ? 'fish' : 'local')
+export function setTtsProvider(provider: 'local' | 'fish' | 'openai'): AppSettings {
+  if (provider !== 'local' && provider !== 'fish' && provider !== 'openai') {
+    throw new Error('Invalid TTS provider')
+  }
+  setSetting('tts_provider', provider)
   return getSettings()
+}
+
+export function setTtsOpenaiConfig(config: {
+  url: string
+  model: string
+  apiKey?: string
+  clearApiKey?: boolean
+}): AppSettings {
+  const url = config.url.trim()
+  if (url) {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+      throw new Error('TTS endpoint must be an HTTPS URL without credentials')
+    }
+  }
+  if (!url || !config.model.trim()) throw new Error('TTS endpoint and model are required')
+  setSetting('tts_openai_url', url)
+  setSetting('tts_openai_model', config.model.trim())
+  if (config.clearApiKey) setSetting('tts_openai_api_key', null)
+  else if (config.apiKey?.trim()) {
+    setSetting('tts_openai_api_key', JSON.stringify(encryptSecret(config.apiKey.trim())))
+  }
+  return getSettings()
+}
+
+export function getTtsOpenaiApiKey(): string {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get('tts_openai_api_key') as
+    | { value: string }
+    | undefined
+  return row ? decryptSecret(JSON.parse(row.value)) : ''
 }
 
 export function setFishAudioApiKey(apiKey: string): AppSettings {

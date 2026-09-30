@@ -11,7 +11,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
-import { getSettings } from '../db/repo'
+import { getSettings, getTtsOpenaiApiKey } from '../db/repo'
 import { resolvePython } from './stt'
 import { isFloatingIconWindow } from './overlay'
 
@@ -1168,6 +1168,41 @@ export async function synthesizeFishAudio(
   return Buffer.from(arrayBuffer)
 }
 
+export async function synthesizeOpenaiAudio(
+  text: string,
+  settings: AppSettings,
+  signal?: AbortSignal
+): Promise<Buffer> {
+  if (!settings.ttsOpenaiUrl || !settings.ttsOpenaiModel) {
+    throw new Error('TTS endpoint and model are required')
+  }
+  const url = new URL(settings.ttsOpenaiUrl)
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new Error('TTS endpoint must be an HTTPS URL without credentials')
+  }
+  const key = getTtsOpenaiApiKey()
+  const timeout = AbortSignal.timeout(60000)
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { Authorization: `Bearer ${key}` } : {})
+    },
+    body: JSON.stringify({ model: settings.ttsOpenaiModel, input: text }),
+    redirect: 'error',
+    signal: requestSignal
+  })
+  if (!res.ok) throw new Error(`TTS request failed (${res.status})`)
+  const contentType = res.headers.get('content-type')?.toLowerCase() ?? ''
+  if (contentType && !contentType.includes('audio/mpeg') && !contentType.includes('audio/mp3')) {
+    throw new Error('TTS endpoint did not return MP3 audio')
+  }
+  const audio = Buffer.from(await res.arrayBuffer())
+  if (!audio.length) throw new Error('TTS endpoint returned empty audio')
+  return audio
+}
+
 /** Send sentence to voice system (local RVC daemon or Fish Audio API). */
 export async function speakSentence(
   text: string,
@@ -1178,7 +1213,7 @@ export async function speakSentence(
   if (!trimmed) return
 
   const settings = getSettings()
-  if (settings.ttsProvider === 'fish') {
+  if (settings.ttsProvider === 'fish' || settings.ttsProvider === 'openai') {
     void speakSentenceAndWait(trimmed, undefined, targetLang, speed, undefined, settings)
     return
   }
@@ -1212,6 +1247,21 @@ export async function speakSentenceAndWait(
   if (!trimmed || signal?.aborted) return { duration: 0, serverOk: false }
 
   const settings = customSettings || getSettings()
+
+  if (settings.ttsProvider === 'openai') {
+    const cleanText = stripEmotionTags(trimmed).trim() || trimmed
+    try {
+      const lang = targetLang || (settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja')
+      const textToSynthesize = settings.ttsTranslate && lang !== 'none'
+        ? await translateText(cleanText, lang, apiKey?.trim() || settings.ttsApiKey?.trim() || undefined)
+        : cleanText
+      const audio = await synthesizeOpenaiAudio(textToSynthesize, settings, signal)
+      return await playAudioBufferInRenderer(audio, 'audio/mpeg', cleanText, signal)
+    } catch (err) {
+      appendTtsServerLog(`[OpenAI-compatible TTS] Failed: ${err instanceof Error ? err.message : String(err)}\n`)
+      return { duration: 0, serverOk: false }
+    }
+  }
 
   if (settings.ttsProvider === 'fish') {
     const cleanText = stripEmotionTags(trimmed).trim()
@@ -1319,6 +1369,20 @@ export async function stopTts(): Promise<void> {
 /** Test voice synthesis for current settings. */
 export async function testTtsVoice(sampleText?: string): Promise<{ ok: boolean; error?: string }> {
   const settings = getSettings()
+  if (settings.ttsProvider === 'openai') {
+    try {
+      let text = sampleText?.trim() || 'Hello! Welcome to Roxy.'
+      const lang = settings.ttsTranslate === false ? 'none' : settings.ttsLang || 'ja'
+      if (settings.ttsTranslate && lang !== 'none') {
+        text = await translateText(text, lang, settings.ttsApiKey)
+      }
+      const audio = await synthesizeOpenaiAudio(text, settings)
+      const result = await playAudioBufferInRenderer(audio, 'audio/mpeg', text)
+      return { ok: result.serverOk }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
   if (settings.ttsProvider === 'fish') {
     if (!settings.fishAudioApiKey?.trim()) {
       return { ok: false, error: 'Fish Audio API key is not configured.' }

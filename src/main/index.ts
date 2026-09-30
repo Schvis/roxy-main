@@ -286,7 +286,7 @@ if (!gotTheLock) {
     if (
       initialSettings.ttsEnabled &&
       initialSettings.ttsAutoStart &&
-      initialSettings.ttsProvider !== 'fish'
+      initialSettings.ttsProvider === 'local'
     ) {
       void startLocalTtsServer()
     }

@@ -91,7 +91,7 @@ export class TranscriptWindow {
               createdAt: 0
             }
           ]
-    const format = `${x}:${width}:${input.theme.epoch}:${input.language ?? ''}:${input.t('transcript.assistant')}:${input.t('transcript.reasoning')}`
+    const format = `${x}:${width}:${input.theme.epoch}:${input.language ?? ''}:${input.userProfileName ?? ''}:${input.userProfileAvatar ?? ''}:${input.t('transcript.assistant')}:${input.t('transcript.reasoning')}`
     // A new host resets disclosures. Retain text measurements, not expanded tool geometry.
     if (this.view !== input.view) {
       for (const [id, entry] of this.entries) {
@@ -282,7 +282,7 @@ export class TranscriptWindow {
           const builder = new Builder(input.metrics, input.theme, { value: 0 }, input.t)
           let height: number
           if (item.kind === 'header')
-            height = layoutMessageHeader(builder, message.role === 'user', x, 0, width).y
+            height = layoutMessageHeader(builder, message.role === 'user', x, 0, width, input.userProfileName, input.userProfileAvatar).y
           else if (item.kind === 'user')
             height = layoutUserBody(builder, message.parts, bodyX, 0, bodyWidth)
           else if (item.kind === 'end')

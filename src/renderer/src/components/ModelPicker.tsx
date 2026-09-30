@@ -446,14 +446,19 @@ export function ModelPicker(): JSX.Element {
                     aria-label={p.name}
                     aria-pressed={isSelected}
                     className={cn(
-                      'group relative flex w-[76px] shrink-0 flex-col items-center rounded-lg px-1 py-2 focus-visible:outline-2 focus-visible:outline-accent/60',
+                      'group relative flex w-[76px] shrink-0 flex-col items-center rounded-lg px-1 py-1 focus-visible:outline-2 focus-visible:outline-accent/60',
                       isSelected
-                        ? 'bg-accent/10 text-text-muted ring-1 ring-inset ring-accent/25'
+                        ? 'text-text-muted'
                         : 'text-text-subtle hover:bg-surface-2 hover:text-text-muted active:bg-accent/5',
                       hasQuery && !hasMatches && !isSelected && 'opacity-40 hover:opacity-75'
                     )}
                   >
-                    <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface">
+                    <div
+                      className={cn(
+                        'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface',
+                        isSelected && 'bg-accent/10 ring-1 ring-inset ring-accent/25'
+                      )}
+                    >
                       <ProviderLogo id={p.seedId} name={p.name} size={20} />
                       {isSelected && !hasQuery && (
                         <span className="absolute -bottom-0.5 -end-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-white ring-2 ring-elevated">
@@ -468,7 +473,7 @@ export function ModelPicker(): JSX.Element {
                     </div>
                     <span
                       aria-hidden="true"
-                      className="mt-1.5 line-clamp-2 h-7 w-full break-words px-0.5 text-center text-[10px] leading-[14px] tracking-[0.01em]"
+                      className="mt-1 w-full truncate px-0.5 text-center text-[10px] leading-[14px] tracking-[0.01em]"
                     >
                       {label}
                     </span>

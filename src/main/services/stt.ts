@@ -8,7 +8,7 @@ import { app } from 'electron'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
-import { getSettings } from '../db/repo'
+import { getSettings, getVoiceSttApiKey } from '../db/repo'
 
 const TTS_URL = process.env.ROXY_TTS_URL ?? 'http://127.0.0.1:5050'
 
@@ -272,6 +272,33 @@ export async function transcribeAudio(
   }
 ): Promise<{ text: string }> {
   const settings = getSettings()
+  if (settings.voiceSttProvider === 'openai') {
+    if (!settings.voiceSttUrl || !settings.voiceSttModel) {
+      throw new Error('Transcription endpoint and model are required')
+    }
+    const url = new URL(settings.voiceSttUrl)
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error('Transcription endpoint must be an HTTPS URL without credentials')
+    }
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array(buffer)], { type: 'audio/wav' }), 'audio.wav')
+    form.append('model', settings.voiceSttModel)
+    const language = options?.language ?? settings.voiceLang
+    if (language && language !== 'auto') form.append('language', language)
+    if (options?.initialPrompt) form.append('prompt', options.initialPrompt)
+    const apiKey = getVoiceSttApiKey()
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      body: form,
+      redirect: 'error',
+      signal: AbortSignal.timeout(60000)
+    })
+    if (!response.ok) throw new Error(`Transcription request failed (${response.status})`)
+    const result = (await response.json()) as { text?: unknown }
+    if (typeof result.text !== 'string') throw new Error('Invalid transcription response')
+    return { text: result.text.trim() }
+  }
   const rawLang =
     options?.language ??
     (settings.voiceLang && settings.voiceLang !== 'auto' ? settings.voiceLang : undefined)

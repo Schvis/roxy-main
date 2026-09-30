@@ -478,12 +478,23 @@ export interface AppSettings {
   overlayKeybind: string
   /** The shortcut to hold to talk and release to transcribe (e.g. 'Alt+V'). */
   voiceKeybind: string
+  /** Display name in transcript; empty uses localized default. */
+  userProfileName: string
+  /** Optional image data URL for user message avatar. */
+  userProfileAvatar: string
   /** Whether to automatically send the message after voice transcription. */
   voiceAutoSend: boolean
   /** Input language code for voice transcription ('auto' or language code). */
   voiceLang: string
   /** Faster-whisper model name ('tiny', 'base', 'small', 'medium', 'large-v3', 'distil-large-v3'). */
   voiceModel: string
+  /** Transcription backend. */
+  voiceSttProvider: 'local' | 'openai'
+  /** Full OpenAI-compatible /v1/audio/transcriptions URL. */
+  voiceSttUrl: string
+  voiceSttModel: string
+  /** Key stays in main process; only its presence reaches renderer. */
+  voiceSttHasApiKey: boolean
   /** Selected audio input device id ('default' or specific deviceId). */
   voiceInputDevice: string
   /** Whether to listen for "Hey Roxy" to start recording automatically. */
@@ -513,7 +524,12 @@ export interface AppSettings {
   /** User-provided DeepL translation API key. */
   ttsApiKey: string
   /** TTS provider engine: 'local' (RVC) or 'fish' (Fish Audio API). Default 'local'. */
-  ttsProvider: 'local' | 'fish'
+  ttsProvider: 'local' | 'fish' | 'openai'
+  /** Full OpenAI-compatible /v1/audio/speech URL. */
+  ttsOpenaiUrl: string
+  ttsOpenaiModel: string
+  /** Credential never leaves main process. */
+  ttsOpenaiHasApiKey: boolean
   /** User-provided Fish Audio API key. */
   fishAudioApiKey: string
   /** Selected Fish Audio model (e.g. 's2.1-pro', 's2.1-pro-free'). Default 's2.1-pro'. */

@@ -996,9 +996,17 @@ export interface RoxyApi {
     setIdeChatDock(dock: AppSettings['ideChatDock']): Promise<AppSettings>
     setOverlayKeybind(keybind: string): Promise<AppSettings>
     setVoiceKeybind(keybind: string): Promise<AppSettings>
+    setUserProfile(profile: { name: string; avatar: string }): Promise<AppSettings>
     setVoiceAutoSend(enabled: boolean): Promise<AppSettings>
     setVoiceLang(lang: string): Promise<AppSettings>
     setVoiceModel(model: string): Promise<AppSettings>
+    setVoiceSttConfig(config: {
+      provider: 'local' | 'openai'
+      url: string
+      model: string
+      apiKey?: string
+      clearApiKey?: boolean
+    }): Promise<AppSettings>
     setVoiceInputDevice(deviceId: string): Promise<AppSettings>
     setVoiceWakeWord(enabled: boolean): Promise<AppSettings>
     setVoiceWakeWords(words: string[]): Promise<AppSettings>
@@ -1016,7 +1024,13 @@ export interface RoxyApi {
     setTtsLang(lang: string): Promise<AppSettings>
     setTtsSpeed(speed: number): Promise<AppSettings>
     setTtsApiKey(apiKey: string): Promise<AppSettings>
-    setTtsProvider(provider: 'local' | 'fish'): Promise<AppSettings>
+    setTtsProvider(provider: AppSettings['ttsProvider']): Promise<AppSettings>
+    setTtsOpenaiConfig(config: {
+      url: string
+      model: string
+      apiKey?: string
+      clearApiKey?: boolean
+    }): Promise<AppSettings>
     setFishAudioApiKey(apiKey: string): Promise<AppSettings>
     setFishAudioModel(model: string): Promise<AppSettings>
     setFishAudioVoice(voice: string): Promise<AppSettings>
@@ -1254,7 +1268,7 @@ export interface RoxyApi {
     onCursorPosition(callback: (point: { x: number; y: number }) => void): () => void
   }
   stt: {
-    /** Transcribe audio buffer/bytes to text using local faster-whisper. */
+    /** Transcribe audio buffer/bytes using selected speech recognition backend. */
     transcribe(
       audio: ArrayBuffer | Uint8Array,
       options?: {

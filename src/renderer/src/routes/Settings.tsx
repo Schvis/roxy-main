@@ -41,6 +41,7 @@ import { ProxyPanel } from '../components/ProxyPanel'
 import { ConfigBackup } from '../components/ConfigBackup'
 import { ActivitySection } from '../components/ActivitySection'
 import { MotionSettings } from '../components/MotionSettings'
+import { ProfileImageCropper } from '../components/ProfileImageCropper'
 import { recordKeybindFromEvent } from '../lib/keybind'
 import { AudioRecorder } from '../lib/audio-recorder'
 import { cameraManager } from '../lib/vision'
@@ -76,9 +77,11 @@ export default function Settings(): JSX.Element {
   const [ideError, setIdeError] = useState(false)
   const setOverlayKeybind = useRoxyStore((s) => s.setOverlayKeybind)
   const setVoiceKeybind = useRoxyStore((s) => s.setVoiceKeybind)
+  const setUserProfile = useRoxyStore((s) => s.setUserProfile)
   const setVoiceAutoSend = useRoxyStore((s) => s.setVoiceAutoSend)
   const setVoiceLang = useRoxyStore((s) => s.setVoiceLang)
   const setVoiceModel = useRoxyStore((s) => s.setVoiceModel)
+  const setVoiceSttConfig = useRoxyStore((s) => s.setVoiceSttConfig)
   const setVoiceInputDevice = useRoxyStore((s) => s.setVoiceInputDevice)
   const setVoiceWakeWord = useRoxyStore((s) => s.setVoiceWakeWord)
   const setVoiceWakeWords = useRoxyStore((s) => s.setVoiceWakeWords)
@@ -96,6 +99,7 @@ export default function Settings(): JSX.Element {
   const setTtsSpeed = useRoxyStore((s) => s.setTtsSpeed)
   const setTtsApiKey = useRoxyStore((s) => s.setTtsApiKey)
   const setTtsProvider = useRoxyStore((s) => s.setTtsProvider)
+  const setTtsOpenaiConfig = useRoxyStore((s) => s.setTtsOpenaiConfig)
   const setTtsShowEmotions = useRoxyStore((s) => s.setTtsShowEmotions)
   const setFishAudioApiKey = useRoxyStore((s) => s.setFishAudioApiKey)
   const setFishAudioModel = useRoxyStore((s) => s.setFishAudioModel)
@@ -122,6 +126,19 @@ export default function Settings(): JSX.Element {
   const [isSampling, setIsSampling] = useState(false)
   const [sampleStatus, setSampleStatus] = useState<string | null>(null)
   const [newWakeWord, setNewWakeWord] = useState('')
+  const [sttUrl, setSttUrl] = useState('')
+  const [sttModel, setSttModel] = useState('')
+  const [sttApiKey, setSttApiKey] = useState('')
+  const [sttConfigError, setSttConfigError] = useState('')
+  const [profileName, setProfileName] = useState(settings?.userProfileName ?? '')
+  const [profileAvatar, setProfileAvatar] = useState(settings?.userProfileAvatar ?? '')
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null)
+  const [profileError, setProfileError] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [ttsOpenaiUrl, setTtsOpenaiUrl] = useState('')
+  const [ttsOpenaiModel, setTtsOpenaiModel] = useState('')
+  const [ttsOpenaiKey, setTtsOpenaiKey] = useState('')
+  const [ttsOpenaiError, setTtsOpenaiError] = useState('')
   const [apiKeyInput, setApiKeyInput] = useState(settings?.ttsApiKey ?? '')
   const [fishApiKeyInput, setFishApiKeyInput] = useState(settings?.fishAudioApiKey ?? '')
   const [fishVoiceInput, setFishVoiceInput] = useState(settings?.fishAudioVoice ?? '')
@@ -202,6 +219,69 @@ export default function Settings(): JSX.Element {
   useEffect(() => {
     setVoiceKeybindState(settings?.voiceKeybind ?? 'Alt+V')
   }, [settings?.voiceKeybind])
+
+  useEffect(() => {
+    setProfileName(settings?.userProfileName ?? '')
+    setProfileAvatar(settings?.userProfileAvatar ?? '')
+  }, [settings?.userProfileName, settings?.userProfileAvatar])
+
+  const handleProfileImage = (file?: File): void => {
+    if (!file) return
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5_000_000) {
+      setProfileError(t('settings.profile.invalidImage'))
+      return
+    }
+    setProfileImageFile(file)
+    setProfileError('')
+  }
+
+  const saveProfile = async (): Promise<void> => {
+    setSavingProfile(true)
+    setProfileError('')
+    try {
+      await setUserProfile({ name: profileName, avatar: profileAvatar })
+    } catch {
+      setProfileError(t('settings.profile.saveError'))
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  useEffect(() => {
+    setSttUrl(settings?.voiceSttUrl ?? '')
+    setSttModel(settings?.voiceSttModel ?? '')
+  }, [settings?.voiceSttUrl, settings?.voiceSttModel])
+
+  useEffect(() => {
+    setTtsOpenaiUrl(settings?.ttsOpenaiUrl ?? '')
+    setTtsOpenaiModel(settings?.ttsOpenaiModel ?? '')
+  }, [settings?.ttsOpenaiUrl, settings?.ttsOpenaiModel])
+
+  const saveTtsOpenai = async (clearApiKey = false): Promise<void> => {
+    setTtsOpenaiError('')
+    try {
+      await setTtsOpenaiConfig({ url: ttsOpenaiUrl, model: ttsOpenaiModel, apiKey: ttsOpenaiKey, clearApiKey })
+      setTtsOpenaiKey('')
+    } catch (error) {
+      setTtsOpenaiError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const saveSttConfig = async (provider: 'local' | 'openai', clearApiKey = false): Promise<void> => {
+    setSttConfigError('')
+    try {
+      await setVoiceSttConfig({
+        provider,
+        url: sttUrl,
+        model: sttModel,
+        apiKey: sttApiKey,
+        clearApiKey
+      })
+      setSttApiKey('')
+    } catch (error) {
+      setSttConfigError(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   useEffect(() => {
     let mounted = true
@@ -721,6 +801,49 @@ export default function Settings(): JSX.Element {
 
   const renderGeneral = (): JSX.Element => (
     <>
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('settings.profile.heading')}</h2>
+        <form
+          className="sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void saveProfile()
+          }}
+        >
+          <p className="mb-4 text-xs text-text-muted">{t('settings.profile.description')}</p>
+          <div className="flex flex-wrap items-center gap-4">
+            {profileAvatar ? (
+              <img src={profileAvatar} alt="" className="h-14 w-14 rounded-xl object-cover" />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-surface-2 text-text-muted" aria-hidden="true">{(profileName || t('transcript.you')).charAt(0)}</div>
+            )}
+            <label className="cursor-pointer rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-text hover:bg-surface-3">
+              {t('settings.profile.chooseImage')}
+              <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => {
+                handleProfileImage(event.target.files?.[0])
+                event.target.value = ''
+              }} />
+            </label>
+            {profileAvatar && <button type="button" className="text-xs text-text-muted hover:text-text" onClick={() => setProfileAvatar('')}>{t('settings.profile.removeImage')}</button>}
+          </div>
+          {profileImageFile && (
+            <ProfileImageCropper
+              file={profileImageFile}
+              onCancel={() => setProfileImageFile(null)}
+              onApply={(dataUrl) => {
+                setProfileAvatar(dataUrl)
+                setProfileImageFile(null)
+              }}
+            />
+          )}
+          <label className="mt-4 grid max-w-sm gap-1 text-xs text-text-muted">
+            {t('settings.profile.name')}
+            <input value={profileName} maxLength={80} onChange={(event) => setProfileName(event.target.value)} placeholder={t('transcript.you')} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+          </label>
+          {profileError && <p role="alert" className="mt-2 text-xs text-danger">{profileError}</p>}
+          <Button type="submit" className="mt-4" disabled={savingProfile || profileImageFile !== null || (profileName === (settings?.userProfileName ?? '') && profileAvatar === (settings?.userProfileAvatar ?? ''))}>{t('common.save')}</Button>
+        </form>
+      </section>
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('settings.language.heading')}</h2>
         <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1310,6 +1433,73 @@ export default function Settings(): JSX.Element {
             </div>
 
             <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+              <label className="block text-sm font-medium text-text" htmlFor="stt-provider">
+                {t('settings.voiceInput.providerTitle')}
+              </label>
+              <select
+                id="stt-provider"
+                value={settings?.voiceSttProvider ?? 'local'}
+                onChange={(e) => void saveSttConfig(e.target.value as 'local' | 'openai')}
+                className="mt-2 h-9 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+              >
+                <option value="local">{t('settings.voiceInput.providerLocal')}</option>
+                <option value="openai">{t('settings.voiceInput.providerOpenai')}</option>
+              </select>
+              <p className="mt-1 text-xs text-text-muted">
+                {t('settings.voiceInput.providerDescription')}
+              </p>
+              {settings?.voiceSttProvider === 'openai' && <form
+                className="mt-3 grid gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void saveSttConfig('openai')
+                }}
+              >
+                <label className="grid gap-1 text-xs text-text-muted">
+                  {t('settings.voiceInput.endpointTitle')}
+                  <input
+                    type="url"
+                    required
+                    value={sttUrl}
+                    onChange={(e) => setSttUrl(e.target.value)}
+                    placeholder="https://example.com/v1/audio/transcriptions"
+                    className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs text-text-muted">
+                  {t('settings.voiceInput.remoteModelTitle')}
+                  <input
+                    required
+                    value={sttModel}
+                    onChange={(e) => setSttModel(e.target.value)}
+                    placeholder="hf/openai/whisper-large-v3"
+                    className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs text-text-muted">
+                  {t('settings.voiceInput.apiKeyTitle')}
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={sttApiKey}
+                    onChange={(e) => setSttApiKey(e.target.value)}
+                    placeholder={settings?.voiceSttHasApiKey ? t('settings.voiceInput.apiKeySaved') : 'sk-…'}
+                    className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+                  />
+                </label>
+                <div className="flex items-center gap-3">
+                  <Button type="submit" size="sm">{t('settings.voiceInput.saveEndpoint')}</Button>
+                  {settings?.voiceSttHasApiKey && (
+                    <button type="button" onClick={() => void saveSttConfig(settings.voiceSttProvider, true)} className="text-xs text-text-muted hover:text-text">
+                      {t('settings.voiceInput.clearApiKey')}
+                    </button>
+                  )}
+                </div>
+              </form>}
+              {sttConfigError && <p role="alert" className="mt-2 text-xs text-red-400">{sttConfigError}</p>}
+            </div>
+
+            {settings?.voiceSttProvider !== 'openai' && <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -1373,7 +1563,7 @@ export default function Settings(): JSX.Element {
                   </pre>
                 </div>
               )}
-            </div>
+            </div>}
 
             <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -1520,7 +1710,7 @@ export default function Settings(): JSX.Element {
               </select>
             </div>
 
-            <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+            {settings?.voiceSttProvider !== 'openai' && <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -1636,7 +1826,7 @@ export default function Settings(): JSX.Element {
                     </Button>
                   </div>
                 )}
-            </div>
+            </div>}
 
             <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
               <div className="text-sm font-medium text-text">
@@ -1689,15 +1879,52 @@ export default function Settings(): JSX.Element {
                   </div>
                   <select
                     value={ttsProvider}
-                    onChange={(e) => void setTtsProvider(e.target.value as 'local' | 'fish')}
+                    onChange={(e) => void setTtsProvider(e.target.value as 'local' | 'fish' | 'openai')}
                     className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
                   >
                     <option value="local">{t('settings.tts.providerLocal')}</option>
                     <option value="fish">{t('settings.tts.providerFish')}</option>
+                    <option value="openai">{t('settings.tts.providerOpenai')}</option>
                   </select>
                 </div>
 
-                {ttsProvider === 'fish' ? (
+                {ttsProvider === 'openai' ? (
+                  <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+                    <form
+                      className="grid gap-3"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void saveTtsOpenai()
+                      }}
+                    >
+                      <label className="grid gap-1 text-xs text-text-muted">
+                        {t('settings.tts.openaiEndpoint')}
+                        <input type="url" required value={ttsOpenaiUrl} onChange={(e) => setTtsOpenaiUrl(e.target.value)} placeholder="https://example.com/v1/audio/speech" className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+                      </label>
+                      <label className="grid gap-1 text-xs text-text-muted">
+                        {t('settings.tts.openaiModel')}
+                        <input required value={ttsOpenaiModel} onChange={(e) => setTtsOpenaiModel(e.target.value)} placeholder="fish/s2.1-pro-free" className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+                      </label>
+                      <label className="grid gap-1 text-xs text-text-muted">
+                        {t('settings.tts.openaiKey')}
+                        <input type="password" autoComplete="off" value={ttsOpenaiKey} onChange={(e) => setTtsOpenaiKey(e.target.value)} placeholder={settings?.ttsOpenaiHasApiKey ? t('settings.tts.openaiKeySaved') : 'sk-…'} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text" />
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <Button type="submit" size="sm">{t('settings.tts.openaiSave')}</Button>
+                        {settings?.ttsOpenaiHasApiKey && (
+                          <button type="button" onClick={() => void saveTtsOpenai(true)} className="text-xs text-text-muted hover:text-text">
+                            {t('settings.tts.openaiClearKey')}
+                          </button>
+                        )}
+                      </div>
+                    </form>
+                    {ttsOpenaiError && <p role="alert" className="mt-2 text-xs text-red-400">{ttsOpenaiError}</p>}
+                    <Button variant="secondary" className="mt-3" onClick={() => void handleTestVoice()} disabled={testingVoice || !settings?.ttsOpenaiUrl || !settings?.ttsOpenaiModel}>
+                      {testingVoice ? t('settings.tts.testingVoice') : t('settings.tts.testVoiceButton')}
+                    </Button>
+                    {testVoiceFeedback && <p className="mt-2 text-xs text-text-muted">{testVoiceFeedback}</p>}
+                  </div>
+                ) : ttsProvider === 'fish' ? (
                   <>
                     <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
                       <div className="text-sm font-medium text-text">

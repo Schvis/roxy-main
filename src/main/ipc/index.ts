@@ -434,6 +434,9 @@ export function registerIpc(): void {
     updateVoiceShortcut(settings)
     return settings
   })
+  ipcMain.handle(CHANNELS.settingsSetUserProfile, (_e, profile: { name: string; avatar: string }) =>
+    repo.setUserProfile(profile)
+  )
   ipcMain.handle(CHANNELS.settingsSetVoiceAutoSend, (_e, enabled: boolean) => {
     return repo.setVoiceAutoSend(enabled)
   })
@@ -442,6 +445,9 @@ export function registerIpc(): void {
   })
   ipcMain.handle(CHANNELS.settingsSetVoiceModel, (_e, model: string) => {
     return repo.setVoiceModel(model)
+  })
+  ipcMain.handle(CHANNELS.settingsSetVoiceSttConfig, (_e, config: Parameters<typeof repo.setVoiceSttConfig>[0]) => {
+    return repo.setVoiceSttConfig(config)
   })
   ipcMain.handle(CHANNELS.settingsSetVoiceInputDevice, (_e, deviceId: string) => {
     return repo.setVoiceInputDevice(deviceId)
@@ -488,8 +494,11 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetTtsLang, (_e, lang: string) => repo.setTtsLang(lang))
   ipcMain.handle(CHANNELS.settingsSetTtsSpeed, (_e, speed: number) => repo.setTtsSpeed(speed))
   ipcMain.handle(CHANNELS.settingsSetTtsApiKey, (_e, apiKey: string) => repo.setTtsApiKey(apiKey))
-  ipcMain.handle(CHANNELS.settingsSetTtsProvider, (_e, provider: 'local' | 'fish') =>
+  ipcMain.handle(CHANNELS.settingsSetTtsProvider, (_e, provider: 'local' | 'fish' | 'openai') =>
     repo.setTtsProvider(provider)
+  )
+  ipcMain.handle(CHANNELS.settingsSetTtsOpenaiConfig, (_e, config: Parameters<typeof repo.setTtsOpenaiConfig>[0]) =>
+    repo.setTtsOpenaiConfig(config)
   )
   ipcMain.handle(CHANNELS.settingsSetFishAudioApiKey, (_e, apiKey: string) =>
     repo.setFishAudioApiKey(apiKey)

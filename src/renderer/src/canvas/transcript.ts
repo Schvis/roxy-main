@@ -40,6 +40,8 @@ export interface LayoutInput {
   view: ViewState
   now: number
   language?: string
+  userProfileName?: string
+  userProfileAvatar?: string
   workspacePath?: string | null
   viewport?: {
     top: number
@@ -155,7 +157,7 @@ function layoutMessage(
   streaming = false
 ): Block {
   const builder = new Builder(input.metrics, input.theme, counter, input.t)
-  const body = layoutMessageHeader(builder, message.role === 'user', x, y, width)
+  const body = layoutMessageHeader(builder, message.role === 'user', x, y, width, input.userProfileName, input.userProfileAvatar)
   let cursor = body.y
   if (message.role === 'user') {
     cursor += layoutUserBody(builder, message.parts, body.x, cursor, body.width)
@@ -183,7 +185,9 @@ export function layoutMessageHeader(
   isUser: boolean,
   x: number,
   y: number,
-  width: number
+  width: number,
+  userProfileName?: string,
+  userProfileAvatar?: string
 ): { x: number; y: number; width: number } {
   const palette = builder.palette
   const top = y + SPACE.messagePadY
@@ -193,16 +197,29 @@ export function layoutMessageHeader(
   // Avatar.
   const avatarY = top + 2
   if (isUser) {
-    builder.rect(
-      x + SPACE.messagePadX,
-      avatarY,
-      SPACE.avatar,
-      SPACE.avatar,
-      SPACE.radiusLg,
-      palette.surface2,
-      palette.border
-    )
-    builder.icon(x + SPACE.messagePadX + 6, avatarY + 6, SIZE.icon, 'user', palette.textMuted)
+    if (userProfileAvatar) {
+      builder.push({
+        kind: 'image',
+        x: x + SPACE.messagePadX,
+        y: avatarY,
+        w: SPACE.avatar,
+        h: SPACE.avatar,
+        src: userProfileAvatar,
+        radius: SPACE.radiusLg,
+        border: palette.border
+      })
+    } else {
+      builder.rect(
+        x + SPACE.messagePadX,
+        avatarY,
+        SPACE.avatar,
+        SPACE.avatar,
+        SPACE.radiusLg,
+        palette.surface2,
+        palette.border
+      )
+      builder.icon(x + SPACE.messagePadX + 6, avatarY + 6, SIZE.icon, 'user', palette.textMuted)
+    }
   } else {
     builder.push({
       kind: 'image',
@@ -220,7 +237,7 @@ export function layoutMessageHeader(
   builder.text(
     bodyX,
     top,
-    builder.t(isUser ? 'transcript.you' : 'transcript.assistant'),
+    isUser ? userProfileName?.trim() || builder.t('transcript.you') : builder.t('transcript.assistant'),
     nameFont,
     palette.textMuted
   )

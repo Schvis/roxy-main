@@ -251,9 +251,11 @@ interface RoxyStore {
   setIdeMode: (enabled: boolean) => Promise<void>
   setOverlayKeybind: (keybind: string) => Promise<void>
   setVoiceKeybind: (keybind: string) => Promise<void>
+  setUserProfile: (profile: { name: string; avatar: string }) => Promise<void>
   setVoiceAutoSend: (enabled: boolean) => Promise<void>
   setVoiceLang: (lang: string) => Promise<void>
   setVoiceModel: (model: string) => Promise<void>
+  setVoiceSttConfig: (config: Parameters<typeof api.settings.setVoiceSttConfig>[0]) => Promise<void>
   setVoiceInputDevice: (deviceId: string) => Promise<void>
   setVoiceWakeWord: (enabled: boolean) => Promise<void>
   setVoiceWakeWords: (words: string[]) => Promise<void>
@@ -271,7 +273,8 @@ interface RoxyStore {
   setTtsLang: (lang: string) => Promise<void>
   setTtsSpeed: (speed: number) => Promise<void>
   setTtsApiKey: (apiKey: string) => Promise<void>
-  setTtsProvider: (provider: 'local' | 'fish') => Promise<void>
+  setTtsProvider: (provider: AppSettings['ttsProvider']) => Promise<void>
+  setTtsOpenaiConfig: (config: Parameters<typeof api.settings.setTtsOpenaiConfig>[0]) => Promise<void>
   setFishAudioApiKey: (apiKey: string) => Promise<void>
   setFishAudioModel: (model: string) => Promise<void>
   setFishAudioVoice: (voice: string) => Promise<void>
@@ -1874,6 +1877,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
+  setUserProfile: async (profile) => {
+    const settings = await api.settings.setUserProfile(profile)
+    set({ settings })
+  },
+
   setVoiceAutoSend: async (enabled) => {
     const settings = await api.settings.setVoiceAutoSend(enabled)
     set({ settings })
@@ -1886,6 +1894,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setVoiceModel: async (model) => {
     const settings = await api.settings.setVoiceModel(model)
+    set({ settings })
+  },
+
+  setVoiceSttConfig: async (config) => {
+    const settings = await api.settings.setVoiceSttConfig(config)
     set({ settings })
   },
 
@@ -1955,6 +1968,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   setTtsProvider: async (provider) => {
     const settings = await api.settings.setTtsProvider(provider)
+    set({ settings })
+  },
+
+  setTtsOpenaiConfig: async (config) => {
+    const settings = await api.settings.setTtsOpenaiConfig(config)
     set({ settings })
   },
 
