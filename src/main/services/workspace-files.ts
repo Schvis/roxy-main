@@ -500,6 +500,71 @@ const IGNORED_DIAGNOSTIC_CODES = new Set([
   2688 // Cannot find type definition file
 ])
 
+interface DiagnosticProject {
+  path: string
+  parsed: ts.ParsedCommandLine
+  errors: ts.Diagnostic[]
+}
+
+function findDiagnosticProject(root: string, target: string): DiagnosticProject | undefined {
+  const visited = new Set<string>()
+  const candidates: DiagnosticProject[] = []
+  const isJavaScript = /\.[cm]?jsx?$/i.test(target)
+
+  const visit = (configPath: string): void => {
+    const absolute = path.resolve(configPath)
+    if (!isContained(root, absolute) || visited.has(absolute)) return
+    visited.add(absolute)
+    const config = ts.readConfigFile(absolute.replace(/\\/g, '/'), ts.sys.readFile)
+    if (config.error) {
+      candidates.push({
+        path: absolute,
+        parsed: { options: {}, fileNames: [], errors: [] },
+        errors: [config.error]
+      })
+      return
+    }
+    const parsed = ts.parseJsonConfigFileContent(
+      config.config,
+      ts.sys,
+      path.dirname(absolute),
+      path.basename(absolute) === 'jsconfig.json' ? { allowJs: true } : undefined
+    )
+    candidates.push({ path: absolute, parsed, errors: parsed.errors })
+    for (const reference of parsed.projectReferences ?? []) {
+      visit(ts.resolveProjectReferencePath(reference))
+    }
+  }
+
+  let directory = path.dirname(target)
+  while (isContained(root, directory)) {
+    for (const name of isJavaScript
+      ? ['tsconfig.json', 'jsconfig.json', 'tsconfig.web.json', 'tsconfig.node.json']
+      : ['tsconfig.json', 'tsconfig.web.json', 'tsconfig.node.json']) {
+      const configPath = path.join(directory, name)
+      if (ts.sys.fileExists(configPath)) visit(configPath)
+    }
+    if (directory === root) break
+    directory = path.dirname(directory)
+  }
+
+  const ownsTarget = (project: DiagnosticProject): boolean =>
+    project.parsed.fileNames.some(
+      (file) => path.resolve(file).toLowerCase() === target.toLowerCase()
+    )
+  const distance = (project: DiagnosticProject): number =>
+    path.relative(path.dirname(project.path), target).split(path.sep).length
+  // Nearest owning config wins. A solution config (files: [], references: [...])
+  // does not own its referenced files; use the referenced project's options.
+  return (
+    candidates.filter(ownsTarget).sort((a, b) => distance(a) - distance(b))[0] ??
+    candidates.find((candidate) =>
+      ['tsconfig.json', 'jsconfig.json'].includes(path.basename(candidate.path))
+    ) ??
+    candidates[0]
+  )
+}
+
 export async function getWorkspaceFileDiagnostics(
   root: string,
   requested: string,
@@ -532,16 +597,7 @@ export async function getWorkspaceFileDiagnostics(
   if (!isJsTs) return []
 
   const targetAbs = resolved.target
-  const dir = path.dirname(targetAbs)
-
-  const findConfig = (name: string): string | undefined => {
-    const found = ts.findConfigFile(dir, ts.sys.fileExists, name)
-    if (!found) return undefined
-    const resolvedPath = path.resolve(found)
-    return isContained(resolved.realRoot, resolvedPath) ? resolvedPath : undefined
-  }
-
-  const configPath = findConfig('tsconfig.web.json') ?? findConfig('tsconfig.json')
+  const project = findDiagnosticProject(resolved.realRoot, targetAbs)
 
   let compilerOptions: ts.CompilerOptions = {
     allowJs: true,
@@ -555,26 +611,34 @@ export async function getWorkspaceFileDiagnostics(
     allowSyntheticDefaultImports: true
   }
 
-  if (configPath) {
-    try {
-      const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
-      const parsed = ts.parseJsonConfigFileContent(
-        configFile.config,
-        ts.sys,
-        path.dirname(configPath)
-      )
-      compilerOptions = {
-        ...compilerOptions,
-        ...parsed.options,
-        noEmit: true,
-        skipLibCheck: true
-      }
-    } catch {}
+  if (project?.errors.length) {
+    return project.errors.map((error) => ({
+      line: 1,
+      column: 1,
+      start: 0,
+      length: 0,
+      code: error.code,
+      message: `${path.basename(project.path)}: ${ts.flattenDiagnosticMessageText(error.messageText, '\n')}`
+    }))
+  }
+  if (project) {
+    compilerOptions = {
+      ...compilerOptions,
+      ...project.parsed.options,
+      noEmit: true,
+      skipLibCheck: true
+    }
   }
 
+  // Electron reports its own executable as TypeScript's executing file. Anchor
+  // standard libraries to the installed compiler instead of the Electron binary.
+  const libDirectory = path.dirname(require.resolve('typescript'))
   const baseHost = ts.createCompilerHost(compilerOptions)
   const host: ts.CompilerHost = {
     ...baseHost,
+    getDefaultLibLocation: () => libDirectory,
+    getDefaultLibFileName: (options) =>
+      path.join(libDirectory, path.basename(ts.getDefaultLibFilePath(options))),
     getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
       if (path.resolve(fileName).toLowerCase() === targetAbs.toLowerCase()) {
         return ts.createSourceFile(fileName, content, languageVersion, true)
@@ -591,7 +655,11 @@ export async function getWorkspaceFileDiagnostics(
     }
   }
 
-  const program = ts.createProgram([targetAbs], compilerOptions, host)
+  const program = ts.createProgram(
+    project ? [...new Set([...project.parsed.fileNames, targetAbs])] : [targetAbs],
+    compilerOptions,
+    host
+  )
   const source = program.getSourceFile(targetAbs)
   if (!source) return []
 

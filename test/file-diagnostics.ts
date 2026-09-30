@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import ts from 'typescript'
 import { getWorkspaceFileDiagnostics } from '../src/main/services/workspace-files'
 
 async function main(): Promise<void> {
@@ -76,6 +77,112 @@ async function main(): Promise<void> {
       'import { goodValue } from "@/exporter";\nconsole.log(goodValue);\n'
     )
     assert.equal(aliasImport.length, 0, 'path alias from tsconfig should resolve with 0 errors')
+
+    // Electron can report its executable, not typescript.js, as the executing file.
+    // Standard library paths must still resolve for a TSX project using DOM libs.
+    await writeFile(
+      path.join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: { lib: ['dom', 'dom.iterable', 'esnext'], jsx: 'react-jsx' }
+      })
+    )
+    await writeFile(path.join(root, 'target.tsx'), '')
+    const executingFile = ts.sys.getExecutingFilePath
+    ts.sys.getExecutingFilePath = () => path.join(root, 'electron.exe')
+    try {
+      const valid = await getWorkspaceFileDiagnostics(
+        root,
+        'target.tsx',
+        'const values: Record<string, Set<number>> = { ids: new Set([1]) };\n' +
+          'const source: EventSource | undefined = undefined;\n' +
+          'console.log(values.ids, source);\n'
+      )
+      assert.deepEqual(valid, [], 'valid DOM and ES globals must not produce diagnostics')
+
+      const invalid = await getWorkspaceFileDiagnostics(
+        root,
+        'target.tsx',
+        'const invalid: number = "not a number";\n'
+      )
+      assert.ok(
+        invalid.some((d) => d.code === 2322),
+        'real type errors must still be reported'
+      )
+    } finally {
+      ts.sys.getExecutingFilePath = executingFile
+    }
+
+    // A solution config must defer to the referenced project that owns the file.
+    const node = path.join(root, 'node')
+    const web = path.join(root, 'web')
+    await mkdir(node)
+    await mkdir(web)
+    await writeFile(path.join(node, 'target.ts'), '')
+    await writeFile(path.join(node, 'globals.d.ts'), 'declare const projectGlobal: number;\n')
+    await writeFile(path.join(node, 'value.ts'), 'export const projectValue = 1;\n')
+    await writeFile(
+      path.join(root, 'tsconfig.json'),
+      JSON.stringify({ files: [], references: [{ path: './node' }, { path: './web' }] })
+    )
+    await writeFile(
+      path.join(node, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: { paths: { '#project': ['./value.ts'] } },
+        include: ['*.ts']
+      })
+    )
+    await writeFile(path.join(web, 'tsconfig.json'), JSON.stringify({ include: ['*.ts'] }))
+    await writeFile(
+      path.join(root, 'tsconfig.web.json'),
+      JSON.stringify({
+        compilerOptions: { paths: { '#project': ['./missing.ts'] } },
+        include: ['web']
+      })
+    )
+    const owned = await getWorkspaceFileDiagnostics(
+      root,
+      'node/target.ts',
+      'import { projectValue } from "#project";\nconsole.log(projectGlobal, projectValue);\n'
+    )
+    assert.deepEqual(owned, [], 'owning project aliases and ambient declarations should resolve')
+
+    // A JavaScript-only workspace can specify aliases in jsconfig.json.
+    const js = path.join(root, 'js')
+    await mkdir(js)
+    await writeFile(path.join(js, 'target.js'), '')
+    await writeFile(path.join(js, 'value.js'), 'export const value = 1;\n')
+    await writeFile(
+      path.join(js, 'jsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '#value': ['./value.js'] } } })
+    )
+    const jsAlias = await getWorkspaceFileDiagnostics(
+      root,
+      'js/target.js',
+      'import { value } from "#value";\nconsole.log(value);\n'
+    )
+    assert.deepEqual(jsAlias, [], 'jsconfig path aliases should resolve')
+
+    const checkedJs = await getWorkspaceFileDiagnostics(
+      root,
+      'js/target.js',
+      '// @ts-check\nconst number = 1;\nnumber.toUpperCase();\n'
+    )
+    assert.ok(
+      checkedJs.some((d) => d.code === 2339),
+      '@ts-check should report real JS errors'
+    )
+
+    await writeFile(
+      path.join(js, 'jsconfig.json'),
+      JSON.stringify({ extends: './missing-config.json' })
+    )
+    const brokenExtends = await getWorkspaceFileDiagnostics(root, 'js/target.js', 'const ok = 1;\n')
+    assert.ok(brokenExtends.some((d) => d.message.includes('missing-config.json')))
+
+    // Broken config must not silently turn project diagnostics into misleading defaults.
+    await writeFile(path.join(js, 'jsconfig.json'), '{ broken config')
+    const brokenConfig = await getWorkspaceFileDiagnostics(root, 'js/target.js', 'const ok = 1;\n')
+    assert.ok(brokenConfig.some((d) => d.message.includes('jsconfig.json')))
 
     console.log('File diagnostics tests passed')
   } finally {
