@@ -663,7 +663,7 @@ export function CommandsPane({
               )}
 
               {/* Main terminal output view */}
-              <div className="flex flex-1 min-w-0 flex-col bg-[#0b0b0d]">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#0b0b0d]">
                 {activeAgentCommand ? (
                   <>
                     {/* Active command header info */}
@@ -759,12 +759,12 @@ export function CommandsPane({
                         agentStickToBottom.current =
                           el.scrollHeight - el.scrollTop - el.clientHeight < 30
                       }}
-                      className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed text-[#d4d4d4]"
+                      className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed text-[#d4d4d4]"
                     >
                       <TerminalOutput
                         text={activeAgentCommand.output}
                         state={activeAgentCommand.state}
-                        className="h-full bg-transparent p-0 border-0 overflow-visible text-xs font-mono whitespace-pre-wrap break-all"
+                        className="bg-transparent p-0 border-0 overflow-visible text-xs font-mono whitespace-pre-wrap break-all"
                       />
                     </div>
 
