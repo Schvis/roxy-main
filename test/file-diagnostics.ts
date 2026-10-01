@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -110,6 +111,19 @@ async function main(): Promise<void> {
       )
     } finally {
       ts.sys.getExecutingFilePath = executingFile
+    }
+
+    const existsSync = fs.existsSync
+    fs.existsSync = (file) =>
+      String(file) === path.join(path.dirname(require.resolve('typescript')), 'lib.d.ts')
+        ? false
+        : existsSync(file)
+    try {
+      const missingLibs = await getWorkspaceFileDiagnostics(root, 'target.tsx', 'const x = 1;\n')
+      assert.equal(missingLibs.length, 1, 'missing standard libs should not cascade')
+      assert.match(missingLibs[0].message, /TypeScript standard libraries are missing/)
+    } finally {
+      fs.existsSync = existsSync
     }
 
     // A solution config must defer to the referenced project that owns the file.

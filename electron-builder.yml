@@ -10,6 +10,12 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,bun.lockb}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 extraResources:
+  # electron-builder excludes *.d.ts from app.asar, including TypeScript's
+  # standard libraries required by workspace file diagnostics.
+  - from: node_modules/typescript/lib
+    to: typescript/lib
+    filter:
+      - 'lib*.d.ts'
   - from: RoxyMigurdia
     to: RoxyMigurdia
   - from: resources/models/live2d

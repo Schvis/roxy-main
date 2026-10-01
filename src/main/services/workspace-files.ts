@@ -1,4 +1,4 @@
-import { constants, watch, type FSWatcher } from 'node:fs'
+import { constants, existsSync, watch, type FSWatcher } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   open,
@@ -632,7 +632,23 @@ export async function getWorkspaceFileDiagnostics(
 
   // Electron reports its own executable as TypeScript's executing file. Anchor
   // standard libraries to the installed compiler instead of the Electron binary.
-  const libDirectory = path.dirname(require.resolve('typescript'))
+  // electron-builder excludes *.d.ts from app.asar; packaged libs live in resources.
+  const installedLibDirectory = path.dirname(require.resolve('typescript'))
+  const libDirectory = existsSync(path.join(installedLibDirectory, 'lib.d.ts'))
+    ? installedLibDirectory
+    : path.join(process.resourcesPath ?? '', 'typescript', 'lib')
+  if (!existsSync(path.join(libDirectory, 'lib.d.ts'))) {
+    return [
+      {
+        line: 1,
+        column: 1,
+        start: 0,
+        length: 0,
+        code: 6053,
+        message: 'TypeScript standard libraries are missing from the application installation.'
+      }
+    ]
+  }
   const baseHost = ts.createCompilerHost(compilerOptions)
   const host: ts.CompilerHost = {
     ...baseHost,
