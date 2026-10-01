@@ -1,8 +1,9 @@
 import { IdeChatDock } from '../components/IdeChatDock'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
 import {
+  ChevronDown,
   Globe,
   Plus,
   Trash2,
@@ -158,6 +159,8 @@ export default function Settings(): JSX.Element {
   const [versions, setVersions] = useState<AppVersions | null>(null)
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [confirmingReset, setConfirmingReset] = useState(false)
+  const [cookiesOpen, setCookiesOpen] = useState(false)
+  const cookiesPanelId = useId()
   const [resetting, setResetting] = useState(false)
   const [dragProviderId, setDragProviderId] = useState<string | null>(null)
   const [dragOverProviderId, setDragOverProviderId] = useState<string | null>(null)
@@ -1348,15 +1351,41 @@ export default function Settings(): JSX.Element {
         </div>
 
         <div className="mt-3 overflow-hidden sq sq-xl sq-ring rounded-xl border border-border bg-surface">
-          <div className="border-b border-border p-4">
-            <div className="text-sm font-medium text-text">
-              {t('settings.browser.cookiesTitle')}
+          <div
+            className={cn(
+              'flex items-start justify-between gap-4 p-4',
+              cookiesOpen && 'border-b border-border'
+            )}
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-text">
+                {t('settings.browser.cookiesTitle')}
+              </div>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {t('settings.browser.cookiesDescription')}
+              </p>
             </div>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {t('settings.browser.cookiesDescription')}
-            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-8 shrink-0 px-0"
+              aria-expanded={cookiesOpen}
+              aria-controls={cookiesPanelId}
+              title={
+                cookiesOpen
+                  ? t('settings.browser.cookiesCollapse')
+                  : t('settings.browser.cookiesExpand')
+              }
+              onClick={() => setCookiesOpen((v) => !v)}
+            >
+              <ChevronDown
+                className={cn('h-4 w-4 transition-transform', cookiesOpen && 'rotate-180')}
+              />
+            </Button>
           </div>
-          <CookiePanel className="max-h-[420px]" />
+          <div id={cookiesPanelId} hidden={!cookiesOpen}>
+            {cookiesOpen && <CookiePanel className="max-h-[420px]" />}
+          </div>
         </div>
 
         <div className="mt-3 overflow-hidden sq sq-xl sq-ring rounded-xl border border-border bg-surface">

@@ -42,52 +42,68 @@ export const PALETTE: Record<FixedColor, Seed> = {
 export const rgb = ([r, g, b]: Rgb, k = 1, a = 1) =>
   `rgba(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)},${a})`
 
-export const seedOfColor = (color: DitherColor): Seed =>
-  color === 'accent' ? accentSeed() : PALETTE[color]
+/**
+ * `accent` resolves to the seed passed in when the caller tracks it live (see
+ * `useAccentSeed`), otherwise to a one-off read of the current theme.
+ */
+export const seedOfColor = (color: DitherColor, accent?: Seed): Seed =>
+  color === 'accent' ? (accent ?? accentSeed()) : PALETTE[color]
 
 export const isDitherColor = (value: unknown): value is DitherColor =>
   typeof value === 'string' && (value === 'accent' || value in PALETTE)
 
-/** Move a channel triple toward white by 	 (0-1). */
+/** Move a channel triple toward white by `t` (0-1). */
 const lighten = ([r, g, b]: Rgb, t: number): Rgb => [
-  r + (255 - r) * t,
-  g + (255 - g) * t,
-  b + (255 - b) * t
+  Math.round(r + (255 - r) * t),
+  Math.round(g + (255 - g) * t),
+  Math.round(b + (255 - b) * t)
 ]
+
+let probe: CanvasRenderingContext2D | null | undefined
+
+/**
+ * Resolve any CSS color to sRGB bytes by painting one pixel.
+ *
+ * A theme may set `--color-accent` as hex, `rgb()`, `oklch()`, or anything
+ * else CSS accepts, and the custom property's computed value is just that
+ * text. Reading `fillStyle` back is not enough -- Chromium returns `oklch()`
+ * and `color()` values verbatim -- so let the canvas rasterize it and read the
+ * pixel. `willReadFrequently` keeps the tiny canvas on the CPU.
+ */
+function toRgb(color: string): Rgb | null {
+  if (!color) return null
+  if (probe === undefined) {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 1
+    probe = canvas.getContext('2d', { willReadFrequently: true })
+  }
+  if (!probe) return null
+  probe.clearRect(0, 0, 1, 1)
+  // An unparseable value leaves fillStyle unchanged. Reset to a fully
+  // transparent sentinel first, so a failed parse paints alpha 0 and falls
+  // back -- an opaque sentinel would be indistinguishable from a real accent.
+  probe.fillStyle = 'rgba(0, 0, 0, 0)'
+  probe.fillStyle = color
+  probe.fillRect(0, 0, 1, 1)
+  const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data
+  return a === 0 ? null : [r, g, b]
+}
 
 let accentKey = ''
 let accentCache: Seed = PALETTE.blue
 
 /**
- * The theme's accent as a seed. Canvas can't read var(), so the live token is
- * resolved off <html> (where a theme writes it) and normalised by a 2D context,
- * which accepts any CSS color and hands it back as #rrggbb or rgba(). Cached
- * on the raw value, so repeated paints cost one style read.
+ * The active theme's accent as a seed, read off <html> (where a theme writes
+ * it). The line and star are the fill lifted toward white, like the fixed
+ * hues. Cached on the raw token, so repeated reads cost one style lookup.
+ * Falls back to blue -- the default theme's accent.
  */
-function accentSeed(): Seed {
+export function accentSeed(): Seed {
   if (typeof document === 'undefined') return PALETTE.blue
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim()
   if (raw === accentKey) return accentCache
   accentKey = raw
-  const fill = raw ? parseCss(raw) : null
+  const fill = toRgb(raw)
   accentCache = fill ? { fill, line: lighten(fill, 0.45), star: lighten(fill, 0.7) } : PALETTE.blue
   return accentCache
-}
-
-let probe: CanvasRenderingContext2D | null = null
-function parseCss(value: string): Rgb | null {
-  probe ??= document.createElement('canvas').getContext('2d')
-  if (!probe) return null
-  // An invalid color leaves fillStyle unchanged, so start from a sentinel.
-  probe.fillStyle = '#000001'
-  probe.fillStyle = value
-  const out = String(probe.fillStyle)
-  if (out === '#000001') return null
-  const hex = /^#([0-9a-f]{6})$/i.exec(out)
-  if (hex) {
-    const n = parseInt(hex[1], 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-  }
-  const m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(out)
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
 }
