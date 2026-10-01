@@ -9,6 +9,8 @@ import {
   screen,
   shell
 } from 'electron'
+import createDiagnosticsWorker from '../services/file-diagnostics-worker?nodeWorker'
+import { DiagnosticsWorkerClient } from '../services/diagnostics-worker-client'
 import { CHANNELS } from '../../shared/ipc'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, type MotionPreference } from '../../shared/motion'
@@ -242,6 +244,7 @@ import { promises as fsp } from 'node:fs'
 import { BUNDLE_FILENAME } from '../../shared/portable'
 
 /** In-flight streamed completions, keyed by requestId, so they can be aborted. */
+const diagnosticsWorker = new DiagnosticsWorkerClient(() => createDiagnosticsWorker({}))
 const llmControllers = new Map<string, AbortController>()
 const localTurnReleases = new Map<string, { senderId: number; release: () => void }>()
 
@@ -395,7 +398,12 @@ export function registerIpc(): void {
     CHANNELS.filesDiagnostics,
     (_e, sessionId: string, path: string, content: string) => {
       if (typeof sessionId !== 'string') throw new Error('Invalid session')
-      return getWorkspaceFileDiagnostics(sessionCwd(sessionId), path, content)
+      return getWorkspaceFileDiagnostics(
+        sessionCwd(sessionId),
+        path,
+        content,
+        diagnosticsWorker.compute
+      )
     }
   )
   ipcMain.handle(
