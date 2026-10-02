@@ -1,4 +1,3 @@
-import { IdeChatDock } from '../components/IdeChatDock'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
@@ -926,7 +925,6 @@ export default function Settings(): JSX.Element {
 
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('ide.settingsTitle')}</h2>
-        <IdeChatDock />
         <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4">
           <div className="min-w-0">
             <div className="text-sm font-medium text-text">{t('ide.settingsTitle')}</div>

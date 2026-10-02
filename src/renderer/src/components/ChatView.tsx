@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import {
   AppWindow,
   Check,
@@ -16,6 +17,7 @@ import {
   Settings,
   Square,
   Terminal,
+  Trash2,
   X
 } from 'lucide-react'
 import type { Chat, MessagePart } from '@shared/types'
@@ -53,7 +55,7 @@ import {
   QueueSectionTrigger
 } from './Queue'
 import { Button } from './ui'
-import { IdeChatDock } from './IdeChatDock'
+import { IdeChatDrag, type ChatDragProps } from './IdeChatDock'
 import { extractTerminalInputOptions } from '../lib/agent-input-options'
 import roxy from '../assets/roxy.png'
 
@@ -208,10 +210,12 @@ function dismissCommandLineForSession(chatId: string): void {
 
 export function ChatView({
   isOverlay: propIsOverlay,
-  onCollapse
+  onCollapse,
+  chatDrag
 }: {
   isOverlay?: boolean
   onCollapse?: () => void
+  chatDrag?: ChatDragProps
 } = {}): JSX.Element {
   const { pathname } = useLocation()
   const isOverlay = propIsOverlay ?? pathname === '/overlay'
@@ -253,6 +257,10 @@ export function ChatView({
   const queue = useMemo(() => allQueued.filter(isVisibleQueueItem), [allQueued])
   const newSession = useRoxyStore((s) => s.newSession)
   const selectChat = useRoxyStore((s) => s.selectChat)
+  const deleteChat = useRoxyStore((s) => s.deleteChat)
+  const [deletingChat, setDeletingChat] = useState<Chat | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const chats = useRoxyStore((s) => s.chats)
@@ -398,7 +406,7 @@ export function ChatView({
             isOverlay && 'titlebar'
           )}
         >
-          {ideMode ? <IdeChatDock compact /> : <div />}
+          {ideMode && chatDrag ? <IdeChatDrag {...chatDrag} /> : <div />}
           {isOverlay && (
             <button
               type="button"
@@ -437,6 +445,68 @@ export function ChatView({
           closeRequest={botCloseRequest}
         />
       )}
+      {deletingChat &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !deleteBusy) setDeletingChat(null)
+            }}
+          >
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-chat-title"
+              aria-describedby="delete-chat-description"
+              className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-2xl"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !deleteBusy) setDeletingChat(null)
+              }}
+            >
+              <h2 id="delete-chat-title" className="text-lg font-semibold">
+                {t('sidebar.deleteSession')}
+              </h2>
+              <p id="delete-chat-description" className="mt-2 text-xs text-text-muted">
+                {t('chat.deleteConfirm', { title: deletingChat.title })}
+              </p>
+              {deleteError && (
+                <p role="alert" className="mt-3 break-words text-xs text-danger">
+                  {deleteError}
+                </p>
+              )}
+              <div className="mt-5 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={deleteBusy}
+                  onClick={() => setDeletingChat(null)}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  autoFocus
+                  type="button"
+                  variant="danger"
+                  disabled={deleteBusy}
+                  onClick={() => {
+                    setDeleteBusy(true)
+                    setDeleteError('')
+                    void deleteChat(deletingChat.id)
+                      .then(() => setDeletingChat(null))
+                      .catch((error) =>
+                        setDeleteError(error instanceof Error ? error.message : String(error))
+                      )
+                      .finally(() => setDeleteBusy(false))
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t('sidebar.deleteSession')}
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       <div key="conversation" className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           {activeBot ? (
@@ -565,7 +635,25 @@ export function ChatView({
                 <Settings className="h-3.5 w-3.5" /> {t('bots.settings')}
               </button>
             )}
-            {ideMode && <IdeChatDock compact />}
+            {(activeBot || activeChat.kind !== 'bot') && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeBot) setBotSettings(activeBot.id, true)
+                  else {
+                    setDeleteError('')
+                    setDeletingChat(activeChat)
+                  }
+                }}
+                disabled={!activeBot && sending}
+                title={t(activeBot ? 'bots.delete' : 'sidebar.deleteSession')}
+                aria-label={t(activeBot ? 'bots.delete' : 'sidebar.deleteSession')}
+                className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-danger disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+            {ideMode && chatDrag && <IdeChatDrag {...chatDrag} />}
             {/* Plan-billed (subscriptions, Copilot): remaining allowance. Per-token: recent spend. */}
             {activeChat && provider && selectedProvider ? (
               planSource(provider.seedId, upstreamFor) ? (

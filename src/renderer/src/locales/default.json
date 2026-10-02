@@ -23,6 +23,7 @@
     "writeError": "Could not save this file. Your draft is retained. Retry saving or reload from disk.",
     "conflict": "This file changed on disk. Your draft is retained. Copy your changes before reloading from disk.",
     "chatDock": "Chat position",
+    "dragChat": "Drag chat to the left, right, or bottom. Use arrow keys to move; Escape to cancel.",
     "dockLeft": "Left",
     "dockRight": "Right",
     "dockBottom": "Bottom",
@@ -222,6 +223,7 @@
     "closeProxy": "Close browser proxy"
   },
   "chat": {
+    "deleteConfirm": "Delete chat \"{{title}}\"? This cannot be undone.",
     "loopEmpty": "Loop <strong>{{title}}</strong> runs every {{interval}}. First heartbeat soon — or type to intervene.",
     "loopEvery": "every {{interval}} · ",
     "loopPaused": "paused",

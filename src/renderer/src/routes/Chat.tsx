@@ -6,6 +6,10 @@ import { ChatView } from '../components/ChatView'
 import { IdeWorkspace } from '../components/IdeWorkspace'
 import { TopNavbar } from '../components/TopNavbar'
 import { useRoxyStore } from '../lib/store'
+import { api } from '../lib/api'
+import type { ChatDragProps } from '../components/IdeChatDock'
+
+import { chatDockAtPoint, type ChatDock } from '../lib/chat-dock'
 
 const IDE_CHAT_SIZES_KEY = 'roxy.ide.chatSizes.v1'
 const IDE_CHAT_COLLAPSED_KEY = 'roxy.ide.chatCollapsed.v1'
@@ -52,6 +56,81 @@ function Chat(): JSX.Element {
   }, [chatCollapsed])
   const pane = useRef<HTMLDivElement>(null)
   const dragging = useRef<number | null>(null)
+  const dockDrag = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+  const [dropDock, setDropDock] = useState<ChatDock | null>(null)
+  const dropDockRef = useRef<ChatDock | null>(null)
+  const savingDock = useRef(false)
+  const [dockStatus, setDockStatus] = useState({ pending: false, error: false })
+  const clearDockDrag = (): void => {
+    dockDrag.current = null
+    dropDockRef.current = null
+    setDropDock(null)
+  }
+  const saveDock = async (next: ChatDock): Promise<void> => {
+    if (savingDock.current || next === dock) return
+    savingDock.current = true
+    setDockStatus({ pending: true, error: false })
+    try {
+      const result = await api.settings.setIdeChatDock(next)
+      useRoxyStore.setState((current) => ({
+        settings: current.settings
+          ? { ...current.settings, ideChatDock: result.ideChatDock }
+          : result
+      }))
+      setDockStatus({ pending: false, error: false })
+    } catch {
+      setDockStatus({ pending: false, error: true })
+    } finally {
+      savingDock.current = false
+    }
+  }
+  const chatDrag: ChatDragProps = {
+    ...dockStatus,
+    disabled: dockStatus.pending,
+    onPointerDown: (event) => {
+      if (event.button !== 0 || savingDock.current) return
+      event.preventDefault()
+      dockDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    onPointerMove: (event) => {
+      const start = dockDrag.current
+      if (!start || start.pointerId !== event.pointerId || !pane.current) return
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 6) {
+        dropDockRef.current = null
+        setDropDock(null)
+        return
+      }
+      const rect = pane.current.getBoundingClientRect()
+      const next = chatDockAtPoint(rect, event.clientX, event.clientY)
+      dropDockRef.current = next
+      setDropDock(next)
+    },
+    onPointerUp: (event) => {
+      if (dockDrag.current?.pointerId !== event.pointerId) return
+      const next = dropDockRef.current
+      clearDockDrag()
+      event.currentTarget.releasePointerCapture(event.pointerId)
+      if (next) void saveDock(next)
+    },
+    onLostPointerCapture: clearDockDrag,
+    onKeyDown: (event) => {
+      if (event.key === 'Escape') {
+        const pointerId = dockDrag.current?.pointerId
+        clearDockDrag()
+        if (pointerId !== undefined && event.currentTarget.hasPointerCapture(pointerId)) {
+          event.currentTarget.releasePointerCapture(pointerId)
+        }
+        return
+      }
+      const next = { ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'bottom' } as const
+      const target = next[event.key as keyof typeof next]
+      if (target) {
+        event.preventDefault()
+        void saveDock(target)
+      }
+    }
+  }
   const bottom = dock === 'bottom'
   const size = sizes[dock]
   const resize = (value: number, rect?: DOMRect): void => {
@@ -93,6 +172,26 @@ function Chat(): JSX.Element {
           ref={pane}
           className={`relative flex min-h-0 min-w-0 flex-1 overflow-auto ${ideMode && bottom ? 'flex-col' : ''}`}
         >
+          {ideMode && dropDock && (
+            <div
+              className={`pointer-events-none absolute z-40 flex items-center justify-center rounded-lg border-2 border-accent bg-accent/15 text-sm font-medium text-text ${
+                dropDock === 'bottom'
+                  ? 'bottom-0 left-0 right-0 h-1/4'
+                  : dropDock === 'left'
+                    ? 'bottom-0 left-0 top-0 w-1/3'
+                    : 'bottom-0 right-0 top-0 w-1/3'
+              }`}
+              role="status"
+            >
+              {t(
+                dropDock === 'left'
+                  ? 'ide.dockLeft'
+                  : dropDock === 'right'
+                    ? 'ide.dockRight'
+                    : 'ide.dockBottom'
+              )}
+            </div>
+          )}
           {ideMode && chatCollapsed && (
             <button
               type="button"
@@ -199,7 +298,10 @@ function Chat(): JSX.Element {
                   : 'flex h-full min-h-0 w-full min-w-0'
               }
             >
-              <ChatView onCollapse={() => setChatCollapsed(true)} />
+              <ChatView
+                onCollapse={() => setChatCollapsed(true)}
+                chatDrag={ideMode ? chatDrag : undefined}
+              />
             </div>
           </div>
         </div>

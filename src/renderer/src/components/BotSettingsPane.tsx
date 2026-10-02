@@ -377,12 +377,7 @@ export function BotSettingsPane({
                 {t('common.cancel')}
               </Button>
             </div>
-          ) : (
-            <Button size="sm" variant="danger" onClick={() => setBotSettings(bot.id, true)}>
-              <Trash2 className="h-3.5 w-3.5" />
-              {t('bots.delete')}
-            </Button>
-          )}
+          ) : null}
           <div className="ml-auto flex items-center gap-2">
             {saved && !confirmDelete && (
               <span role="status" className="text-xs text-success">
