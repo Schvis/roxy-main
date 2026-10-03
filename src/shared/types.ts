@@ -223,6 +223,8 @@ export type MessagePart =
       mediaType: string
       /** Original file name, when known. */
       name?: string
+      /** Copied through delegation; require verified vision support on replay. */
+      forwarded?: boolean
     }
   | {
       type: 'tool'
@@ -336,6 +338,7 @@ export interface QueueImage {
   dataUrl: string
   mediaType: string
   name?: string
+  forwarded?: boolean
 }
 
 /**
