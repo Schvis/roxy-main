@@ -639,6 +639,7 @@ export function FileEditor({
   const findInputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
   const justSavedTimeRef = useRef<number>(0)
+  const initialLineNavigationRef = useRef<{ key: string; line: number } | null>(null)
 
   const updateSelectionFromInput = useCallback(() => {
     const input = textarea.current
@@ -1451,7 +1452,14 @@ export function FileEditor({
   }
 
   useEffect(() => {
-    if (!initialLine || !textarea.current || !text) return
+    if (!initialLine) {
+      initialLineNavigationRef.current = null
+      return
+    }
+    const navigation = initialLineNavigationRef.current
+    if (navigation?.key === key && navigation.line === initialLine) return
+    if (!textarea.current || !text) return
+    initialLineNavigationRef.current = { key, line: initialLine }
     const lines = text.split('\n')
     let offset = 0
     for (let i = 0; i < Math.min(initialLine - 1, lines.length); i++) {
@@ -1463,7 +1471,7 @@ export function FileEditor({
     input.setSelectionRange(offset, offset + lineLen)
     input.scrollTop = Math.max(0, (initialLine - 1) * 20 - input.clientHeight / 2 + 16)
     syncScroll()
-  }, [initialLine, text])
+  }, [initialLine, key, text])
   const [hoveredError, setHoveredError] = useState<HoveredErrorInfo | null>(null)
   const isHoveringTooltipRef = useRef<boolean>(false)
   const closeTimerRef = useRef<number | null>(null)
