@@ -2112,7 +2112,7 @@ async function runSubagent(o: SubagentOptions): Promise<string> {
       // Persist BEFORE ending the run: the renderer reloads the sub session's
       // transcript on the end frame, and reloading before the row exists would
       // blank the view for a beat between the live bubble and the saved message.
-      live?.finish(cancelled ? 'error' : 'completed')
+      live?.finish(cancelled ? 'error' : 'completed', cancelled)
       if (cancelled) {
         return { report: cancelledReport(description, text), state: 'cancelled' }
       }
@@ -2121,7 +2121,7 @@ async function runSubagent(o: SubagentOptions): Promise<string> {
       const msg = e instanceof Error ? e.message : String(e)
       const cancelled = runSignal.aborted
       persistSub()
-      live?.finish('error')
+      live?.finish('error', cancelled)
       if (cancelled) return { report: cancelledReport(description, ''), state: 'cancelled' }
       return { report: `Subagent failed: ${msg}`, state: 'error' }
     }

@@ -874,6 +874,14 @@
     "selectModel": "एक मॉडल चुनें",
     "tools": "उपकरण"
   },
+  "notifications": {
+    "bodyAction": "{{name}} needs your attention.",
+    "bodyDone": "{{name}} has finished working.",
+    "bodyInput": "{{name}} is waiting for your answer.",
+    "titleAction": "Action needed",
+    "titleDone": "Agent finished",
+    "titleInput": "Agent needs input"
+  },
   "onboarding": {
     "apiKey": "API कुंजी",
     "back": "वापस",
@@ -1149,6 +1157,12 @@
       "reduced": "कम",
       "saveFailed": "गति वरीयता सहेजी नहीं जा सकी। फिर से प्रयास करें।",
       "system": "सिस्टम का पालन करें"
+    },
+    "notifications": {
+      "description": "Show OS notifications when Roxy is unfocused and an agent finishes, asks a question, or needs attention. Click a notification to open its session. OS notification settings may suppress delivery.",
+      "heading": "Notifications",
+      "saveError": "Could not save notification settings. Try again.",
+      "title": "Desktop toast notifications"
     },
     "overlay": {
       "heading": "Overlay",

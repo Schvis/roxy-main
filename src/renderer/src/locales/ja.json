@@ -874,6 +874,14 @@
     "selectModel": "モデルを選択",
     "tools": "ツール"
   },
+  "notifications": {
+    "bodyAction": "{{name}} needs your attention.",
+    "bodyDone": "{{name}} has finished working.",
+    "bodyInput": "{{name}} is waiting for your answer.",
+    "titleAction": "Action needed",
+    "titleDone": "Agent finished",
+    "titleInput": "Agent needs input"
+  },
   "onboarding": {
     "apiKey": "APIキー",
     "back": "戻る",
@@ -1149,6 +1157,12 @@
       "reduced": "軽減",
       "saveFailed": "モーション設定を保存できませんでした。もう一度お試しください。",
       "system": "システムに従う"
+    },
+    "notifications": {
+      "description": "Show OS notifications when Roxy is unfocused and an agent finishes, asks a question, or needs attention. Click a notification to open its session. OS notification settings may suppress delivery.",
+      "heading": "Notifications",
+      "saveError": "Could not save notification settings. Try again.",
+      "title": "Desktop toast notifications"
     },
     "overlay": {
       "heading": "Overlay",

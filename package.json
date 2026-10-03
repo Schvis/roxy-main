@@ -1,6 +1,6 @@
 {
   "name": "roxy",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Roxy — an open-source AI coding agent for engineers.",
   "main": "./out/main/index.js",
   "author": "Roxy (https://github.com/roxy-gg/roxy)",
@@ -52,6 +52,8 @@
     "smoke:store": "node test/store-guard.mjs && esbuild test/optimistic-messages.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/optimistic-messages.cjs && node test/.out/optimistic-messages.cjs",
     "smoke:file-diagnostics": "esbuild test/file-diagnostics.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/file-diagnostics.cjs && node test/.out/file-diagnostics.cjs && esbuild src/main/services/file-diagnostics-worker.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/file-diagnostics-worker.cjs && esbuild test/diagnostics-worker.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/diagnostics-worker.cjs && node test/.out/diagnostics-worker.cjs",
     "smoke:agent-file-changes": "esbuild test/agent-file-changes.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/agent-file-changes.cjs && node test/.out/agent-file-changes.cjs",
+    "smoke:notifications": "esbuild test/agent-notifications.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/agent-notifications.cjs && node test/.out/agent-notifications.cjs && node test/agent-notifications-service.mjs",
+    "smoke:notification-settings": "esbuild test/notification-settings.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/notification-settings.cjs && electron test/.out/notification-settings.cjs",
     "smoke:provider-models": "esbuild test/provider-models.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/provider-models.cjs && electron test/.out/provider-models.cjs",
     "smoke:bots": "esbuild test/bots-shared.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/bots-shared.cjs && node test/.out/bots-shared.cjs && esbuild src/preload/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/bots-preload.cjs && esbuild test/bots.ts --bundle --platform=node --format=cjs --packages=external --loader:.png=file --outfile=test/.out/bots.cjs && electron test/.out/bots.cjs",
     "smoke:cookies": "esbuild test/cookies.ts --bundle --platform=node --format=cjs --packages=external --loader:.png=file --outfile=test/.out/cookies.cjs && electron test/.out/cookies.cjs",

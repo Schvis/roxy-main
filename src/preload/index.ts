@@ -25,6 +25,22 @@ import type { AppSettings } from '../shared/types'
  * to an ipcMain.handle channel registered in src/main/ipc/index.ts.
  */
 const roxy: RoxyApi = {
+  notifications: {
+    onRequested: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        request: import('../shared/agent-notifications').AgentNotificationRequest
+      ): void => callback(request)
+      ipcRenderer.on(CHANNELS.agentNotificationRequested, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.agentNotificationRequested, handler)
+    },
+    show: (id, title, body) => ipcRenderer.invoke(CHANNELS.agentNotificationShow, id, title, body),
+    onClicked: (callback) => {
+      const handler = (): void => callback()
+      ipcRenderer.on(CHANNELS.agentNotificationClicked, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.agentNotificationClicked, handler)
+    }
+  },
   files: {
     list: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesList, sessionId, path),
     openFolder: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesOpenFolder, sessionId, path),
@@ -140,6 +156,8 @@ const roxy: RoxyApi = {
     setVtuberFollowCursor: (follow) =>
       ipcRenderer.invoke(CHANNELS.settingsSetVtuberFollowCursor, follow),
     resetVtuberPosition: () => ipcRenderer.invoke(CHANNELS.settingsResetVtuberPosition),
+    setToastNotificationsEnabled: (enabled) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetToastNotificationsEnabled, enabled),
     setDiscordRpcEnabled: (enabled) =>
       ipcRenderer.invoke(CHANNELS.settingsSetDiscordRpcEnabled, enabled),
     setDiscordRpcClientId: (clientId) =>

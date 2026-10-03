@@ -49,6 +49,7 @@ control, persistent scheduled bots, and native terminals.
 - **Remote Workspace & Mobile Relay** — Pair with a phone or tablet via QR code and PIN without routing code through third parties; defaults to `https://roxy.schvis.com` (configurable via `ROXY_REMOTE_BASE`), with support for a standalone self-hosted Next.js App Router relay server in `remote-server/` (uncommitted / git-ignored).
 - **Ecosystem & Extensibility** — Model Context Protocol (MCP) client + Windows MCP, Language Server Protocol (LSP) diagnostics feedback, `SKILL.md` skill runner, persistent Chromium browser automation, and Discord Rich Presence.
 - **Full Internationalization** — Complete UI localization across 10 languages (Arabic, German, English, Spanish, French, Hindi, Japanese, Portuguese, Russian, Chinese) synchronized via automated tooling.
+- **Desktop Notifications** — Native OS toasts when Roxy is unfocused and an agent finishes, asks for input, hits an error, or a running command needs confirmation. Click a toast to open its session. Enabled by default; toggle **Desktop toast notifications** in Settings → General → Notifications. Preference persists across restarts. Windows uses **Roxy** as the sender in development/preview runs; installed builds use the registered Roxy app identity. OS notification settings can suppress delivery.
 
 ## Tech stack
 

@@ -1,5 +1,8 @@
 /** IPC channel names shared by the preload bridge and the main-process handlers. */
 export const CHANNELS = {
+  agentNotificationRequested: 'agent-notification:requested',
+  agentNotificationShow: 'agent-notification:show',
+  agentNotificationClicked: 'agent-notification:clicked',
   botsList: 'bots:list',
   botsCreate: 'bots:create',
   botsUpdate: 'bots:update',
@@ -74,6 +77,7 @@ export const CHANNELS = {
   settingsSetVtuberShowStatus: 'settings:setVtuberShowStatus',
   settingsSetVtuberFollowCursor: 'settings:setVtuberFollowCursor',
   settingsResetVtuberPosition: 'settings:resetVtuberPosition',
+  settingsSetToastNotificationsEnabled: 'settings:setToastNotificationsEnabled',
   settingsSetDiscordRpcEnabled: 'settings:setDiscordRpcEnabled',
   settingsSetDiscordRpcClientId: 'settings:setDiscordRpcClientId',
   settingsChanged: 'settings:changed',

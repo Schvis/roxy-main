@@ -621,6 +621,12 @@ export function registerIpc(): void {
     broadcastSettings(settings)
     return settings
   })
+  ipcMain.handle(CHANNELS.settingsSetToastNotificationsEnabled, (_e, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new TypeError('Expected a boolean')
+    const settings = repo.setToastNotificationsEnabled(enabled)
+    broadcastSettings(settings)
+    return settings
+  })
   ipcMain.handle(CHANNELS.settingsSetDiscordRpcEnabled, (_e, enabled: boolean) => {
     const settings = repo.setDiscordRpcEnabled(enabled)
     setDiscordRpcEnabledState(enabled)

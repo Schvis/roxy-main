@@ -1,4 +1,12 @@
 {
+  "notifications": {
+    "titleInput": "Agent needs input",
+    "titleDone": "Agent finished",
+    "titleAction": "Action needed",
+    "bodyInput": "{{name}} is waiting for your answer.",
+    "bodyDone": "{{name}} has finished working.",
+    "bodyAction": "{{name}} needs your attention."
+  },
   "ide": {
     "syntaxTitle": "Diagnostics",
     "syntaxErrors_one": "{{count}} error",
@@ -1105,6 +1113,12 @@
       "title": "Send anonymous usage data",
       "description": "Counts and timings — app launches, finished turns, how many steps and tools a turn took, how many tokens it used and roughly what it cost — tied to a random id generated on this machine. Never your prompts, your code, file paths, repo names, or any error text.",
       "labels": "A few labels ride along, and each is matched against a fixed list built into the app: which provider served a turn (a custom endpoint is only ever recorded as “other”), which model <em>family</em> ran (“claude-sonnet”, never the exact model id), which built-in tools ran (an MCP server's own name is only ever recorded as “mcp”), and which <em>kind</em> of error ended a failed turn. It is the only way we can tell whether a release helped or broke things."
+    },
+    "notifications": {
+      "heading": "Notifications",
+      "title": "Desktop toast notifications",
+      "description": "Show OS notifications when Roxy is unfocused and an agent finishes, asks a question, or needs attention. Click a notification to open its session. OS notification settings may suppress delivery.",
+      "saveError": "Could not save notification settings. Try again."
     },
     "discord": {
       "heading": "Discord",

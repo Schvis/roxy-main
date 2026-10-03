@@ -602,6 +602,7 @@ export interface AppSettings {
   /** Saved position and dimensions of the standalone VTuber window. */
   vtuberWindowBounds: { width: number; height: number; x?: number; y?: number } | null
   /** Whether Discord Rich Presence is active. Default true. */
+  toastNotificationsEnabled: boolean
   discordRpcEnabled: boolean
   /** Discord Application Client ID for Rich Presence. */
   discordRpcClientId: string

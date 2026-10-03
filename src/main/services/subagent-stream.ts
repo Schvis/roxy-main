@@ -32,6 +32,7 @@ import { CHANNELS } from '../../shared/ipc'
 import type { LlmChildEvent, SubagentDelta, SubagentRunView } from '../../shared/api'
 import type { MessagePart } from '../../shared/types'
 import { PartsFold } from '../../shared/parts'
+import { watchAgentNotifications } from './agent-notifications'
 
 interface Run {
   subChatId: string
@@ -107,7 +108,7 @@ export interface StartRunInput {
  */
 export function startSubagentRun(input: StartRunInput): {
   emit: (event: LlmChildEvent) => void
-  finish: (state: 'completed' | 'error') => void
+  finish: (state: 'completed' | 'error', stopped?: boolean) => void
 } {
   const run: Run = {
     subChatId: input.subChatId,
@@ -122,6 +123,7 @@ export function startSubagentRun(input: StartRunInput): {
     cancelled: false
   }
   runs.set(input.subChatId, run)
+  const notifications = watchAgentNotifications(run.subChatId, run.background)
   broadcast({ subChatId: run.subChatId, kind: 'run', state: 'running' })
 
   // Closed over rather than read off the map: `endSubagentRuns` can drop this
@@ -132,12 +134,14 @@ export function startSubagentRun(input: StartRunInput): {
     emit: (event) => {
       if (closed) return
       run.fold.apply(event)
+      notifications.apply(event)
       if (event.type === 'tool-start') run.activityStartedAt = Date.now()
       broadcast({ subChatId: run.subChatId, kind: 'event', event })
     },
-    finish: (state) => {
+    finish: (state, stopped = false) => {
       if (closed) return
       closed = true
+      notifications.finish(state === 'completed', run.cancelled || stopped)
       // Drop the run BEFORE announcing the end: the renderer reloads the sub
       // session's persisted transcript on this frame, and a snapshot fetched
       // during that reload must not hand back the now-superseded live parts.

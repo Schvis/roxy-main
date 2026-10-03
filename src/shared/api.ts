@@ -940,6 +940,13 @@ export interface ShellState {
 }
 
 export interface RoxyApi {
+  notifications: {
+    onRequested(
+      callback: (request: import('./agent-notifications').AgentNotificationRequest) => void
+    ): () => void
+    show(id: string, title: string, body: string): Promise<void>
+    onClicked(callback: () => void): () => void
+  }
   files: {
     /** Root-relative or absolute contained path; '' and '.' select the session root.
      * Direct children, folders first, root-relative '/' paths; symlinks skipped.
@@ -1086,6 +1093,7 @@ export interface RoxyApi {
     setVtuberShowStatus(show: boolean): Promise<AppSettings>
     setVtuberFollowCursor(follow: boolean): Promise<AppSettings>
     resetVtuberPosition(): Promise<AppSettings>
+    setToastNotificationsEnabled(enabled: boolean): Promise<AppSettings>
     setDiscordRpcEnabled(enabled: boolean): Promise<AppSettings>
     setDiscordRpcClientId(clientId: string): Promise<AppSettings>
     onChanged(callback: (settings: AppSettings) => void): () => void

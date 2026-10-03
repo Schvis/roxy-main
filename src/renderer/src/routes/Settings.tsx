@@ -114,6 +114,10 @@ export default function Settings(): JSX.Element {
   const setVtuberShowStatus = useRoxyStore((s) => s.setVtuberShowStatus)
   const setVtuberFollowCursor = useRoxyStore((s) => s.setVtuberFollowCursor)
   const resetVtuberPosition = useRoxyStore((s) => s.resetVtuberPosition)
+  const setToastNotificationsEnabled = useRoxyStore((s) => s.setToastNotificationsEnabled)
+  const [notificationsSaving, setNotificationsSaving] = useState(false)
+  const notificationsPending = useRef(false)
+  const [notificationsError, setNotificationsError] = useState(false)
   const setDiscordRpcEnabled = useRoxyStore((s) => s.setDiscordRpcEnabled)
   const [resetPositionSuccess, setResetPositionSuccess] = useState(false)
   const [prefix, setPrefix] = useState('')
@@ -973,6 +977,41 @@ export default function Settings(): JSX.Element {
             </p>
           </div>
           <Switch checked={telemetryEnabled} onChange={(v) => void setTelemetryEnabled(v)} />
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('settings.notifications.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.notifications.title')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {t('settings.notifications.description')}
+            </p>
+            {notificationsError && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                {t('settings.notifications.saveError')}
+              </p>
+            )}
+          </div>
+          <Switch
+            checked={settings?.toastNotificationsEnabled ?? true}
+            disabled={!settings || notificationsSaving}
+            onChange={async (enabled) => {
+              if (notificationsPending.current) return
+              notificationsPending.current = true
+              setNotificationsSaving(true)
+              setNotificationsError(false)
+              try {
+                await setToastNotificationsEnabled(enabled)
+              } catch {
+                setNotificationsError(true)
+              } finally {
+                notificationsPending.current = false
+                setNotificationsSaving(false)
+              }
+            }}
+          />
         </div>
       </section>
 

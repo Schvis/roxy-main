@@ -233,6 +233,7 @@ export function getSettings(): AppSettings {
             y: map.has('vtuber_window_y') ? Number(map.get('vtuber_window_y')) : undefined
           }
         : null,
+    toastNotificationsEnabled: map.get('toast_notifications_enabled') !== '0',
     discordRpcEnabled: map.get('discord_rpc_enabled') !== '0',
     discordRpcClientId: map.get('discord_rpc_client_id') ?? DEFAULT_DISCORD_CLIENT_ID
   }
@@ -675,6 +676,11 @@ export function resetVtuberWindowBounds(): AppSettings {
   setSetting('vtuber_window_h', null)
   setSetting('vtuber_window_x', null)
   setSetting('vtuber_window_y', null)
+  return getSettings()
+}
+
+export function setToastNotificationsEnabled(enabled: boolean): AppSettings {
+  setSetting('toast_notifications_enabled', enabled ? '1' : '0')
   return getSettings()
 }
 

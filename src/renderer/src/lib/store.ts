@@ -323,6 +323,7 @@ interface RoxyStore {
   setVtuberShowStatus: (show: boolean) => Promise<void>
   setVtuberFollowCursor: (follow: boolean) => Promise<void>
   resetVtuberPosition: () => Promise<void>
+  setToastNotificationsEnabled: (enabled: boolean) => Promise<void>
   setDiscordRpcEnabled: (enabled: boolean) => Promise<void>
   setDiscordRpcClientId: (clientId: string) => Promise<void>
   selectChat: (id: string) => Promise<void>
@@ -2358,6 +2359,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
 
   resetVtuberPosition: async () => {
     const settings = await api.settings.resetVtuberPosition()
+    set({ settings })
+  },
+
+  setToastNotificationsEnabled: async (enabled) => {
+    const settings = await api.settings.setToastNotificationsEnabled(enabled)
     set({ settings })
   },
 

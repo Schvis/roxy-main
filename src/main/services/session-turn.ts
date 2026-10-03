@@ -21,6 +21,7 @@ import { markActivation, track, trackFeature, trackToolUse } from './track'
 import { beginTurn, finishTurn } from './turn-metrics'
 import { modelFamily, reportableAgent } from '../../shared/telemetry'
 import path from 'node:path'
+import { watchAgentNotifications } from './agent-notifications'
 
 /**
  * Resolve a session's working directory, degrading to '' rather than throwing.
@@ -58,6 +59,29 @@ function keepSubchats(): Set<string> {
  * `{ ok: false, error }` on failure (a caller-triggered abort reports "Stopped.").
  */
 export async function runSessionTurn(
+  input: LlmStartInput,
+  emit: (event: LlmEvent) => void,
+  signal: AbortSignal
+): Promise<LlmResult> {
+  const notifications = watchAgentNotifications(input.sessionId)
+  let ok = false
+  try {
+    const result = await runTrackedSessionTurn(
+      input,
+      (event) => {
+        notifications.apply(event)
+        emit(event)
+      },
+      signal
+    )
+    ok = result.ok
+    return result
+  } finally {
+    notifications.finish(ok, signal.aborted)
+  }
+}
+
+async function runTrackedSessionTurn(
   input: LlmStartInput,
   emit: (event: LlmEvent) => void,
   signal: AbortSignal

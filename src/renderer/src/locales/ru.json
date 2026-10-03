@@ -874,6 +874,14 @@
     "selectModel": "Выберите модель",
     "tools": "Инструменты"
   },
+  "notifications": {
+    "bodyAction": "{{name}} needs your attention.",
+    "bodyDone": "{{name}} has finished working.",
+    "bodyInput": "{{name}} is waiting for your answer.",
+    "titleAction": "Action needed",
+    "titleDone": "Agent finished",
+    "titleInput": "Agent needs input"
+  },
   "onboarding": {
     "apiKey": "Ключ API",
     "back": "Назад",
@@ -1149,6 +1157,12 @@
       "reduced": "Уменьшено",
       "saveFailed": "Не удалось сохранить настройки движения. Попробуйте ещё раз.",
       "system": "Как в системе"
+    },
+    "notifications": {
+      "description": "Show OS notifications when Roxy is unfocused and an agent finishes, asks a question, or needs attention. Click a notification to open its session. OS notification settings may suppress delivery.",
+      "heading": "Notifications",
+      "saveError": "Could not save notification settings. Try again.",
+      "title": "Desktop toast notifications"
     },
     "overlay": {
       "heading": "Overlay",

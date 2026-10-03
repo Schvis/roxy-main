@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useRef } from 'react'
-import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useRoxyStore } from './lib/store'
 import roxy from './assets/roxy.png'
 import overlayIcon from './assets/overlay.png'
@@ -9,6 +9,7 @@ import { ChatView } from './components/ChatView'
 import { cn } from './lib/cn'
 import { api } from './lib/api'
 import { initTtsPlayer } from './lib/tts-player'
+import { useTranslation } from 'react-i18next'
 
 const Integrations = lazy(() => import('./routes/Integrations'))
 const Skills = lazy(() => import('./routes/Skills'))
@@ -140,6 +141,8 @@ function ResizeHandle(): JSX.Element {
 
 function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+  useEffect(() => api.notifications.onClicked(() => navigate('/')), [navigate])
   const chatVisible = onboarded && pathname === '/'
   const overlayVisible = onboarded && pathname === '/overlay'
   const floatingIconVisible = onboarded && pathname === '/floating-icon'
@@ -246,6 +249,21 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
 }
 
 export default function App(): JSX.Element {
+  const { t } = useTranslation()
+  useEffect(
+    () =>
+      api.notifications.onRequested(({ id, kind, name }) => {
+        const labels = {
+          input: ['notifications.titleInput', 'notifications.bodyInput'],
+          done: ['notifications.titleDone', 'notifications.bodyDone'],
+          action: ['notifications.titleAction', 'notifications.bodyAction']
+        } as const
+        const [title, body] = labels[kind]
+        void api.notifications.show(id, t(title), t(body, { name })).catch(() => {})
+      }),
+    [t]
+  )
+
   const ready = useRoxyStore((s) => s.ready)
   const settings = useRoxyStore((s) => s.settings)
   const bootstrap = useRoxyStore((s) => s.bootstrap)
