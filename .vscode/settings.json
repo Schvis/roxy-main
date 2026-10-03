@@ -1,7 +1,7 @@
 {
-    "chat.tools.terminal.autoApprove": {
-        "npx prettier": true,
-        "npm run i18n:sync": true,
-        "npm run typecheck:web": true
-    }
+  "chat.tools.terminal.autoApprove": {
+    "npx prettier": true,
+    "npm run i18n:sync": true,
+    "npm run typecheck:web": true
+  }
 }

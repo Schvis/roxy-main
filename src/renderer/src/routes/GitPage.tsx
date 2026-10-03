@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { PageShell } from '../components/PageShell'
-import { GitActionsView } from '../components/GitActionsView'
+import { GitRepositoriesView } from '../components/GitRepositoriesView'
 import { useRoxyStore } from '../lib/store'
 
 export default function GitPage(): JSX.Element {
@@ -21,7 +21,7 @@ export default function GitPage(): JSX.Element {
   return (
     <PageShell title={t('git.title')} subtitle={t('git.subtitle')} onBack={() => navigate('/')}>
       <div className="h-[calc(100vh-140px)] w-full rounded-xl border border-border bg-surface overflow-hidden shadow-sm">
-        <GitActionsView root={root} sessionId={activeChatId} isStandalone />
+        <GitRepositoriesView root={root} sessionId={activeChatId} isStandalone />
       </div>
     </PageShell>
   )

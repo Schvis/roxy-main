@@ -1922,6 +1922,9 @@ export function registerIpc(): void {
   // machine with no git, gets an empty/false answer so the UI simply hides.
   ipcMain.handle(CHANNELS.gitAvailable, () => git.isGitAvailable())
 
+  ipcMain.handle(CHANNELS.gitRepositories, (_e, cwd: string, force?: boolean) =>
+    git.repositories(cwd, force)
+  )
   ipcMain.handle(CHANNELS.gitStatus, async (_e, cwd: string): Promise<GitStatusView> => {
     const empty: GitStatusView = {
       isRepo: false,

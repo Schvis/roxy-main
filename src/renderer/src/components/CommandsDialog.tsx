@@ -123,6 +123,7 @@ export interface CommandsPaneProps {
   onPopOut?: () => void
   isStandalone?: boolean
   initialTab?: 'agent' | 'user' | 'git'
+  gitRoot?: string
   className?: string
 }
 
@@ -132,6 +133,7 @@ export function CommandsPane({
   onPopOut,
   isStandalone = false,
   initialTab,
+  gitRoot,
   className
 }: CommandsPaneProps): JSX.Element {
   const { t } = useTranslation()
@@ -310,13 +312,15 @@ export function CommandsPane({
   const agentStickToBottom = useRef(true)
 
   const workspacePath = chat.worktreePath ?? chat.workspacePath ?? ''
+  const gitWorkspacePath = gitRoot ?? workspacePath
   const [gitCommandLog, setGitCommandLog] = useState<GitCommandLogEntry[]>([])
 
   useEffect(() => {
-    if (activeTab !== 'git' || !workspacePath) return
+    setGitCommandLog([])
+    if (activeTab !== 'git' || !gitWorkspacePath) return
     let active = true
     const refresh = (): void => {
-      void api.git.commandLog(workspacePath).then((entries) => {
+      void api.git.commandLog(gitWorkspacePath).then((entries) => {
         if (active) setGitCommandLog(entries)
       })
     }
@@ -326,7 +330,7 @@ export function CommandsPane({
       active = false
       window.clearInterval(timer)
     }
-  }, [activeTab, workspacePath])
+  }, [activeTab, gitWorkspacePath])
 
   // Auto-scroll agent terminal output
   useEffect(() => {

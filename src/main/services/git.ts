@@ -25,6 +25,7 @@ import { promises as fs, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import { slugToBranchSegment } from '../../shared/slugs'
+import { discoverGitDirectories } from './git-discovery'
 import {
   DEFAULT_BRANCH_PREFIX,
   isPlaceholderBranch,
@@ -416,6 +417,42 @@ export async function repoRoot(cwd: string, signal?: AbortSignal): Promise<strin
   if (!r.ok) return null
   const out = r.stdout.trim()
   return out ? canonicalPath(out) : null
+}
+
+const sourceControlScans = new Map<string, { at: number; result: Promise<string[]> }>()
+
+/** Source-control roots, including the containing repo and nested checkouts. */
+export function repositories(cwd: string, force = false): Promise<string[]> {
+  if (!cwd) return Promise.resolve([])
+  const cached = sourceControlScans.get(cwd)
+  if (!force && cached && Date.now() - cached.at < 30_000) return cached.result
+  const result = scanRepositories(cwd, force)
+  if (sourceControlScans.size >= 100)
+    sourceControlScans.delete(sourceControlScans.keys().next().value!)
+  sourceControlScans.set(cwd, { at: Date.now(), result })
+  void result.catch(() => {
+    if (sourceControlScans.get(cwd)?.result === result) sourceControlScans.delete(cwd)
+  })
+  return result
+}
+
+async function scanRepositories(cwd: string, force: boolean): Promise<string[]> {
+  if (!cwd || !(await isGitAvailable())) return []
+  const [containing, candidates] = await Promise.all([
+    repoRoot(cwd),
+    discoverGitDirectories(cwd, force)
+  ])
+  const roots = new Map<string, string>()
+  const addRoot = (root: string): void => {
+    const canonical = canonicalPath(root)
+    roots.set(process.platform === 'win32' ? canonical.toLowerCase() : canonical, canonical)
+  }
+  if (containing) addRoot(containing)
+  for (const candidate of candidates) {
+    const root = await repoRoot(candidate)
+    if (root) addRoot(root)
+  }
+  return [...roots.values()]
 }
 
 /** The checked-out branch, or null when detached / not a repo. */

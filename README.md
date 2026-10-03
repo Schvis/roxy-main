@@ -203,6 +203,11 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 - **Git Actions & Conflict Solver** — [`src/renderer/src/components/GitActionsView.tsx`](src/renderer/src/components/GitActionsView.tsx)
   and [`MergeConflictSolver.tsx`](src/renderer/src/components/MergeConflictSolver.tsx) render visual branch history,
   staged changes, diff inspections, and 3-way merge conflict resolution.
+  Source control discovers repositories nested inside the workspace, including linked worktrees
+  with `.git` files. Each repository gets its own collapsible controls, commit message, history,
+  staging, sync actions, diffs, and command output. Discovery refreshes every 30 seconds or on
+  focus/manual refresh, skips hidden/dependency/build folders and symlinks, and scans up to
+  10,000 directories. This does not change session worktree creation or isolation.
 - **Terminal Emulator** — Built on `@xterm/xterm` and `node-pty` with shell sessions managed in
   [`src/main/services/shell-session.ts`](src/main/services/shell-session.ts) and
   [`src/renderer/src/components/TerminalView.tsx`](src/renderer/src/components/TerminalView.tsx).

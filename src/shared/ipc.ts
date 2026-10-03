@@ -409,6 +409,7 @@ export const CHANNELS = {
   servicesOpen: 'services:open',
 
   gitAvailable: 'git:available',
+  gitRepositories: 'git:repositories',
   gitStatus: 'git:status',
   gitStatusMulti: 'git:status-multi',
   gitProjectRepos: 'git:project-repos',

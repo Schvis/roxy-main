@@ -24,6 +24,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { isMultiRepo, planRepoLinks, sharedBranch, type RepoLink } from '../src/shared/repos'
+import { discoverGitDirectories } from '../src/main/services/git-discovery'
 
 let pass = 0
 const fails: string[] = []
@@ -88,7 +89,7 @@ function createComposite(
   return { links, skipped }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const probe = spawnSync('git', ['--version'], { encoding: 'utf8' })
   if (probe.status !== 0) {
     console.log('SKIPPED - no git binary')
@@ -340,6 +341,63 @@ function main(): void {
     self.out.replace(/\s+/g, '') === '00'
   )
 
+  const discovery = path.join(ROOT, 'discovery')
+  const nested = path.join(discovery, 'apps', 'deep', 'backend')
+  const sibling = path.join(discovery, 'packages', 'backend')
+  const ignored = path.join(discovery, 'node_modules', 'dependency')
+  for (const directory of [nested, sibling, ignored]) {
+    mkdirSync(directory, { recursive: true })
+    check(
+      `discovery: init ${path.relative(discovery, directory)}`,
+      git(['init', '-q'], directory).ok
+    )
+  }
+  let discovered = await discoverGitDirectories(discovery)
+  check('discovery: finds repos several levels down', discovered.includes(nested))
+  check(
+    'discovery: retains repos with identical basenames',
+    discovered.includes(sibling) && discovered.length === 2
+  )
+  check('discovery: skips dependency repositories', !discovered.includes(ignored))
+  check(
+    'discovery: .git directory itself never scanned',
+    discovered.every((directory) => !directory.includes(`${path.sep}.git`))
+  )
+
+  const newRepo = path.join(discovery, 'added')
+  mkdirSync(newRepo)
+  git(['init', '-q'], newRepo)
+  check('discovery: caches scans', !(await discoverGitDirectories(discovery)).includes(newRepo))
+  check(
+    'discovery: forced refresh finds new repos',
+    (await discoverGitDirectories(discovery, true)).includes(newRepo)
+  )
+
+  const nestedWorktree = path.join(discovery, 'checkouts', 'linked')
+  const worktreeResult = git(['worktree', 'add', '-q', '--detach', nestedWorktree, 'HEAD'], clone)
+  check('discovery: creates linked worktree fixture', worktreeResult.ok, worktreeResult.err)
+  discovered = await discoverGitDirectories(discovery, true)
+  check('discovery: accepts .git files in linked worktrees', discovered.includes(nestedWorktree))
+  check('discovery: can scan repo root plus its nested repos', git(['init', '-q'], discovery).ok)
+  discovered = await discoverGitDirectories(discovery, true)
+  check(
+    'discovery: includes root and nested repositories',
+    discovered.includes(discovery) && discovered.includes(nested) && discovered.includes(sibling)
+  )
+  check(
+    'discovery: missing folder returns empty result',
+    (await discoverGitDirectories(path.join(ROOT, 'missing'))).length === 0
+  )
+
+  writeFileSync(path.join(nested, 'nested.txt'), 'nested change\n')
+  writeFileSync(path.join(sibling, 'sibling.txt'), 'sibling change\n')
+  git(['add', '--', 'nested.txt'], nested)
+  check(
+    'source control: staging stays scoped to selected repo',
+    git(['diff', '--cached', '--name-only'], nested).out === 'nested.txt' &&
+      git(['diff', '--cached', '--name-only'], sibling).out === ''
+  )
+
   rmSync(ROOT, { recursive: true, force: true })
 
   if (fails.length) {
@@ -349,4 +407,8 @@ function main(): void {
   console.log(`\nMULTIREPO OK - ${pass} checks passed`)
 }
 
-main()
+void main().catch((error) => {
+  rmSync(ROOT, { recursive: true, force: true })
+  console.error(error)
+  process.exitCode = 1
+})

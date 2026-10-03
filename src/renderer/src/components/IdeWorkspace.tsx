@@ -44,7 +44,7 @@ import {
 import { ContextMenuRow, ContextMenuSurface, CONTEXT_MENU_PAD, CONTEXT_ROW_H } from './ContextMenu'
 import { CommandsPane } from './CommandsDialog'
 import { FileEditor, clearDraftForPath } from './FileEditor'
-import { GitActionsView } from './GitActionsView'
+import { GitRepositoriesView } from './GitRepositoriesView'
 import { FileDiffView } from './diff/FileDiffView'
 
 const control =
@@ -64,6 +64,21 @@ function normalizePathKey(p: string): string {
     .replace(/^\.\//, '')
     .replace(/^\/+/, '')
     .toLowerCase()
+}
+
+function repositoryFilePath(workspaceRoot: string, repositoryRoot: string, file: string): string {
+  const workspace = workspaceRoot.replace(/\\/g, '/').replace(/\/$/, '')
+  const absolute = `${repositoryRoot.replace(/\\/g, '/').replace(/\/$/, '')}/${file}`
+  const workspaceParts = workspace.split('/')
+  const fileParts = absolute.split('/')
+  let common = 0
+  while (
+    common < workspaceParts.length &&
+    common < fileParts.length &&
+    workspaceParts[common].toLowerCase() === fileParts[common].toLowerCase()
+  )
+    common++
+  return [...workspaceParts.slice(common).map(() => '..'), ...fileParts.slice(common)].join('/')
 }
 
 interface ExplorerActions {
@@ -973,8 +988,12 @@ function WorkspaceContents({
   const [diffTarget, setDiffTarget] = useState<{
     path: string
     commitSha?: string
+    root: string
   } | null>(null)
-  const [changesTarget, setChangesTarget] = useState<GitChangedFile[] | null>(null)
+  const [changesTarget, setChangesTarget] = useState<{
+    files: GitChangedFile[]
+    root: string
+  } | null>(null)
   const [copied, setCopied] = useState(0)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [creating, setCreating] = useState<{ parentPath: string; isDirectory: boolean } | null>(
@@ -1003,6 +1022,7 @@ function WorkspaceContents({
 
   const commandsOpen = useRoxyStore((s) => s.commandsOpen)
   const setCommandsOpen = useRoxyStore((s) => s.setCommandsOpen)
+  const [gitOutputRoot, setGitOutputRoot] = useState<string | undefined>()
   const [commandsInitialTab, setCommandsInitialTab] = useState<
     'agent' | 'user' | 'git' | undefined
   >()
@@ -1077,19 +1097,23 @@ function WorkspaceContents({
     let active = true
     const checkGit = async (): Promise<void> => {
       try {
-        const st = await api.git.status(root)
+        const repositories = await api.git.repositories(root)
+        const results = await Promise.all(
+          repositories.map(async (repositoryRoot) => ({
+            repositoryRoot,
+            files: await api.git.changedFiles(repositoryRoot)
+          }))
+        )
         if (!active) return
-        if (!st.isRepo) {
-          setIsGitRepo(false)
-          setGitChangedFiles(new Map())
-          return
-        }
-        setIsGitRepo(true)
-        const files = await api.git.changedFiles(root)
-        if (!active) return
+        setIsGitRepo(repositories.length > 0)
         const map = new Map<string, GitChangedFile['status']>()
-        for (const file of files) {
-          map.set(normalizePathKey(file.path), file.status)
+        for (const { repositoryRoot, files } of results) {
+          for (const file of files) {
+            map.set(
+              normalizePathKey(repositoryFilePath(root, repositoryRoot, file.path)),
+              file.status
+            )
+          }
         }
         setGitChangedFiles(map)
       } catch {
@@ -1158,6 +1182,9 @@ function WorkspaceContents({
       prevRootRef.current = root
       prevSessionIdRef.current = sessionId
       setExpandedFolders(loadExpandedFolders(root))
+      setDiffTarget(null)
+      setChangesTarget(null)
+      setGitOutputRoot(undefined)
 
       // If store already has a selection matching this root, keep it
       if (ideSelectedFile && selectionMatchesRoot) {
@@ -1874,21 +1901,22 @@ function WorkspaceContents({
                 </div>
               </div>
             ) : (
-              <GitActionsView
+              <GitRepositoriesView
                 root={root}
                 sessionId={sessionId}
-                onOpenCommandOutput={() => {
+                onOpenCommandOutput={(repositoryRoot) => {
+                  setGitOutputRoot(repositoryRoot)
                   setCommandsInitialTab('git')
                   setCommandsOpen(true)
                 }}
-                onOpenChanges={(files) => {
+                onOpenChanges={(files, repositoryRoot) => {
                   setDiffTarget(null)
-                  setChangesTarget(files)
+                  setChangesTarget({ files, root: repositoryRoot })
                 }}
-                onOpenFile={(filePath, commitSha) => {
+                onOpenFile={(filePath, commitSha, repositoryRoot) => {
                   const fileName = filePath.split('/').pop() || filePath
                   const entry: WorkspaceFileEntry = {
-                    path: filePath,
+                    path: root ? repositoryFilePath(root, repositoryRoot, filePath) : filePath,
                     name: fileName,
                     directory: false
                   }
@@ -1896,7 +1924,7 @@ function WorkspaceContents({
                   setSelectedLine(undefined)
                   setIdeSelectedFile(entry, undefined, root)
                   setChangesTarget(null)
-                  setDiffTarget({ path: filePath, commitSha })
+                  setDiffTarget({ path: filePath, commitSha, root: repositoryRoot })
                 }}
               />
             )
@@ -1955,14 +1983,14 @@ function WorkspaceContents({
           {sessionId && root ? (
             changesTarget ? (
               <GitChangesViewer
-                root={root}
-                files={changesTarget}
+                root={changesTarget.root}
+                files={changesTarget.files}
                 onClose={() => setChangesTarget(null)}
               />
             ) : diffTarget ? (
               <GitDiffViewer
-                key={`diff:${diffTarget.path}:${diffTarget.commitSha ?? 'wt'}`}
-                root={root}
+                key={`diff:${diffTarget.root}:${diffTarget.path}:${diffTarget.commitSha ?? 'wt'}`}
+                root={diffTarget.root}
                 path={diffTarget.path}
                 commitSha={diffTarget.commitSha}
                 onClose={() => {
@@ -2031,7 +2059,9 @@ function WorkspaceContents({
             <CommandsPane
               chat={activeChat}
               initialTab={commandsInitialTab}
+              gitRoot={gitOutputRoot}
               onClose={() => {
+                setGitOutputRoot(undefined)
                 setCommandsInitialTab(undefined)
                 setCommandsOpen(false)
               }}

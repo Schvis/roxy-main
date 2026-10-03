@@ -98,6 +98,35 @@ async function main(): Promise<void> {
   const soloGone = await worktree.removeWorktreeForChat(solo.id, { force: true })
   check('single-repo: teardown still works', soloGone.ok, soloGone.error ?? '')
 
+  const sourceControl =
+    require('../src/main/services/git') as typeof import('../src/main/services/git')
+  const nestedProject = path.join(sandbox, 'nested-project')
+  const nestedA = path.join(nestedProject, 'apps', 'deep', 'backend')
+  const nestedB = path.join(nestedProject, 'packages', 'backend')
+  for (const directory of [nestedA, nestedB]) {
+    mkdirSync(directory, { recursive: true })
+    git(['init', '-q'], directory)
+  }
+  const nestedRoots = await sourceControl.repositories(nestedProject, true)
+  check(
+    'source control: validates deeply nested repos with duplicate names',
+    nestedRoots.length === 2 &&
+      nestedRoots.includes(sourceControl.canonicalPath(nestedA)) &&
+      nestedRoots.includes(sourceControl.canonicalPath(nestedB))
+  )
+  const inside = path.join(nestedA, 'src')
+  mkdirSync(inside)
+  check(
+    'source control: workspace inside repo resolves containing root',
+    (await sourceControl.repositories(inside, true))[0] === sourceControl.canonicalPath(nestedA)
+  )
+  const bogus = path.join(nestedProject, 'bogus')
+  mkdirSync(path.join(bogus, '.git'), { recursive: true })
+  check(
+    'source control: invalid Git markers excluded',
+    (await sourceControl.repositories(nestedProject, true)).length === 2
+  )
+
   // ---- session + lazy materialization -------------------------------------
   const chat = repo.createChat({
     title: 'Cursed Ranoa King',
@@ -139,6 +168,14 @@ async function main(): Promise<void> {
     (after.repos ?? []).every((r) => existsSync(path.join(r.worktreePath, 'README.md')))
   )
   check('layout: the composite root is NOT a repo', !existsSync(path.join(composite, '.git')))
+  const compositeRepos = await sourceControl.repositories(composite, true)
+  check(
+    'source control: discovers linked worktrees in composite',
+    compositeRepos.length === 3 &&
+      (after.repos ?? []).every((link) =>
+        compositeRepos.includes(sourceControl.canonicalPath(link.worktreePath))
+      )
+  )
 
   // ---- the cwd every tool run uses ----------------------------------------
   // This is the one that matters most: get it wrong and the agent edits the

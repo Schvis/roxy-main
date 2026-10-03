@@ -584,6 +584,7 @@ const roxy: RoxyApi = {
   },
   git: {
     available: () => ipcRenderer.invoke(CHANNELS.gitAvailable),
+    repositories: (cwd, force) => ipcRenderer.invoke(CHANNELS.gitRepositories, cwd, force),
     status: (cwd) => ipcRenderer.invoke(CHANNELS.gitStatus, cwd),
     statusMulti: (sessionId) => ipcRenderer.invoke(CHANNELS.gitStatusMulti, sessionId),
     projectRepos: (workspacePath) => ipcRenderer.invoke(CHANNELS.gitProjectRepos, workspacePath),

@@ -1687,6 +1687,8 @@ export interface RoxyApi {
     /** Whether a usable `git` binary exists (probed once, cached). */
     available(): Promise<boolean>
     /** Repo/branch/dirty/ahead-behind for a folder. `isRepo:false` when it isn't one. */
+    /** Discover containing and nested repositories for source control. */
+    repositories(cwd: string, force?: boolean): Promise<string[]>
     status(cwd: string): Promise<GitStatusView>
     /**
      * Per-repo status for a MULTI-REPO session, one entry per live repo.
