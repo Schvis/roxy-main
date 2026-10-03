@@ -203,6 +203,8 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 - **Git Actions & Conflict Solver** — [`src/renderer/src/components/GitActionsView.tsx`](src/renderer/src/components/GitActionsView.tsx)
   and [`MergeConflictSolver.tsx`](src/renderer/src/components/MergeConflictSolver.tsx) render visual branch history,
   staged changes, diff inspections, and 3-way merge conflict resolution.
+  Source control polls repository status and history every 10 seconds. Manual refresh, window
+  focus, workspace file changes, and completed agent turns still trigger immediate updates.
   Source control discovers repositories nested inside the workspace, including linked worktrees
   with `.git` files. Each repository gets its own collapsible controls, commit message, history,
   staging, sync actions, diffs, and command output. Discovery refreshes every 30 seconds or on

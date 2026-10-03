@@ -416,12 +416,12 @@ export function GitActionsView({
     })
   }, [refreshSilently])
 
-  // 4. Periodic background poll (every 2.5s) to catch external terminal git actions
+  // 4. Periodic background poll (every 10s) to catch external terminal git actions
   useEffect(() => {
     if (!root) return
     const timer = setInterval(() => {
       void refreshSilently()
-    }, 2500)
+    }, 10_000)
     return () => clearInterval(timer)
   }, [root, refreshSilently])
 
