@@ -43,6 +43,7 @@ export type HitAction =
   | { type: 'link'; href: string }
   | { type: 'file'; path: string; line?: number }
   | { type: 'cancel'; id: string }
+  | { type: 'session'; id: string }
   | { type: 'copy'; text: string }
   | { type: 'image'; src: string }
   | { type: 'diff'; id: string; command: DiffCommand; gap?: number }

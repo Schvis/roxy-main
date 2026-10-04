@@ -229,6 +229,8 @@ export type MessagePart =
       mediaType: string
       /** Original file name, when known. */
       name?: string
+      /** Copied through delegation; require verified vision support on replay. */
+      forwarded?: boolean
     }
   | {
       type: 'tool'
@@ -252,6 +254,8 @@ export type MessagePart =
        * on every other tool, and on task cards from before this existed.
        */
       subChatId?: string
+      /** An out-of-band task result attaches to this launching call in the UI. */
+      resultFor?: string
       /**
        * Whether this call could be cancelled while it was running — set from the
        * `tool-start` event (see LlmEvent), which resolves it from the tool
@@ -366,6 +370,7 @@ export interface QueueImage {
   dataUrl: string
   mediaType: string
   name?: string
+  forwarded?: boolean
 }
 
 /**
@@ -400,7 +405,9 @@ export interface QueueItem {
   notBefore?: number
   error?: string
   /** Claimed items remain durable until their result has been persisted. */
-  state?: 'pending' | 'running' | 'failed'
+  state?: 'pending' | 'starting' | 'running' | 'failed'
+  /** Live admission reason; derived, never persisted as a second state machine. */
+  waitReason?: 'paused' | 'busy' | 'capacity' | 'blocked' | 'delayed'
   /** Set when a bot, not the user, wrote this prompt — the transcript attributes it. */
   botId?: string
   botUsername?: string

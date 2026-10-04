@@ -71,6 +71,7 @@ export interface LayoutInput {
   }
   /** Which calls can actually be cancelled (the store knows; layout does not). */
   canCancel: (part: Extract<MessagePart, { type: 'tool' }>) => boolean
+  subagentIds?: ReadonlySet<string>
   /** Injectable so activity-phrase selection is deterministic in focused tests. */
   activityRandom?: () => number
   /**
@@ -95,7 +96,8 @@ export function layoutTranscript(input: LayoutInput, cache: BlockCache): Scene {
       input.queue?.map((item) => `${item.id}:${item.state ?? ''}`).join('|') ?? '',
       // Part of the identity: the same queue before and after it loads must not
       // reuse a block that rendered "replied" out of ignorance.
-      input.queueLoaded === false ? 'q:loading' : 'q:loaded'
+      input.queueLoaded === false ? 'q:loading' : 'q:loaded',
+      [...(input.subagentIds ?? [])].join(',')
     ].join('|')
   )
   const { messages, streaming, width, theme, view } = input
@@ -207,7 +209,8 @@ function layoutMessage(
         : input.userProfileAvatar
       : username && username !== HOST_USERNAME
         ? input.botAvatar?.(username)
-        : undefined
+        : undefined,
+    message.role === 'user' && !username
   )
   let cursor = body.y
   if (message.role === 'user') {
@@ -258,7 +261,8 @@ export function layoutMessageHeader(
   y: number,
   width: number,
   botUsername?: string,
-  botAvatarSrc?: string
+  botAvatarSrc?: string,
+  userProfile = false
 ): { x: number; y: number; width: number } {
   const palette = builder.palette
   const top = y + SPACE.messagePadY
@@ -267,7 +271,7 @@ export function layoutMessageHeader(
 
   // Avatar.
   const avatarY = top + 2
-  if (isUser) {
+  if (isUser && (!botUsername || userProfile)) {
     if (botAvatarSrc) {
       builder.push({
         kind: 'image',
@@ -299,7 +303,7 @@ export function layoutMessageHeader(
       w: SPACE.avatar,
       h: SPACE.avatar,
       src: botUsername === HOST_USERNAME ? '__roxy__' : (botAvatarSrc ?? '__roxy__'),
-      radius: !botUsername || botUsername === HOST_USERNAME ? SPACE.radiusLg : SPACE.avatar / 2,
+      radius: !botUsername || botUsername === HOST_USERNAME ? SPACE.radiusLg : SPACE.avatar / 4,
       border: palette.border
     })
   }
@@ -309,7 +313,7 @@ export function layoutMessageHeader(
     bodyX,
     top,
     botUsername
-      ? isUser && !builder.botUsernames.includes(botUsername) && botUsername !== HOST_USERNAME
+      ? userProfile
         ? botUsername.trim()
         : `@${botUsername}`
       : builder.t(isUser ? 'transcript.you' : 'transcript.assistant'),
@@ -517,6 +521,7 @@ export function layoutParts(
         open: input.view.open.has(id),
         live: part.state === 'running',
         cancellable: cancelReady(part, input),
+        canOpenSubagent: Boolean(part.subChatId && input.subagentIds?.has(part.subChatId)),
         queue: input.queue,
         queueLoaded: input.queueLoaded,
         view: input.view,
@@ -598,7 +603,7 @@ export function layoutParts(
       input.now,
       input.activityRandom
     )
-    const labels = activityLabels(builder.t, speakingAs, verb)
+    const labels = activityLabels(builder.t, verb)
     cursor += layoutThinking(
       builder,
       x,

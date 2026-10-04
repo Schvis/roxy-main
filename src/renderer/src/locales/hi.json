@@ -90,6 +90,8 @@
     "attachSelected_other": "Attach {{count}} items",
     "attachThisFolder": "Attach folder: {{name}}/",
     "backTo": "{{title}} पर वापस",
+    "backgroundRunning_one": "{{count}} subagent still running",
+    "backgroundRunning_other": "{{count}} subagents still running",
     "cancel": "रद्द करें",
     "cancelBackground_one": "{{count}} बैकग्राउंड सबएजेंट रद्द करें",
     "cancelBackground_other": "{{count}} बैकग्राउंड सबएजेंट रद्द करें",
@@ -963,6 +965,8 @@
   },
   "queue": {
     "attachImages": "छवियाँ संलग्न करें",
+    "automatedRequest": "Automated request",
+    "deliveryIssues": "Delivery needs attention. Edit to retry or remove the failed request.",
     "editMessage": "संदेश संपादित करें",
     "editPlaceholder": "कतारबद्ध संदेश संपादित करें…",
     "editRetry": "संपादित करें और पुनः प्रयास करें",
@@ -977,8 +981,15 @@
     "removeImage": "छवि हटाएँ",
     "running": "चल रहा है",
     "saveRetry": "सहेजें और पुनः प्रयास करें",
+    "starting": "Starting: preparing this session and connecting to its model.",
     "toCollaborator": "to @{{username}}",
-    "userRequest": "You"
+    "userRequest": "You",
+    "wait": {
+      "blocked": "Waiting behind an earlier request. Retry or remove failed requests to continue.",
+      "busy": "Waiting for this session's current work to finish.",
+      "capacity": "Waiting for an available delivery slot.",
+      "paused": "Paused after Stop. Send or edit a request to resume."
+    }
   },
   "quota": {
     "account": "खाता",
@@ -1605,6 +1616,7 @@
     "noOutput": "(कोई आउटपुट नहीं)",
     "openImage": "छवि खोलें",
     "openLink": "लिंक खोलें",
+    "openSubagent": "Open subagent session",
     "promptEmpty": "बिना टेक्स्ट का संदेश",
     "promptHistory": "आपके संदेश",
     "promptImages_one": "{{count}} छवि संलग्न",

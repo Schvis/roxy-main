@@ -90,6 +90,8 @@
     "attachSelected_other": "Attach {{count}} items",
     "attachThisFolder": "Attach folder: {{name}}/",
     "backTo": "{{title}}に戻る",
+    "backgroundRunning_one": "{{count}} subagent still running",
+    "backgroundRunning_other": "{{count}} subagents still running",
     "cancel": "キャンセル",
     "cancelBackground_one": "バックグラウンドサブエージェントを{{count}}件キャンセル",
     "cancelBackground_other": "バックグラウンドサブエージェントを{{count}}件キャンセル",
@@ -963,6 +965,8 @@
   },
   "queue": {
     "attachImages": "画像を添付",
+    "automatedRequest": "Automated request",
+    "deliveryIssues": "Delivery needs attention. Edit to retry or remove the failed request.",
     "editMessage": "メッセージを編集",
     "editPlaceholder": "キューに入っているメッセージを編集…",
     "editRetry": "編集して再試行",
@@ -977,8 +981,15 @@
     "removeImage": "画像を削除",
     "running": "実行中",
     "saveRetry": "保存して再試行",
+    "starting": "Starting: preparing this session and connecting to its model.",
     "toCollaborator": "to @{{username}}",
-    "userRequest": "You"
+    "userRequest": "You",
+    "wait": {
+      "blocked": "Waiting behind an earlier request. Retry or remove failed requests to continue.",
+      "busy": "Waiting for this session's current work to finish.",
+      "capacity": "Waiting for an available delivery slot.",
+      "paused": "Paused after Stop. Send or edit a request to resume."
+    }
   },
   "quota": {
     "account": "アカウント",
@@ -1605,6 +1616,7 @@
     "noOutput": "(出力なし)",
     "openImage": "画像を開く",
     "openLink": "リンクを開く",
+    "openSubagent": "Open subagent session",
     "promptEmpty": "テキストなしのメッセージ",
     "promptHistory": "あなたのメッセージ",
     "promptImages_one": "画像 {{count}} 枚を添付",

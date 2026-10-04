@@ -304,7 +304,8 @@ export class TranscriptWindow {
                   : input.userProfileAvatar
                 : username
                   ? input.botAvatar?.(username)
-                  : undefined
+                  : undefined,
+              message.role === 'user' && !username
             ).y
           } else if (item.kind === 'user')
             height = layoutUserBody(builder, message.parts, bodyX, 0, bodyWidth)

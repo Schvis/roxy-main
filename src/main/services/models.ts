@@ -26,6 +26,7 @@ interface ModelsDevModel {
   name?: string
   reasoning?: boolean
   tool_call?: boolean
+  modalities?: { input?: string[] }
   release_date?: string
   limit?: { context?: number; output?: number }
   /** USD per 1M tokens — models.dev already returns this; we no longer drop it. */
@@ -49,7 +50,12 @@ interface CopilotModel {
   capabilities?: {
     type?: string
     limits?: { max_context_window_tokens?: number; max_output_tokens?: number }
-    supports?: { tool_calls?: boolean; thinking?: boolean; reasoning_effort?: string[] }
+    supports?: {
+      tool_calls?: boolean
+      thinking?: boolean
+      reasoning_effort?: string[]
+      vision?: boolean
+    }
   }
 }
 
@@ -129,6 +135,7 @@ async function listCopilotModels(connectionId: string): Promise<ModelInfo[]> {
             name: m.name || m.id,
             reasoning: supports?.thinking === true || Boolean(supports?.reasoning_effort?.length),
             toolCall: supports?.tool_calls === true,
+            imageInput: typeof supports?.vision === 'boolean' ? supports.vision : undefined,
             ...(efforts.length ? { reasoningEfforts: efforts } : {}),
             contextLimit: m.capabilities?.limits?.max_context_window_tokens,
             outputLimit: m.capabilities?.limits?.max_output_tokens
@@ -179,6 +186,7 @@ interface RoxyModel {
   name?: string
   context_length?: number
   supported_parameters?: string[]
+  architecture?: { input_modalities?: string[] }
   reasoning?: {
     mandatory?: boolean
     default_enabled?: boolean
@@ -279,6 +287,7 @@ function toModelInfo(body: { data?: RoxyModel[] }): ModelInfo[] {
         name: m.name || m.id,
         reasoning,
         toolCall: (m.supported_parameters ?? []).includes('tools'),
+        imageInput: m.architecture?.input_modalities?.includes('image'),
         ...(reasoning ? { reasoningEfforts: roxyEfforts(m) } : {}),
         contextLimit: m.context_length ?? m.top_provider?.context_length,
         outputLimit: m.top_provider?.max_completion_tokens,
@@ -376,10 +385,14 @@ async function listOpenAiCompatibleModels(providerId: string): Promise<ModelInfo
   if (!Array.isArray(body?.data)) throw new Error('Invalid catalog data')
 
   const chatIds = new Set<string>()
+  const imageInputs = new Map<string, boolean | undefined>()
   for (const entry of body.data) {
     if (!entry || typeof entry !== 'object') continue
     const id = 'id' in entry && typeof entry.id === 'string' ? entry.id.trim() : ''
-    if (id) chatIds.add(id)
+    if (!id) continue
+    chatIds.add(id)
+    const architecture = (entry as RoxyModel).architecture
+    imageInputs.set(id, architecture?.input_modalities?.includes('image'))
   }
 
   let imageIds: string[] = []
@@ -408,7 +421,13 @@ async function listOpenAiCompatibleModels(providerId: string): Promise<ModelInfo
 
   const models = new Map<string, ModelInfo>()
   for (const id of chatIds) {
-    models.set(id, { id, name: id, reasoning: false, toolCall: true })
+    models.set(id, {
+      id,
+      name: id,
+      reasoning: false,
+      toolCall: true,
+      imageInput: imageInputs.get(id)
+    })
   }
   for (const id of imageIds) {
     const existing = models.get(id)
@@ -478,6 +497,7 @@ async function discoverModels(providerId: string): Promise<ModelInfo[]> {
       name: m.name || m.id,
       reasoning: Boolean(m.reasoning),
       toolCall: Boolean(m.tool_call),
+      imageInput: m.modalities?.input?.includes('image'),
       contextLimit: m.limit?.context,
       outputLimit: m.limit?.output,
       cost: toModelCost(m.cost),
@@ -486,11 +506,12 @@ async function discoverModels(providerId: string): Promise<ModelInfo[]> {
     .sort((a, b) =>
       a.release < b.release ? 1 : a.release > b.release ? -1 : a.name.localeCompare(b.name)
     )
-    .map(({ id, name, reasoning, toolCall, contextLimit, outputLimit, cost }) => ({
+    .map(({ id, name, reasoning, toolCall, imageInput, contextLimit, outputLimit, cost }) => ({
       id,
       name,
       reasoning,
       toolCall,
+      imageInput,
       contextLimit,
       outputLimit,
       ...(cost ? { cost } : {})
