@@ -242,18 +242,16 @@ export async function runBotTool(
             text(input.prompt),
             resolveImageRefs(source, input.image_refs),
             {
+              resume: true,
               sourceChatId: source,
               replyToChatId: conversation,
               hops,
               continueReply: id !== conversation,
-              // The actor that delegated has to be the one the answer comes back
-              // to: resuming the session's owner instead handed the continuation
-              // to a bot that never asked for it, with its identity and config.
+              // Resume the delegating actor in its durable parent conversation.
               replyToActor: handoffAuthor,
               ...handoffAuthor
             }
           )
-          resumeQueue(id)
         } else if (action === 'stop') {
           stopTurn(id)
           result = { stopped: id }
@@ -273,13 +271,13 @@ export async function runBotTool(
           text(input.prompt),
           resolveImageRefs(source, input.image_refs),
           {
+            resume: true,
             sourceChatId: source,
             ...(!self && source && bots.chatBot(chatId) ? { botUsername: HOST_USERNAME } : author),
             hops,
             notBefore: input.not_before as number | undefined
           }
         )
-        resumeQueue(chatId)
       } else {
         const row = getDb().prepare('SELECT chat_id, state FROM queue WHERE id = ?').get(id) as
           | { chat_id: string; state: string }
@@ -287,7 +285,7 @@ export async function runBotTool(
         if (!row) throw new Error('Queued message not found')
         if (action === 'read') result = repo.listQueue(row.chat_id).find((item) => item.id === id)
         else {
-          if (row.state === 'running')
+          if (row.state === 'running' || row.state === 'starting')
             throw new Error(
               'This message is running; stop its session before editing or deleting it'
             )

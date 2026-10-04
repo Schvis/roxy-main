@@ -742,10 +742,12 @@ export interface RemoteStartInput {
  */
 export type RemoteDelta =
   | { sessionId: string; kind: 'event'; event: LlmEvent }
+  | { sessionId: string; kind: 'phase'; phase: 'starting' | 'running' }
   | {
       sessionId: string
       kind: 'turn'
       state: 'running' | 'idle'
+      phase?: 'starting' | 'running'
       /** Persisted before the terminal event, so swapping out live parts is lossless. */
       message?: Message
       botId?: string
@@ -807,6 +809,7 @@ export interface RoxyApi {
         parts: MessagePart[]
         sequence: number
         activityStartedAt: number
+        phase?: 'starting' | 'running'
         botId?: string
         botUsername?: string
       }[]

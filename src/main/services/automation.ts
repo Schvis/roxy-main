@@ -13,9 +13,9 @@ import {
   contextBudgetFor,
   clampReasoningEffort
 } from '../../shared/session-config'
-import { pickDefaultModel } from '../../shared/models'
+import { pickDefaultModel, resolveProviderModel } from '../../shared/models'
 import { HOST_USERNAME, isHostSpeaker } from '../../shared/bots'
-import { queueOrigin } from '../../shared/queue'
+import { nextQueueItem } from '../../shared/queue'
 import { imageReferenceText, redactImageData } from '../../shared/attachments'
 import { omitMessageImages, validateForwardedImages } from './attachments'
 import { backgroundTaskRequest } from '../../shared/parallel'
@@ -26,7 +26,7 @@ import { listModels } from './models'
 import { compactChat } from './compaction'
 import { subagentSnapshot } from './subagent-stream'
 import { runSessionTurn } from './session-turn'
-import { claimTurn, sessionBusy, queuePaused, resumeQueue } from './turn-state'
+import { claimTurn, sessionBusy, queuePaused, resumeQueue, onTurnAvailable } from './turn-state'
 import {
   relayLocalTurnStart,
   relayLocalTurnEvent,
@@ -36,6 +36,18 @@ import {
 } from './remote'
 
 let timer: ReturnType<typeof setInterval> | null = null
+let unsubscribeTurns: (() => void) | undefined
+let wakePending = false
+
+/** Coalesce wakeups without depending on a renderer or the periodic safety tick. */
+export function requestAutomationWake(): void {
+  if (!timer || wakePending) return
+  wakePending = true
+  setImmediate(() => {
+    wakePending = false
+    if (timer) wakeAutomation()
+  })
+}
 const live = new Map<string, PartsFold>()
 const activityStartedAt = new Map<string, number>()
 /**
@@ -56,6 +68,7 @@ let sequence = 0
 const MAX_HOPS = 8
 
 export function notifyAutomation(chatId: string): void {
+  requestAutomationWake()
   for (const win of BrowserWindow.getAllWindows()) {
     try {
       if (!win.isDestroyed()) win.webContents.send(CHANNELS.automationChanged, chatId)
@@ -92,6 +105,7 @@ export function automationSnapshot(): {
   parts: MessagePart[]
   sequence: number
   activityStartedAt: number
+  phase: 'starting' | 'running'
   botId?: string
   botUsername?: string
 }[] {
@@ -100,6 +114,7 @@ export function automationSnapshot(): {
     parts: fold.parts,
     sequence,
     activityStartedAt: activityStartedAt.get(sessionId) ?? Date.now(),
+    phase: fold.parts.length ? 'running' : 'starting',
     ...speakers.get(sessionId)
   }))
 }
@@ -115,6 +130,8 @@ export function enqueuePrompt(
     scheduleId?: string
     hops?: number
     continueReply?: boolean
+    /** Explicit tool send/create resumes Stop only after admission succeeds. */
+    resume?: boolean
     /** Set when the prompt is machine-generated on a bot's behalf, so the
      *  transcript attributes it to that bot instead of to the user. */
     botId?: string
@@ -197,14 +214,12 @@ export function enqueuePrompt(
       )
     return item
   })()
-  if (!options.sourceChatId) resumeQueue(chatId)
+  if (!options.sourceChatId || options.fromUser || options.resume) resumeQueue(chatId)
+  // Claim eligible sends before observers see a waiting row. Same-chat
+  // handoffs remain pending until the caller releases its turn.
+  if (timer && !getDb().inTransaction) drainChat(chatId)
   notifyAutomation(chatId)
   if (options.fromUser && options.sourceChatId) notifyTranscriptChanged(chatId)
-  // Drain on the next event-loop pass, after callers have persisted their own tool result.
-  if (timer)
-    setImmediate(() => {
-      if (timer) wakeAutomation()
-    })
   return repo.listQueue(chatId).find((entry) => entry.id === item.id)!
 }
 
@@ -213,16 +228,55 @@ export function startAutomation(): void {
   // Never replay uncertain tool side effects automatically after a crash.
   getDb()
     .prepare(
-      `UPDATE queue SET state = 'failed', error = 'Interrupted by app shutdown. Edit this message to retry.' WHERE state = 'running'`
+      `UPDATE queue SET state = 'failed', error = 'Interrupted by app shutdown. Edit this message to retry.' WHERE state IN ('starting', 'running')`
     )
     .run()
   timer = setInterval(wakeAutomation, 1000)
+  unsubscribeTurns = onTurnAvailable(requestAutomationWake)
   wakeAutomation()
 }
 
 export function stopAutomation(): void {
   if (timer) clearInterval(timer)
   timer = null
+  unsubscribeTurns?.()
+  unsubscribeTurns = undefined
+}
+
+/** Explain an actual wait, including reservations with no model tokens yet. */
+export function deliveryQueue(chatId: string): QueueItem[] {
+  const items = repo.listQueue(chatId)
+  const eligible = nextQueueItem(items)
+  return items.map((item) => ({
+    ...item,
+    ...(item.state === 'pending'
+      ? {
+          waitReason: queuePaused(chatId)
+            ? ('paused' as const)
+            : sessionBusy(chatId) || subagentSnapshot(chatId) !== null
+              ? ('busy' as const)
+              : (item.notBefore ?? 0) > Date.now()
+                ? ('delayed' as const)
+                : eligible?.id !== item.id
+                  ? ('blocked' as const)
+                  : live.size >= 4
+                    ? ('capacity' as const)
+                    : undefined
+        }
+      : {})
+  }))
+}
+
+function drainChat(chatId: string): void {
+  if (
+    live.size >= 4 ||
+    sessionBusy(chatId) ||
+    queuePaused(chatId) ||
+    subagentSnapshot(chatId) !== null
+  )
+    return
+  const item = nextQueueItem(repo.listQueue(chatId))
+  if (item) void deliver(item).catch((error) => console.error('[bots] delivery failed', error))
 }
 
 export function wakeAutomation(): void {
@@ -234,25 +288,7 @@ export function wakeAutomation(): void {
       .prepare(`SELECT DISTINCT chat_id FROM queue WHERE state = 'pending'`)
       .all() as { chat_id: string }[]
     for (const { chat_id: chatId } of rows) {
-      if (live.size >= 4) break
-      if (sessionBusy(chatId) || queuePaused(chatId) || subagentSnapshot(chatId) !== null) continue
-      const queue = repo.listQueue(chatId)
-      let item = queue[0]
-      const now = Date.now()
-      // Hidden automation failures/delays must not lock the user out. Bypass
-      // only for user work; the automated chain and visible failures stay paused.
-      if (
-        item &&
-        item.state !== 'running' &&
-        queueOrigin(item) !== 'user' &&
-        (item.state === 'failed' || (item.notBefore ?? 0) > now)
-      ) {
-        const userItem = queue.find((entry) => queueOrigin(entry) === 'user')
-        if (!userItem) continue
-        item = userItem
-      }
-      if (!item || item.state !== 'pending' || (item.notBefore ?? 0) > now) continue
-      void deliver(item).catch((error) => console.error('[bots] delivery failed', error))
+      drainChat(chatId)
     }
   } catch (error) {
     console.error('[bots] scheduler failed', error)
@@ -278,12 +314,22 @@ function history(
 ): ChatMessage[] {
   const since = repo.getChat(chatId)?.contextSummaryAt ?? 0
   const self = asHost ? undefined : (speaker ?? bots.chatBot(chatId))
+  const waiting = new Set(
+    (
+      getDb()
+        .prepare(
+          "SELECT message_id FROM queue WHERE chat_id = ? AND state = 'pending' AND message_id IS NOT NULL"
+        )
+        .all(chatId) as { message_id: string }[]
+    ).map((row) => row.message_id)
+  )
   const groups = repo
     .listMessages(chatId)
     .filter(
       (m) =>
         (m.role === 'user' || m.role === 'assistant') &&
         m.createdAt > since &&
+        !waiting.has(m.id) &&
         !suppliedReports.has(m.id)
     )
     .map((m) => reconstructTurn(m, self))
@@ -331,8 +377,13 @@ function withRequest(
   images?: QueueImage[]
 ): ChatMessage[] {
   const text = request.trim()
-  if (!text) return messages
-  if (!assignee && !images?.length && messages.some((m) => m.content.includes(text)))
+  if (!text && !images?.length) return messages
+  if (
+    !assignee &&
+    !images?.length &&
+    messages.at(-1)?.role === 'user' &&
+    messages.at(-1)?.content === text
+  )
     return messages
   // A handoff is a NEW request to its recipient, including work returned to
   // Roxy. Never leave it continuing the previous participant's tool history.
@@ -362,12 +413,24 @@ async function deliver(item: QueueItem): Promise<void> {
   const controller = new AbortController()
   const release = claimTurn(item.chatId, controller)
   if (!release) return
-  const claimed = getDb()
-    .prepare(`UPDATE queue SET state = 'running', error = NULL WHERE id = ? AND state = 'pending'`)
-    .run(item.id)
-  if (!claimed.changes) {
+  try {
+    const claimed = getDb()
+      .prepare(
+        `UPDATE queue SET state = 'starting', error = NULL WHERE id = ? AND state = 'pending'`
+      )
+      .run(item.id)
+    if (!claimed.changes) {
+      release()
+      return
+    }
+  } catch (error) {
     release()
-    return
+    // A persistent DB/claim error must not spin on the release wake forever.
+    getDb()
+      .prepare("UPDATE queue SET state = 'failed', error = ? WHERE id = ?")
+      .run(error instanceof Error ? error.message : String(error), item.id)
+    notifyAutomation(item.chatId)
+    throw error
   }
   const fold = new PartsFold()
   live.set(item.chatId, fold)
@@ -379,9 +442,11 @@ async function deliver(item: QueueItem): Promise<void> {
   // How a reply copied to the CALLER's transcript is signed. Same reason, one
   // transcript over: unsigned there means "the bot that owns that chat".
   let returnAuthor: { botId?: string; botUsername?: string } = {}
+  let started = false
   let savedMessage: Message | undefined
-  const relay = relayLocalTurnStart(item.chatId)
+  let relay: ReturnType<typeof relayLocalTurnStart> = null
   try {
+    relay = relayLocalTurnStart(item.chatId)
     // Read persisted handoff metadata before choosing the speaker and config.
     const previous = getDb()
       .prepare(
@@ -425,31 +490,7 @@ async function deliver(item: QueueItem): Promise<void> {
         : undefined
     if (speaker) speakers.set(item.chatId, speaker)
     returnAuthor = speaker ?? {}
-    emit({ sessionId: item.chatId, kind: 'turn', state: 'running', ...speaker })
-    // A host invited into a bot's private chat runs on the app defaults, which
-    // include the CURRENT global mode. `resolveSessionConfig` deliberately never
-    // inherits a global `agentId` (a session owns its mode for its whole life),
-    // so reusing it here silently answered in Build while the app said Plan -
-    // handing write tools to a turn the user had restricted to planning.
-    const config = hostVisiting
-      ? seedSessionConfig(repo.getSettings())
-      : resolveSessionConfig(repo.getChat(guest?.chatId ?? item.chatId), repo.getSettings())
-    const owner = guest ? `@${guest.username}` : 'this session'
-    const providers = repo.listConnectedProviders().filter((p) => p.enabled)
-    const provider = config.providerId
-      ? providers.find((p) => p.id === config.providerId)
-      : providers[0]
-    if (!provider)
-      throw new Error(
-        `Connect the provider selected for ${owner}, then edit the queued message to retry.`
-      )
-    const catalog = await listModels(provider.id).catch(() => [])
-    const model =
-      (config.providerId === provider.id ? config.model : null) ||
-      provider.defaultModel ||
-      pickDefaultModel(catalog)
-    if (!model) throw new Error(`Select a model for ${owner}, then retry.`)
-    if (controller.signal.aborted) throw new Error('Stopped.')
+    emit({ sessionId: item.chatId, kind: 'turn', state: 'running', phase: 'starting', ...speaker })
     let requestMessageId = previous.message_id
     if (!requestMessageId)
       getDb().transaction(() => {
@@ -473,6 +514,33 @@ async function deliver(item: QueueItem): Promise<void> {
       })()
     notifyAutomation(item.chatId)
     notifyTranscriptChanged(item.chatId)
+    // Admission is synchronous; setup yields only after the prompt is durable.
+    await Promise.resolve()
+    // A host invited into a bot's private chat runs on the app defaults, which
+    // include the CURRENT global mode. `resolveSessionConfig` deliberately never
+    // inherits a global `agentId` (a session owns its mode for its whole life),
+    // so reusing it here silently answered in Build while the app said Plan -
+    // handing write tools to a turn the user had restricted to planning.
+    const config = hostVisiting
+      ? seedSessionConfig(repo.getSettings())
+      : resolveSessionConfig(repo.getChat(guest?.chatId ?? item.chatId), repo.getSettings())
+    const owner = guest ? `@${guest.username}` : 'this session'
+    const providers = repo.listConnectedProviders().filter((p) => p.enabled)
+    const provider = config.providerId
+      ? providers.find((p) => p.id === config.providerId)
+      : providers[0]
+    if (!provider)
+      throw new Error(
+        `Connect the provider selected for ${owner}, then edit the queued message to retry.`
+      )
+    const catalog = await listModels(provider.id).catch(() => [])
+    const selected = config.providerId === provider.id ? config.model : null
+    const model =
+      provider.seedId === 'github-copilot'
+        ? resolveProviderModel(provider, catalog, selected)
+        : selected || provider.defaultModel || pickDefaultModel(catalog)
+    if (!model) throw new Error(`Select a model for ${owner}, then retry.`)
+    if (controller.signal.aborted) throw new Error('Stopped.')
     const info = catalog.find((m) => m.id === model)
     if (
       item.images?.length &&
@@ -548,6 +616,11 @@ async function deliver(item: QueueItem): Promise<void> {
         asHost
       },
       (event) => {
+        if (!started) {
+          started = true
+          getDb().prepare("UPDATE queue SET state = 'running' WHERE id = ?").run(item.id)
+          emit({ sessionId: item.chatId, kind: 'phase', phase: 'running' })
+        }
         fold.apply(event)
         if (
           event.type === 'tool-start' ||
