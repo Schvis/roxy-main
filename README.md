@@ -162,6 +162,16 @@ You can also enable **Fish Audio API** under Settings for cloud-based voice synt
 | `npm run build:mac`                | Build macOS application bundle                                              |
 | `npm run build:linux`              | Build Linux distribution packages (AppImage, deb)                           |
 
+### CLIProxyAPI packaging
+
+Packaging embeds CLIProxyAPI from its latest GitHub release. Set `CLIPROXY_VERSION` to pin a
+specific version; release CI resolves it once for all platforms. Archives must match GitHub's
+published SHA-256 digest, falling back to `checksums.txt` only when no valid digest is available.
+Downloads retry network errors, HTTP 408/429, and HTTP 5xx up to four attempts with exponential
+backoff. Missing checksums or integrity mismatches still fail packaging.
+
+Run `npm run smoke:bundle-cliproxy` for offline packaging regression tests.
+
 ## Architecture notes
 
 - **Context isolation is enabled** and `nodeIntegration` is off. The renderer talks to the main

@@ -4,6 +4,7 @@ const { promises: fs } = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { promisify } = require('node:util')
+const { setTimeout: delay } = require('node:timers/promises')
 
 const execFileAsync = promisify(execFile)
 const REPO = 'router-for-me/CLIProxyAPI'
@@ -31,16 +32,35 @@ function archName(arch) {
 }
 
 async function fetchBytes(url, label) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'roxy-build'
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(180_000)
-  })
-  if (!response.ok) throw new Error(`Couldn't download ${label} (${response.status}).`)
-  return Buffer.from(await response.arrayBuffer())
+  const attempts = 4
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let response
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'roxy-build'
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(180_000)
+      })
+      if (!response.ok) throw new Error(`Couldn't download ${label} (${response.status}).`)
+      return Buffer.from(await response.arrayBuffer())
+    } catch (error) {
+      const retryable =
+        !response ||
+        response.ok ||
+        response.status === 408 ||
+        response.status === 429 ||
+        response.status >= 500
+      if (!retryable || attempt === attempts) throw error
+      const waitMs = 1_000 * 2 ** (attempt - 1)
+      console.warn(
+        `  - retrying ${label} in ${waitMs}ms (${attempt}/${attempts}): ${error.message}`
+      )
+      await delay(waitMs)
+    }
+  }
 }
 
 async function releaseMetadata() {
@@ -95,17 +115,23 @@ async function bundleCliProxy(context) {
   const byName = new Map(release.assets.map((item) => [item.name, item]))
   const archiveAsset = byName.get(asset)
   const checksumsAsset = byName.get('checksums.txt')
-  if (!archiveAsset || !checksumsAsset) {
-    throw new Error(`CLIProxyAPI v${version} does not publish ${asset} and checksums.txt.`)
+  if (!archiveAsset) {
+    throw new Error(`CLIProxyAPI v${version} does not publish ${asset}.`)
   }
 
   console.log(`  - bundling CLIProxyAPI v${version} (${platform}/${arch})`)
-  const [checksums, archive] = await Promise.all([
-    fetchBytes(checksumsAsset.browser_download_url, 'CLIProxyAPI checksums'),
-    fetchBytes(archiveAsset.browser_download_url, asset)
-  ])
-  const expectedArchiveSha256 =
-    assetDigest(archiveAsset) || checksumFor(checksums.toString('utf8'), asset)
+  let expectedArchiveSha256 = assetDigest(archiveAsset)
+  if (!expectedArchiveSha256) {
+    if (!checksumsAsset) {
+      throw new Error(`CLIProxyAPI v${version} has no published SHA-256 for ${asset}.`)
+    }
+    const checksums = await fetchBytes(checksumsAsset.browser_download_url, 'CLIProxyAPI checksums')
+    expectedArchiveSha256 = checksumFor(checksums.toString('utf8'), asset)
+    if (!expectedArchiveSha256) {
+      throw new Error(`CLIProxyAPI checksums.txt has no SHA-256 for ${asset}.`)
+    }
+  }
+  const archive = await fetchBytes(archiveAsset.browser_download_url, asset)
   const archiveSha256 = sha256(archive)
   if (!expectedArchiveSha256 || archiveSha256 !== expectedArchiveSha256) {
     throw new Error(

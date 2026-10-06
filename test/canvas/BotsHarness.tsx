@@ -237,7 +237,8 @@ Object.assign(window.roxy, {
     start: async () => {
       throw new Error('Bot prompt incorrectly used local llm.start')
     },
-    abortSession: async () => {}
+    abortSession: async () => {},
+    snapshot: async () => null
   }
 })
 
