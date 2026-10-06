@@ -230,6 +230,10 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 - **Live2D Avatar** — Rendered via Cubism Core in [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx)
   and [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) with interactive physics,
   expression triggers, and audio lip-sync.
+  On Windows and Linux, closing the main window quits Roxy when **Run in Background** is off,
+  even if companion, browser, or terminal windows remain open. With background mode on,
+  closing the main window hides it instead; use the tray's **Quit** action to exit.
+  macOS retains its standard close-window-without-quitting behavior.
 - **RVC v2 Inference** — Local Python daemon [`script/rvc_tts_server.py`](script/rvc_tts_server.py)
   combines edge-tts generation with local GPU pitch/timbre conversion using checkpoints in `RoxyMigurdia/`.
 - **Speech-to-Text** — [`src/main/services/stt.ts`](src/main/services/stt.ts) captures voice prompts and

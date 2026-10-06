@@ -119,6 +119,14 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  mainWindow.on('closed', () => {
+    // Auxiliary windows (including hidden overlays) can keep window-all-closed
+    // from firing after the main window closes.
+    if (process.platform !== 'darwin' && !isQuitting && !repo.getSettings().overlayMode) {
+      app.quit()
+    }
+  })
+
   mainWindow.webContents.on('render-process-gone', () => {
     flushAllActiveTurns('interrupted')
   })
