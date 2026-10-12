@@ -36,6 +36,7 @@ function loadLogo(): Promise<HTMLImageElement> {
 }
 
 export interface CanvasTranscriptProps {
+  transparent?: boolean
   messages: Message[]
   streaming: MessagePart[] | null
   onCancelSubagent: (subChatId: string) => void
@@ -47,6 +48,7 @@ export interface CanvasTranscriptProps {
 }
 
 export function CanvasTranscript({
+  transparent = false,
   messages,
   streaming,
   chatId,
@@ -190,6 +192,7 @@ export function CanvasTranscript({
 
   return (
     <CanvasSurface
+      transparent={transparent}
       key={chatId ?? ''}
       sceneKey={chatId ?? ''}
       buildScene={buildScene}

@@ -3,6 +3,7 @@
  * Implemented in src/preload/index.ts, handled in src/main/ipc/*.
  */
 import type { Language } from './i18n'
+import type { BackgroundResult, BackgroundSettings, BackgroundState } from './background'
 import type { Bot, BotJob, BotJobInput } from './bots'
 import type { MotionPreference } from './motion'
 import type {
@@ -1022,6 +1023,8 @@ export interface RoxyApi {
   }
   bots: {
     list(): Promise<Bot[]>
+    /** Reorder the bot strip; unlisted bots retain their order after the supplied ids. */
+    reorder(ids: string[]): Promise<void>
     /** Omit the username to get a free one: a bot can be named in chat later. */
     create(username?: string): Promise<Bot>
     update(id: string, patch: { username?: string; instructions?: string }): Promise<Bot>
@@ -1246,6 +1249,14 @@ export interface RoxyApi {
     create(name: string, content: string): Promise<CustomPrompt>
     update(id: string, name: string, content: string): Promise<void>
     remove(id: string): Promise<void>
+  }
+  background: {
+    get(): Promise<BackgroundState>
+    /** Native picker; cancellation returns null without changing anything. */
+    choose(): Promise<BackgroundResult | null>
+    remove(): Promise<BackgroundResult>
+    update(settings: Partial<BackgroundSettings>): Promise<BackgroundResult>
+    onChanged(callback: (state: BackgroundState) => void): () => void
   }
   themes: {
     /** Built-in themes followed by user themes found on disk. */

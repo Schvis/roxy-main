@@ -4,6 +4,7 @@ export const CHANNELS = {
   agentNotificationShow: 'agent-notification:show',
   agentNotificationClicked: 'agent-notification:clicked',
   botsList: 'bots:list',
+  botsReorder: 'bots:reorder',
   botsCreate: 'bots:create',
   botsUpdate: 'bots:update',
   botsRemove: 'bots:remove',
@@ -213,6 +214,12 @@ export const CHANNELS = {
    * custom properties. `themesResolve` returns the properties to set on the
    * root element, which is what actually restyles the UI.
    */
+  backgroundGet: 'background:get',
+  backgroundChoose: 'background:choose',
+  backgroundRemove: 'background:remove',
+  backgroundUpdate: 'background:update',
+  backgroundChanged: 'background:changed',
+
   themesList: 'themes:list',
   themesRefresh: 'themes:refresh',
   themesRead: 'themes:read',

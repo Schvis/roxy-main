@@ -56,6 +56,8 @@
     "smoke:agent-file-changes": "esbuild test/agent-file-changes.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/agent-file-changes.cjs && node test/.out/agent-file-changes.cjs",
     "smoke:notifications": "esbuild test/agent-notifications.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/agent-notifications.cjs && node test/.out/agent-notifications.cjs && node test/agent-notifications-service.mjs",
     "smoke:notification-settings": "esbuild test/notification-settings.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/notification-settings.cjs && electron test/.out/notification-settings.cjs",
+    "smoke:ui-preferences": "node test/ui-preferences.mjs",
+    "smoke:bot-order-ui": "electron test/bot-order-ui.cjs",
     "smoke:provider-models": "esbuild test/provider-models.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/provider-models.cjs && electron test/.out/provider-models.cjs",
     "smoke:bots": "esbuild test/bots-shared.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/bots-shared.cjs && node test/.out/bots-shared.cjs && esbuild src/preload/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/bots-preload.cjs && node script/build-smoke.mjs test/bots.ts test/.out/bots.cjs && electron test/.out/bots.cjs",
     "smoke:cookies": "esbuild test/cookies.ts --bundle --platform=node --format=cjs --packages=external --loader:.png=file --outfile=test/.out/cookies.cjs && electron test/.out/cookies.cjs",
@@ -66,6 +68,8 @@
     "smoke:i18n": "esbuild test/i18n.ts --bundle --platform=node --format=cjs --outfile=test/.out/i18n.cjs && node test/.out/i18n.cjs",
     "i18n:translate": "node script/i18n-translate.mjs",
     "canvas": "vite --config test/canvas/vite.config.mjs",
+    "smoke:background": "esbuild test/background.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/background.cjs && electron test/.out/background.cjs",
+    "smoke:background-ui": "electron test/canvas/background-smoke.cjs",
     "smoke:canvas": "electron test/canvas/smoke.cjs && electron test/canvas/mentions-smoke.cjs && electron test/canvas/subagents-smoke.cjs",
     "smoke:animation": "electron test/canvas/animation.cjs",
     "perf:canvas": "electron test/canvas/performance.cjs",
@@ -101,6 +105,7 @@
     "qrcode.react": "^4.2.0",
     "react-i18next": "^16.6.6",
     "react-router-dom": "^7.18.0",
+    "sharp": "^0.35.2",
     "shiki": "^4.4.3",
     "tailwind-merge": "^3.6.0",
     "tinyglobby": "^0.2.17",
@@ -127,7 +132,6 @@
     "prettier": "^3.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "sharp": "^0.35.2",
     "tailwindcss": "^4.0.0",
     "vite": "^5.4.11"
   }

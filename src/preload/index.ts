@@ -20,6 +20,7 @@ import type { CliProxyState } from '../shared/cliproxy'
 import type { ResolvedTheme } from '../shared/theme'
 import type { MotionPreference } from '../shared/motion'
 import type { AppSettings } from '../shared/types'
+import type { BackgroundState } from '../shared/background'
 
 /**
  * The typed bridge exposed to the renderer as `window.roxy`. Every method maps
@@ -70,6 +71,7 @@ const roxy: RoxyApi = {
   },
   bots: {
     list: () => ipcRenderer.invoke(CHANNELS.botsList),
+    reorder: (ids) => ipcRenderer.invoke(CHANNELS.botsReorder, ids),
     create: (username) => ipcRenderer.invoke(CHANNELS.botsCreate, username),
     update: (id, patch) => ipcRenderer.invoke(CHANNELS.botsUpdate, id, patch),
     remove: (id) => ipcRenderer.invoke(CHANNELS.botsRemove, id),
@@ -282,6 +284,18 @@ const roxy: RoxyApi = {
     create: (name, content) => ipcRenderer.invoke(CHANNELS.promptsCreate, name, content),
     update: (id, name, content) => ipcRenderer.invoke(CHANNELS.promptsUpdate, id, name, content),
     remove: (id) => ipcRenderer.invoke(CHANNELS.promptsRemove, id)
+  },
+  background: {
+    get: () => ipcRenderer.invoke(CHANNELS.backgroundGet),
+    choose: () => ipcRenderer.invoke(CHANNELS.backgroundChoose),
+    remove: () => ipcRenderer.invoke(CHANNELS.backgroundRemove),
+    update: (settings) => ipcRenderer.invoke(CHANNELS.backgroundUpdate, settings),
+    onChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: BackgroundState): void =>
+        callback(state)
+      ipcRenderer.on(CHANNELS.backgroundChanged, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.backgroundChanged, handler)
+    }
   },
   themes: {
     list: () => ipcRenderer.invoke(CHANNELS.themesList),

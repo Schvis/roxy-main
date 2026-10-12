@@ -17,6 +17,7 @@ import {
   Hammer,
   PanelLeftClose,
   PanelLeftOpen,
+  Palette,
   Plus,
   Settings,
   Square,
@@ -36,10 +37,8 @@ import { TONE_BG, TONE_TEXT_STATIC } from '../lib/lifecycle'
 import { BotsSection } from './BotsSection'
 import { BrailleSpinner } from './ThinkingIndicator'
 import { UpdateCard } from './UpdateCard'
+import { SidebarFrame, SidebarNavItem } from './SidebarFrame'
 
-const MIN_WIDTH = 220
-const MAX_WIDTH = 480
-const DEFAULT_WIDTH = 288
 /**
  * How often to re-read git + PR state for EVERY session.
  *
@@ -50,9 +49,7 @@ const DEFAULT_WIDTH = 288
  * git for a number that cannot have moved.
  */
 const SWEEP_MS = 30_000
-const WIDTH_KEY = 'roxy.sidebar.width'
 const COLLAPSED_PROJECTS_KEY = 'roxy.sidebar.projects.v1'
-const clampWidth = (n: number): number => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n))
 
 const storedCollapsedProjects = (): Set<string> => {
   try {
@@ -175,16 +172,8 @@ export function Sidebar(): JSX.Element {
   const setRailed = useRoxyStore((s) => s.setSidebarRailed)
   const [collapsed, setCollapsed] = useState<Set<string>>(storedCollapsedProjects)
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
-  const [width, setWidth] = useState<number>(() => {
-    const v = Number(localStorage.getItem(WIDTH_KEY))
-    return Number.isFinite(v) && v >= MIN_WIDTH && v <= MAX_WIDTH ? v : DEFAULT_WIDTH
-  })
   // The open right-click menu: which session, and where the cursor was.
   const [contextMenu, setContextMenu] = useState<{ chat: Chat; x: number; y: number } | null>(null)
-
-  useEffect(() => {
-    localStorage.setItem(WIDTH_KEY, String(width))
-  }, [width])
 
   // Double-click a session name to rename it inline. Enter / click-away saves,
   // Escape cancels. `cancelRef` lets the shared blur handler tell the two apart.
@@ -312,24 +301,6 @@ export function Sidebar(): JSX.Element {
       cancelRef.current = true
       e.currentTarget.blur()
     }
-  }
-
-  // Drag the right edge to resize; the window listeners live only during a drag.
-  const startResize = (e: ReactMouseEvent): void => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = width
-    const onMove = (ev: MouseEvent): void => setWidth(clampWidth(startW + ev.clientX - startX))
-    const onUp = (): void => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
   }
 
   // A project = a workspace folder; main sessions group under it.
@@ -519,6 +490,14 @@ export function Sidebar(): JSX.Element {
         <div className="mt-auto flex flex-col items-center gap-1">
           <button
             type="button"
+            onClick={() => navigate('/themes')}
+            title={t('appearance.title')}
+            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+          >
+            <Palette className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => navigate('/settings')}
             title={t('sidebar.settings')}
             className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
@@ -531,10 +510,7 @@ export function Sidebar(): JSX.Element {
   }
 
   return (
-    <aside
-      style={{ width }}
-      className="relative flex h-full shrink-0 flex-col border-r border-border bg-surface"
-    >
+    <SidebarFrame>
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
         <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
           {t('sidebar.projects')}
@@ -960,26 +936,17 @@ export function Sidebar(): JSX.Element {
 
       <UpdateCard />
 
-      <div className="border-t border-border/40 p-2">
-        <button
-          type="button"
-          onClick={() => navigate('/settings')}
-          title={t('sidebar.settings')}
-          className="press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text"
-        >
+      <div className="flex flex-col gap-0.5 border-t border-border/40 p-2">
+        <SidebarNavItem onClick={() => navigate('/themes')} title={t('appearance.title')}>
+          <Palette className="h-4 w-4 shrink-0" />
+          <span className="truncate font-medium">{t('appearance.title')}</span>
+        </SidebarNavItem>
+        <SidebarNavItem onClick={() => navigate('/settings')} title={t('sidebar.settings')}>
           <Settings className="h-4 w-4 shrink-0" />
           <span className="truncate font-medium">{t('sidebar.settings')}</span>
-        </button>
+        </SidebarNavItem>
       </div>
-
-      {/* Drag the right edge to resize; double-click to reset to the default width. */}
-      <div
-        onMouseDown={startResize}
-        onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
-        title={t('sidebar.resizeHandle')}
-        className="absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize transition-colors hover:bg-accent/50"
-      />
-    </aside>
+    </SidebarFrame>
   )
 }
 

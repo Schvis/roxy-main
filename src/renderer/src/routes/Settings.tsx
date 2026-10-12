@@ -3,7 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
 import {
   ChevronDown,
+  ChevronRight,
   Globe,
+  Palette,
   Plus,
   Trash2,
   Mic,
@@ -927,6 +929,21 @@ export default function Settings(): JSX.Element {
       <MotionSettings onChange={setMotion} />
       <ActivitySection />
 
+      <button
+        type="button"
+        onClick={() => navigate('/themes')}
+        className="mb-8 flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left hover:border-border-strong focus-visible:outline-accent"
+      >
+        <Palette aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-text">{t('appearance.title')}</span>
+          <span className="mt-0.5 block text-xs text-text-muted">
+            {t('appearance.description')}
+          </span>
+        </span>
+        <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-text-subtle" />
+      </button>
+
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('ide.settingsTitle')}</h2>
         <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4">
@@ -1457,7 +1474,20 @@ export default function Settings(): JSX.Element {
   )
 
   return (
-    <PageShell title={t('settings.title')} onBack={() => navigate('/')}>
+    <PageShell
+      title={t('settings.title')}
+      onBack={() => navigate('/')}
+      onEscape={() => {
+        if (resetting) return true
+        if (promptDialogOpen) {
+          if (!creatingPrompt) setPromptDialogOpen(false)
+          return true
+        }
+        if (!confirmingReset) return false
+        setConfirmingReset(false)
+        return true
+      }}
+    >
       <div className="mb-6 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
         {TABS.map((tab) => {
           const Icon = tab.icon
