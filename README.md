@@ -41,7 +41,7 @@ control, persistent scheduled bots, and native terminals.
 ## Key Features
 
 - **Agent Harness** — Provider-agnostic tool execution loop with Plan (read-only) and Build modes, subagent delegation, automated context compaction, and large tool output disk-spilling.
-- **Multi-Provider & Custom Endpoints** — Native support for OpenAI, Copilot (with automatic token refresh), Anthropic, Google Gemini via Vercel AI SDK, local models, and custom image generation endpoints.
+- **Multi-Provider & Custom Endpoints** — Native support for OpenAI, Copilot (with automatic token refresh), Anthropic, Google Gemini via Vercel AI SDK, local models, and custom image generation endpoints. Connected ChatGPT/Codex accounts show remaining quota and reset times in Settings → Providers; the chat header shows the tightest remaining limit, with details and manual refresh on click. Quota refreshes every five minutes while visible; unavailable usage is shown explicitly.
 - **Integrated IDE & Git Operations** — Built-in code editor with syntax highlighting (Shiki), line diff decorations, visual merge conflict solver, interactive git commit graph, and multi-repo workspace management.
 - **Embedded Terminal** — Hardware-accelerated terminal emulator powered by `@xterm/xterm` and `node-pty` supporting persistent shell sessions, standalone popouts, and command history.
 - **Persistent Bots** — Top-level bot chats with saved roles, explicit project-session handoffs, message queues, and interval or cron schedules. Bots run through the desktop harness while Roxy is running; see [Bots](BOTS.md).

@@ -66,7 +66,7 @@ function Meter({ value, className }: { value: number; className?: string }): JSX
   )
 }
 
-function BucketRow({ bucket, now }: { bucket: QuotaBucket; now: number }): JSX.Element {
+export function BucketRow({ bucket, now }: { bucket: QuotaBucket; now: number }): JSX.Element {
   const { t } = useTranslation()
   const reset =
     bucket.resetsAt === undefined
@@ -367,7 +367,7 @@ export function QuotaMeter({
         {tightest ? (
           <>
             <Meter value={tightest.remaining} className="w-4" />
-            <span>{tightest.remaining}%</span>
+            <span>{t('quota.left', { percent: tightest.remaining })}</span>
           </>
         ) : activeQuota?.error ? (
           <AlertCircle className="h-3.5 w-3.5" />

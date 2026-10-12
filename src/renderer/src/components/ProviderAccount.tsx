@@ -19,6 +19,7 @@ import { ProviderLogo } from '../lib/providerLogos'
 import { cn } from '../lib/cn'
 import { Button, Input } from './ui'
 import { ModelVisibility } from './ModelVisibility'
+import { AccountQuota } from './AccountQuota'
 import { ContextMenuSurface, ContextMenuRow, ContextMenuSeparator } from './ContextMenu'
 
 export function ProviderAccount({
@@ -199,6 +200,7 @@ export function ProviderAccount({
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </div>
+      {!needsReconnect && <AccountQuota provider={provider} />}
       {needsReconnect && !confirming && (
         <div
           role="group"

@@ -7,6 +7,8 @@ import '../../src/renderer/src/assets/main.css'
 import '../../src/renderer/src/i18n'
 import Settings from '../../src/renderer/src/routes/Settings'
 import { ModelPicker } from '../../src/renderer/src/components/ModelPicker'
+import { QuotaMeter } from '../../src/renderer/src/components/QuotaMeter'
+import { ProviderAccount } from '../../src/renderer/src/components/ProviderAccount'
 import { useRoxyStore } from '../../src/renderer/src/lib/store'
 import type { ConnectedProvider } from '../../src/shared/types'
 import type { ModelCatalogResult } from '../../src/shared/api'
@@ -24,6 +26,20 @@ let providers: ConnectedProvider[] = [1, 2].map((number) => ({
   sortOrder: -number,
   createdAt: number
 }))
+const quotaTest = new URLSearchParams(location.search).has('quota')
+let quotaFailure = false
+const quotaCalls: { connectionId: string; force?: boolean }[] = []
+if (quotaTest && !new URLSearchParams(location.search).has('non-codex')) {
+  providers = providers.map((p, i) => ({
+    ...p,
+    id: `codex-${i + 1}`,
+    seedId: 'codex-subscription',
+    auth: 'subscription',
+    name: `ChatGPT ${i + 1}`,
+    identity: `codex-${i + 1}@example.com`,
+    proxyAuthFile: `codex-${i + 1}.json`
+  }))
+}
 const catalogFailure = new URLSearchParams(location.search).has('catalog-failure')
 if (catalogFailure) {
   providers = providers.map((p, i) => ({
@@ -57,6 +73,29 @@ const settings = {
   language: 'en'
 }
 Object.assign(window.roxy, {
+  cliproxy: {
+    ...window.roxy.cliproxy,
+    quota: async (connectionId: string, force?: boolean) => {
+      quotaCalls.push({ connectionId, force })
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      if (quotaFailure) throw new Error('Test quota failure')
+      return {
+        connectionId,
+        upstream: 'codex' as const,
+        plan: 'plus',
+        fetchedAt: Date.now(),
+        buckets: [
+          {
+            id: 'primary',
+            label: '5-hour',
+            remaining: connectionId === 'codex-1' ? 73 : 42,
+            resetsAt: Date.now() + 3600_000
+          },
+          { id: 'secondary', label: 'Weekly', remaining: 91, resetsAt: Date.now() + 86400_000 }
+        ]
+      }
+    }
+  },
   copilot: { ...window.roxy.copilot, needsReauthentication: async () => false },
   providers: {
     listConnected: async () => providers,
@@ -148,6 +187,10 @@ useRoxyStore.setState({
   refreshProviders: async () => useRoxyStore.setState({ providers: [...providers] })
 })
 Object.assign(window, {
+  quotaState: () => [...quotaCalls],
+  failQuota: (fail: boolean) => {
+    quotaFailure = fail
+  },
   failVisibility: (fail: boolean) => {
     failVisibility = fail
   },
@@ -162,7 +205,25 @@ document.body.style.height = '100%'
 document.getElementById('root')!.style.height = '100%'
 createRoot(document.getElementById('root')!).render(
   <HashRouter>
-    {new URLSearchParams(location.search).has('picker') ? (
+    {quotaTest && !new URLSearchParams(location.search).has('non-codex') && (
+      <div className="fixed right-6 top-3 z-50" data-chat-quota>
+        <QuotaMeter provider={providers[0]} model="test-model" />
+      </div>
+    )}
+    {quotaTest ? (
+      <div className="mx-auto max-w-xl space-y-4 pt-16">
+        {providers.map((provider, i) => (
+          <ProviderAccount
+            key={provider.id}
+            provider={provider}
+            active={i === 0}
+            onAddAccount={() => undefined}
+            onReconnect={() => undefined}
+            onDragStart={() => undefined}
+          />
+        ))}
+      </div>
+    ) : new URLSearchParams(location.search).has('picker') ? (
       <div className="fixed bottom-0 p-6">
         <ModelPicker />
       </div>
