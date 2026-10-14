@@ -57,6 +57,9 @@ jobs:
       - name: Renderer usage preferences and Escape regression suite
         run: npm run smoke:ui-preferences
 
+      - name: Notification presentation and activation suite
+        run: npm run smoke:notifications
+
       - name: Canvas diff and interaction model suite
         run: npm run smoke:diff
 

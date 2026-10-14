@@ -136,7 +136,9 @@ export function getSettings(): AppSettings {
     // than leave the UI rendering raw keys.
     language: normalizeLanguage(map.get('language')),
     motion: normalizeMotion(map.get('motion')),
-    activeThemeId: map.get('active_theme_id') ?? null
+    activeThemeId: map.get('active_theme_id') ?? null,
+    // Notifications are opt-in; an absent setting stays silent.
+    notifyOnComplete: map.get('notify_on_complete') === '1'
   }
 }
 
@@ -246,6 +248,11 @@ export function setMotion(value: MotionPreference): AppSettings {
 export function setAutoWorkstream(enabled: boolean): AppSettings {
   // Store only the OFF state; see getSettings for why.
   setSetting('auto_workstream', enabled ? null : '0')
+  return getSettings()
+}
+
+export function setNotifyOnComplete(enabled: boolean): AppSettings {
+  setSetting('notify_on_complete', enabled ? '1' : null)
   return getSettings()
 }
 
