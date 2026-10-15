@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { Message, MessagePart } from '@shared/types'
 import {
   Check,
   ChevronDown,
@@ -27,14 +28,26 @@ import { cn } from '../lib/cn'
 
 const DISMISSED_KEY_PREFIX = 'roxy.file_changes_dismissed.'
 
-export function AgentFileChangesPopup(): JSX.Element | null {
+export interface AgentFileChangesPopupProps {
+  messages?: Message[]
+  streaming?: MessagePart[] | null
+  wallpaper?: boolean
+}
+
+export function AgentFileChangesPopup({
+  messages: propsMessages,
+  streaming: propsStreaming,
+  wallpaper
+}: AgentFileChangesPopupProps = {}): JSX.Element | null {
   const { t } = useTranslation()
-  const messages = useRoxyStore((s) => s.messages)
+  const storeMessages = useRoxyStore((s) => s.messages)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const chats = useRoxyStore((s) => s.chats)
-  const streaming = useRoxyStore((s) =>
+  const storeStreaming = useRoxyStore((s) =>
     s.activeChatId ? (s.streamingChats[s.activeChatId] ?? null) : null
   )
+  const messages = propsMessages ?? storeMessages
+  const streaming = propsStreaming !== undefined ? propsStreaming : storeStreaming
   const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
   const activeChat = chats.find((chat) => chat.id === activeChatId)
   const parentChat = activeChat?.parentId
@@ -51,8 +64,8 @@ export function AgentFileChangesPopup(): JSX.Element | null {
   useEffect(() => subscribeFileReviews(() => setReviewNonce((n) => n + 1)), [])
 
   const summary = useMemo(
-    () => extractAgentFileChanges(messages, streaming, activeChatId ?? undefined),
-    [messages, streaming, activeChatId, reviewNonce]
+    () => extractAgentFileChanges(messages, streaming, activeChatId ?? undefined, workspaceRoot),
+    [messages, streaming, activeChatId, workspaceRoot, reviewNonce]
   )
 
   const isDismissedStored = (chatId: string | null, changeKey: string): boolean => {
@@ -156,7 +169,12 @@ export function AgentFileChangesPopup(): JSX.Element | null {
   // When dismissed, provide a minimal pill so the user can re-open it
   if (isDismissed) {
     return (
-      <div className="shrink-0 border-b border-border/70 bg-surface/50 px-4 py-1 text-xs">
+      <div
+        className={cn(
+          'shrink-0 border-b border-border/70 px-4 py-1 text-xs',
+          wallpaper ? 'agent-file-changes-panel' : 'bg-surface/50'
+        )}
+      >
         <div className="flex items-center justify-between gap-2">
           <button
             type="button"
@@ -189,7 +207,10 @@ export function AgentFileChangesPopup(): JSX.Element | null {
     <div
       role="region"
       aria-label={t('chat.fileChanges', { count: displayedFiles.length })}
-      className="shrink-0 border-b border-border bg-surface/90 backdrop-blur-sm px-4 py-2 text-xs shadow-sm transition-all"
+      className={cn(
+        'shrink-0 border-b border-border px-4 py-2 text-xs shadow-sm transition-all',
+        wallpaper ? 'agent-file-changes-panel' : 'bg-surface/90 backdrop-blur-sm'
+      )}
     >
       <div className="flex flex-col gap-2">
         {/* Header summary bar */}

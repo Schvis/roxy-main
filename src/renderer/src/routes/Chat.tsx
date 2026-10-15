@@ -293,7 +293,7 @@ function Chat(): JSX.Element {
           >
             <div
               className={
-                chatCollapsed
+                ideMode && chatCollapsed
                   ? 'invisible h-full w-full overflow-hidden'
                   : 'flex h-full min-h-0 w-full min-w-0'
               }

@@ -209,6 +209,10 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 
 ### Integrated IDE & Git Workflow
 
+- **IDE Mode Toggle** — Collapse the session explorer sidebar, then use the code icon above
+  the new-project folder icon to switch IDE mode on or off. The toggle remains available
+  when IDE mode is off and saves the same preference as Settings. Chat messages and drafts
+  stay open when switching modes.
 - **File Editor & Tree** — [`src/renderer/src/components/FileEditor.tsx`](src/renderer/src/components/FileEditor.tsx)
   provides an in-app editor with syntax highlighting powered by Shiki, active file tabs, and context attachment.
 - **Git Actions & Conflict Solver** — [`src/renderer/src/components/GitActionsView.tsx`](src/renderer/src/components/GitActionsView.tsx)

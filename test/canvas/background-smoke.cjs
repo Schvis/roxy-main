@@ -157,6 +157,26 @@ async function run() {
     0,
     'canvas allows artwork through'
   )
+  await click('#background-steps-and-commands')
+  await until(
+    `!!document.querySelector('.command-line-gutter') && !!document.querySelector('.agent-steps-gutter')`
+  )
+  assert.equal(
+    await evaluate(
+      `return getComputedStyle(document.querySelector('.command-line-gutter')).backgroundColor`
+    ),
+    'rgba(0, 0, 0, 0)',
+    'command line gutter is transparent with wallpaper'
+  )
+  assert.equal(
+    await evaluate(
+      `return getComputedStyle(document.querySelector('.agent-steps-gutter')).backgroundColor`
+    ),
+    'rgba(0, 0, 0, 0)',
+    'agent steps gutter is transparent with wallpaper'
+  )
+  await click('#background-messages')
+  await until(`!document.querySelector('.command-line-gutter')`)
   await evaluate(
     `window.__savedCanvas = document.querySelector('[data-canvas-surface] canvas'); const ctx=window.__savedCanvas.getContext('2d');ctx.fillStyle='red';ctx.fillRect(0,0,20,20);`
   )
@@ -326,6 +346,26 @@ async function run() {
     'rgb(10, 10, 10)',
     'remove restores solid UI'
   )
+  await click('#background-steps-and-commands')
+  await until(
+    `!!document.querySelector('.command-line-gutter') && !!document.querySelector('.agent-steps-gutter')`
+  )
+  assert.equal(
+    await evaluate(
+      `return getComputedStyle(document.querySelector('.command-line-gutter')).backgroundColor`
+    ),
+    'rgb(10, 10, 10)',
+    'command line gutter restores solid UI without wallpaper'
+  )
+  assert.equal(
+    await evaluate(
+      `return getComputedStyle(document.querySelector('.agent-steps-gutter')).backgroundColor`
+    ),
+    'rgb(10, 10, 10)',
+    'agent steps gutter restores solid UI without wallpaper'
+  )
+  await click('#background-empty')
+  await until(`!document.querySelector('.command-line-gutter')`)
   // Resize the actual chat sidebar, then load Appearance from its saved preference.
   await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
     enabled: true

@@ -6,7 +6,9 @@ import { extractAgentQuestionOptions } from '../lib/agent-input-options'
 import { Button } from './ui'
 import { cn } from '../lib/cn'
 
-export function AgentQuestionPopup(): JSX.Element | null {
+export function AgentQuestionPopup({
+  wallpaper
+}: { wallpaper?: boolean } = {}): JSX.Element | null {
   const { t } = useTranslation()
   const messages = useRoxyStore((s) => s.messages)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
@@ -86,9 +88,9 @@ export function AgentQuestionPopup(): JSX.Element | null {
   }
 
   return (
-    <div className="bg-bg px-4 pb-1.5">
+    <div className={cn('agent-question-gutter px-4 pb-1.5', !wallpaper && 'bg-bg')}>
       <div className="mx-auto max-w-3xl">
-        <div className="flex flex-col gap-2 rounded-lg border border-accent/30 bg-surface px-3 py-2.5 shadow-sm">
+        <div className="agent-question-panel flex flex-col gap-2 rounded-lg border border-accent/30 bg-surface/90 backdrop-blur-md px-3 py-2.5 shadow-sm">
           {/* Header & Pagination */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">

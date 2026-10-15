@@ -51,6 +51,7 @@ const state = {
 
 let current
 const hooks = {
+  memo: (component) => component,
   useState(initial) {
     const index = current.index++
     const context = current
@@ -78,7 +79,7 @@ const window = {
   removeEventListener: (name) => windowEvents.delete(name)
 }
 const document = { querySelector: () => null, activeElement: null }
-function load(path, extra = '') {
+function load(path, extra = '', overrides = {}) {
   const source = readFileSync(path, 'utf8') + extra
   const module = { exports: {} }
   const dependencies = {
@@ -99,6 +100,12 @@ function load(path, extra = '') {
     './BotAvatar': { BotAvatar: () => null },
     './SidebarFrame': { SidebarFrame: () => null, SidebarNavItem: () => null },
     './WindowControls': { WindowControls: () => null },
+    '../components/Sidebar': { Sidebar: () => null },
+    '../components/ChatView': { ChatView: () => null },
+    '../components/IdeWorkspace': { IdeWorkspace: () => null },
+    '../components/IdeModeToggle': { IdeModeToggle: () => null },
+    '../components/TopNavbar': { TopNavbar: () => null },
+    '../lib/chat-dock': { chatDockAtPoint: () => null },
     './ui': { Button: () => null },
     '../lib/cn': { cn: (...parts) => parts.filter(Boolean).join(' ') }
   }
@@ -111,7 +118,7 @@ function load(path, extra = '') {
     'document',
     transformSync(source, { loader: 'tsx', format: 'cjs', jsx: 'automatic' }).code
   )(
-    (name) => dependencies[name] ?? require(name),
+    (name) => overrides[name] ?? dependencies[name] ?? require(name),
     module,
     module.exports,
     localStorage,
@@ -390,6 +397,101 @@ special.context.effects[0]()
 windowEvents.get('keydown')({ key: 'Escape', preventDefault() {} })
 assert.equal(consumed, 1)
 assert.equal(backs, 1)
+const ideUI = load('src/renderer/src/components/IdeModeToggle.tsx')
+let finishIdeSave
+const ideSaves = []
+state.settings = { ideMode: false }
+state.setIdeMode = (enabled) => {
+  ideSaves.push(enabled)
+  return new Promise((resolve) => {
+    finishIdeSave = () => {
+      state.settings = { ...state.settings, ideMode: enabled }
+      resolve()
+    }
+  })
+}
+let ide = render(ideUI.IdeModeToggle, {})
+let toggle = find(ide.tree, 'button')
+assert.equal(toggle.props.role, 'switch')
+assert.equal(toggle.props['aria-checked'], false)
+const savingIde = toggle.props.onClick()
+await toggle.props.onClick()
+assert.deepEqual(ideSaves, [true], 'Rapid clicks save only once')
+ide = render(ideUI.IdeModeToggle, {}, ide.context)
+assert.equal(find(ide.tree, 'button').props.disabled, true)
+assert.equal(find(ide.tree, 'button').props['aria-busy'], true)
+finishIdeSave()
+await savingIde
+ide = render(ideUI.IdeModeToggle, {}, ide.context)
+toggle = find(ide.tree, 'button')
+assert.equal(toggle.props['aria-checked'], true)
+assert.equal(toggle.props.disabled, false)
+const disablingIde = toggle.props.onClick()
+finishIdeSave()
+await disablingIde
+assert.deepEqual(ideSaves, [true, false], 'Toggle saves both modes')
+state.setIdeMode = async () => {
+  throw new Error('save failed')
+}
+ide = render(ideUI.IdeModeToggle, {}, ide.context)
+await find(ide.tree, 'button').props.onClick()
+ide = render(ideUI.IdeModeToggle, {}, ide.context)
+assert.equal(find(ide.tree, 'button').props['aria-checked'], false)
+assert.equal(find(ide.tree, 'button').props.disabled, false)
+assert.equal(find(ide.tree, 'button').props.title, 'ide.saveError')
+assert.ok(nodes(ide.tree).some((node) => node.props?.role === 'alert'))
+state.settings = null
+ide = render(ideUI.IdeModeToggle, {}, ide.context)
+assert.equal(find(ide.tree, 'button').props.disabled, true)
+
+const chatUI = load('src/renderer/src/routes/Chat.tsx')
+state.chats = []
+state.activeChatId = null
+storage.set('roxy.ide.chatCollapsed.v1', 'true')
+state.settings = { ideMode: false }
+let chat = render(chatUI.default, {})
+assert.equal(nodes(chat.tree).filter((node) => node.type?.name === 'IdeModeToggle').length, 0)
+assert.ok(!nodes(chat.tree).some((node) => node.props?.className?.includes('invisible')))
+state.settings = { ideMode: true }
+chat = render(chatUI.default, {}, chat.context)
+assert.equal(nodes(chat.tree).filter((node) => node.type?.name === 'IdeModeToggle').length, 0)
+assert.equal(nodes(chat.tree).filter((node) => node.type?.name === 'IdeWorkspace').length, 1)
+assert.ok(nodes(chat.tree).some((node) => node.props?.className?.includes('invisible')))
+const ideSource = readFileSync('src/renderer/src/components/IdeWorkspace.tsx', 'utf8')
+assert.ok(!ideSource.includes('<IdeModeToggle />'), 'IDE activity bar has no duplicate toggle')
+const sidebarUI = load('src/renderer/src/components/Sidebar.tsx', '', {
+  'react-router-dom': { useNavigate: () => () => {} },
+  'morphicons/react': { MorphIcon: () => null },
+  '@shared/forge': { isPullRequestPhase: () => false },
+  '@shared/workstream': { statusKeyForSession: () => null },
+  '@shared/repos': { repoCountBadge: () => null },
+  '../lib/motion': { useMotion: () => ({ reduced: true }) },
+  '../lib/lifecycle': { TONE_BG: {}, TONE_TEXT_STATIC: {} },
+  './BotsSection': { BotsSection: () => null },
+  './ThinkingIndicator': { BrailleSpinner: () => null },
+  './UpdateCard': { UpdateCard: () => null },
+  './IdeModeToggle': ideUI
+})
+state.projectOrder = []
+state.bots = []
+state.sidebarRailed = true
+for (const enabled of [false, true]) {
+  state.settings = { ideMode: enabled }
+  const sidebar = render(sidebarUI.Sidebar, {})
+  const railNodes = nodes(sidebar.tree)
+  const toggleIndex = railNodes.findIndex((node) => node.type === ideUI.IdeModeToggle)
+  const folderIndex = railNodes.findIndex(
+    (node) => node.type === 'button' && node.props.title === 'sidebar.newProject'
+  )
+  assert.ok(
+    toggleIndex >= 0 && toggleIndex < folderIndex,
+    'Collapsed session rail toggle sits above folder icon'
+  )
+}
+state.sidebarRailed = false
+assert.ok(
+  !nodes(render(sidebarUI.Sidebar, {}).tree).some((node) => node.type === ideUI.IdeModeToggle)
+)
 console.log(
-  'UI PREFERENCES OK: quota ordering, bot drag/keyboard/RTL/click isolation, alert color, storage, menus and Escape lifecycle'
+  'UI PREFERENCES OK: quota ordering, bot drag/keyboard/RTL/click isolation, alert color, storage, menus, Escape lifecycle and IDE toggle'
 )

@@ -107,6 +107,8 @@ export function BackgroundHarness(): JSX.Element {
             const id = s.activeChatId!
             useRoxyStore.setState({
               messagesChatId: id,
+              streamingChats: {},
+              chats: s.chats.map((c) => (c.id === id ? { ...c, tasks: [] } : c)),
               messages: [
                 {
                   id: 'wallpaper-test',
@@ -124,13 +126,16 @@ export function BackgroundHarness(): JSX.Element {
         </button>
         <button
           id="background-empty"
-          onClick={() =>
+          onClick={() => {
+            const s = useRoxyStore.getState()
             useRoxyStore.setState({
               messages: [],
+              streamingChats: {},
               messagesError: null,
-              messagesChatId: useRoxyStore.getState().activeChatId
+              messagesChatId: s.activeChatId,
+              chats: s.chats.map((c) => (c.id === s.activeChatId ? { ...c, tasks: [] } : c))
             })
-          }
+          }}
         >
           Empty
         </button>
@@ -147,6 +152,60 @@ export function BackgroundHarness(): JSX.Element {
           onClick={() => useRoxyStore.setState({ messages: [], messagesError: 'test' })}
         >
           Error
+        </button>
+        <button
+          id="background-steps-and-commands"
+          onClick={() => {
+            const s = useRoxyStore.getState()
+            const id = s.activeChatId!
+            useRoxyStore.setState({
+              messagesChatId: id,
+              messages: [
+                {
+                  id: 'steps-msg',
+                  chatId: id,
+                  role: 'assistant',
+                  content: 'Working on tasks...',
+                  parts: [
+                    {
+                      type: 'tool',
+                      tool: 'bash',
+                      state: 'running',
+                      input: { command: 'npm test' },
+                      title: 'npm test',
+                      callId: 'call-1'
+                    }
+                  ],
+                  createdAt: Date.now()
+                }
+              ],
+              streamingChats: {
+                [id]: [
+                  {
+                    type: 'tool',
+                    tool: 'bash',
+                    state: 'running',
+                    input: { command: 'npm test' },
+                    title: 'npm test',
+                    callId: 'call-1'
+                  }
+                ]
+              },
+              chats: s.chats.map((c) =>
+                c.id === id
+                  ? {
+                      ...c,
+                      tasks: [
+                        { id: '1', title: 'Running unit tests', status: 'in_progress' },
+                        { id: '2', title: 'Building app', status: 'pending' }
+                      ]
+                    }
+                  : c
+              )
+            })
+          }}
+        >
+          Steps & Commands
         </button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">

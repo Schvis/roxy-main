@@ -38,6 +38,7 @@ import { BotsSection } from './BotsSection'
 import { BrailleSpinner } from './ThinkingIndicator'
 import { UpdateCard } from './UpdateCard'
 import { SidebarFrame, SidebarNavItem } from './SidebarFrame'
+import { IdeModeToggle } from './IdeModeToggle'
 
 /**
  * How often to re-read git + PR state for EVERY session.
@@ -478,6 +479,9 @@ export function Sidebar(): JSX.Element {
         >
           <PanelLeftOpen className="h-4 w-4" />
         </button>
+        <div className="mt-2">
+          <IdeModeToggle />
+        </div>
         <button
           onClick={newSession}
           title={t('sidebar.newProject')}

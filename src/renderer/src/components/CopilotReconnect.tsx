@@ -2,22 +2,28 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, X } from 'lucide-react'
 import { CopilotSetup } from './CopilotSetup'
+import { cn } from '../lib/cn'
 
 /** Kept outside the canvas so recovery stays keyboard-accessible and visible. */
 export function CopilotReconnect({
   connectionId,
   needed,
-  onConnected
+  onConnected,
+  wallpaper
 }: {
   connectionId: string
   needed: boolean
   onConnected: () => Promise<void>
+  wallpaper?: boolean
 }): JSX.Element | null {
   const { t } = useTranslation()
   const [connected, setConnected] = useState(false)
   if (!needed && !connected) return null
   return (
-    <section aria-label={t('chat.copilotReconnect')} className="bg-bg px-4 pt-2">
+    <section
+      aria-label={t('chat.copilotReconnect')}
+      className={cn('copilot-reconnect-gutter px-4 pt-2', !wallpaper && 'bg-bg')}
+    >
       <div className="mx-auto max-h-[45vh] max-w-3xl overflow-y-auto rounded-xl border border-border bg-surface p-4">
         {needed ? (
           <CopilotSetup

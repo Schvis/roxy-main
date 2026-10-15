@@ -7,7 +7,7 @@ import { cn } from '../lib/cn'
 
 const DISMISSED_KEY_PREFIX = 'roxy.steps_dismissed.'
 
-export function AgentStepsPopup(): JSX.Element | null {
+export function AgentStepsPopup({ wallpaper }: { wallpaper?: boolean } = {}): JSX.Element | null {
   const { t } = useTranslation()
   const messages = useRoxyStore((s) => s.messages)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
@@ -71,12 +71,12 @@ export function AgentStepsPopup(): JSX.Element | null {
   }
 
   return (
-    <div className="bg-bg px-4 pb-1.5">
+    <div className={cn('agent-steps-gutter px-4 pb-1.5', !wallpaper && 'bg-bg')}>
       <div className="mx-auto max-w-3xl">
         <div
           role="region"
           aria-label={t('chat.agentSteps')}
-          className="w-full rounded-xl border border-border/80 bg-surface/90 backdrop-blur-md shadow-raised overflow-hidden transition-all text-xs"
+          className="agent-steps-panel w-full rounded-xl border border-border/80 bg-surface/90 backdrop-blur-md shadow-raised overflow-hidden transition-all text-xs"
         >
           {/* Header summary bar */}
           <div className="flex items-center justify-between gap-2 px-3 py-2">

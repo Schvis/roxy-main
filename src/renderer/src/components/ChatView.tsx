@@ -695,7 +695,12 @@ export function ChatView({
           </div>
         </header>
 
-        <AgentFileChangesPopup />
+        <AgentFileChangesPopup
+          key={`file-changes-${activeChatId}`}
+          messages={messages}
+          streaming={streaming}
+          wallpaper={wallpaper}
+        />
         {infoOpen && <SessionInfo chat={activeChat} />}
 
         {messagesError ? (
@@ -900,6 +905,7 @@ export function ChatView({
             connectionId={provider.id}
             needed={copilotNeedsReauthentication[provider.id] ?? false}
             onConnected={refreshProviders}
+            wallpaper={wallpaper}
           />
         )}
 
@@ -907,14 +913,14 @@ export function ChatView({
           cancels the DELEGATE (there is no local request here to abort), which
           is what the button visibly means in this view. */}
         {latestCommand && !isSessionDismissed && dismissedCommand !== latestCommand.title && (
-          <div className="bg-bg px-4 pb-1.5">
+          <div className={cn('command-line-gutter px-4 pb-1.5', !wallpaper && 'bg-bg')}>
             <div className="mx-auto max-w-3xl">
               <div
                 className={cn(
-                  'flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors',
+                  'command-line-panel flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs backdrop-blur-md shadow-sm transition-colors',
                   runningCommand
-                    ? 'border-accent/25 bg-accent/10 text-accent'
-                    : 'border-border bg-surface-2/60 text-text-muted hover:bg-surface-2 hover:text-text'
+                    ? 'border-accent/30 bg-surface/90 text-accent'
+                    : 'border-border bg-surface-2/80 text-text-muted hover:bg-surface-2 hover:text-text'
                 )}
               >
                 {askingSessionDismiss ? (
@@ -1048,8 +1054,8 @@ export function ChatView({
           </div>
         )}
 
-        <AgentStepsPopup />
-        <AgentQuestionPopup />
+        <AgentStepsPopup wallpaper={wallpaper} />
+        <AgentQuestionPopup wallpaper={wallpaper} />
 
         <Composer
           key={activeChatId}

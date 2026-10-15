@@ -21,7 +21,11 @@
   inset: 0;
   background: linear-gradient(180deg, transparent, var(--color-bg));
 }
-[data-wallpaper] .composer-gutter {
+[data-wallpaper] .composer-gutter,
+[data-wallpaper] .command-line-gutter,
+[data-wallpaper] .agent-steps-gutter,
+[data-wallpaper] .agent-question-gutter,
+[data-wallpaper] .copilot-reconnect-gutter {
   background: transparent;
 }
 /* Blur lives on a clipped decorative sibling, never the popover-owning panel. */
@@ -51,7 +55,15 @@
 .background-preview-panel {
   background: var(--color-surface-2);
 }
-[data-glass] .background-preview-panel {
+.agent-file-changes-panel {
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  backdrop-filter: blur(8px);
+}
+[data-glass] .background-preview-panel,
+[data-glass] .agent-steps-panel,
+[data-glass] .command-line-panel,
+[data-glass] .agent-question-panel,
+[data-glass] .agent-file-changes-panel {
   background: color-mix(in srgb, var(--color-surface-2) 78%, transparent);
   backdrop-filter: blur(18px) saturate(1.2);
 }
@@ -60,7 +72,11 @@
     background: var(--color-bg);
   }
   [data-glass] .composer-panel::before,
-  [data-glass] .background-preview-panel {
+  [data-glass] .background-preview-panel,
+  [data-glass] .agent-steps-panel,
+  [data-glass] .command-line-panel,
+  [data-glass] .agent-question-panel,
+  [data-glass] .agent-file-changes-panel {
     background: var(--color-surface-2);
     backdrop-filter: none;
   }
@@ -72,7 +88,11 @@
 }
 @supports not (backdrop-filter: blur(1px)) {
   [data-glass] .composer-panel::before,
-  [data-glass] .background-preview-panel {
+  [data-glass] .background-preview-panel,
+  [data-glass] .agent-steps-panel,
+  [data-glass] .command-line-panel,
+  [data-glass] .agent-question-panel,
+  [data-glass] .agent-file-changes-panel {
     background: var(--color-surface-2);
   }
 }

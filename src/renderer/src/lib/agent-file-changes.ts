@@ -132,13 +132,39 @@ export function normalizeFilePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
 }
 
+export function isAbsolutePath(p: string): boolean {
+  if (!p) return false
+  const clean = p.replace(/\\/g, '/')
+  return /^[a-zA-Z]:[/\\]/.test(p) || clean.startsWith('/')
+}
+
+export function stripWorkspaceRoot(p: string, workspaceRoot?: string | null): string {
+  if (!p || !workspaceRoot) return p
+  const normP = p.replace(/\\/g, '/')
+  const normRoot = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (normP.toLowerCase().startsWith(normRoot.toLowerCase() + '/')) {
+    return normP.slice(normRoot.length + 1)
+  }
+  return p
+}
+
 export function pathsMatch(a: string, b: string): boolean {
   if (!a || !b) return false
   const normA = normalizeFilePath(a).toLowerCase()
   const normB = normalizeFilePath(b).toLowerCase()
   if (normA === normB) return true
-  if (normA.endsWith('/' + normB) || normB.endsWith('/' + normA)) return true
-  return false
+
+  const aIsAbs = isAbsolutePath(a)
+  const bIsAbs = isAbsolutePath(b)
+
+  // If both are relative or both are absolute, they must match exactly
+  if (aIsAbs === bIsAbs) return false
+
+  // One is absolute and one is relative: check suffix match
+  const abs = aIsAbs ? normA : normB
+  const rel = aIsAbs ? normB : normA
+
+  return abs.endsWith('/' + rel)
 }
 
 interface RawDiffEntry {
@@ -150,7 +176,8 @@ interface RawDiffEntry {
 
 function extractDiffsFromParts(
   parts: MessagePart[] | null | undefined,
-  isLatestTurn: boolean
+  isLatestTurn: boolean,
+  workspaceRoot?: string | null
 ): RawDiffEntry[] {
   if (!parts) return []
   const result: RawDiffEntry[] = []
@@ -158,15 +185,16 @@ function extractDiffsFromParts(
   for (const part of parts) {
     if (part.type === 'tool') {
       if (part.diff && part.diff.path) {
+        const cleaned = stripWorkspaceRoot(part.diff.path, workspaceRoot)
         result.push({
-          path: normalizeFilePath(part.diff.path),
+          path: normalizeFilePath(cleaned),
           diff: part.diff,
           tool: part.tool,
           isLatestTurn
         })
       }
       if (part.children) {
-        result.push(...extractDiffsFromParts(part.children, isLatestTurn))
+        result.push(...extractDiffsFromParts(part.children, isLatestTurn, workspaceRoot))
       }
     }
   }
@@ -249,8 +277,10 @@ export function getPersistedReview(
   path: string
 ): PersistedReviewEntry | undefined {
   for (const [key, entry] of reviewStatusMap.entries()) {
-    const [sId, ...rest] = key.split(':')
-    const storedPath = rest.join(':')
+    const firstColon = key.indexOf(':')
+    if (firstColon === -1) continue
+    const sId = key.slice(0, firstColon)
+    const storedPath = key.slice(firstColon + 1)
     if (sId === sessionId && pathsMatch(storedPath, path)) {
       return entry
     }
@@ -265,8 +295,10 @@ export function getFileReviewStatus(
 ): FileReviewStatus {
   const expectedSig = latestAfter !== undefined ? computeSignature(latestAfter) : undefined
   for (const [key, entry] of reviewStatusMap.entries()) {
-    const [sId, ...rest] = key.split(':')
-    const storedPath = rest.join(':')
+    const firstColon = key.indexOf(':')
+    if (firstColon === -1) continue
+    const sId = key.slice(0, firstColon)
+    const storedPath = key.slice(firstColon + 1)
     if (sId === sessionId && pathsMatch(storedPath, path)) {
       if (expectedSig && entry.afterSignature && entry.afterSignature !== expectedSig) {
         continue
@@ -284,8 +316,10 @@ export function setFileReviewStatus(
   latestAfter?: string
 ): void {
   for (const key of Array.from(reviewStatusMap.keys())) {
-    const [sId, ...rest] = key.split(':')
-    const storedPath = rest.join(':')
+    const firstColon = key.indexOf(':')
+    if (firstColon === -1) continue
+    const sId = key.slice(0, firstColon)
+    const storedPath = key.slice(firstColon + 1)
     if (sId === sessionId && pathsMatch(storedPath, path)) {
       reviewStatusMap.delete(key)
     }
@@ -356,15 +390,21 @@ export function keepAllFileChanges(sessionId: string, changes: AgentFileChange[]
 export function extractAgentFileChanges(
   messages: Message[],
   streaming: MessagePart[] | null,
-  sessionId?: string
+  sessionId?: string,
+  workspaceRoot?: string | null
 ): AgentFileChangesSummary {
   const rawDiffs: RawDiffEntry[] = []
 
+  // Check if streaming currently has tool diffs
+  const streamingHasDiff = streaming?.some(
+    (p) =>
+      p.type === 'tool' &&
+      (Boolean(p.diff) || p.children?.some((c) => c.type === 'tool' && Boolean(c.diff)))
+  )
+
   // Check which message index represents the latest assistant response with diffs
   let latestTurnIndex = -1
-  if (streaming && streaming.length > 0) {
-    latestTurnIndex = messages.length // Streaming is the latest
-  } else {
+  if (!streamingHasDiff) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
       if (msg.role === 'assistant' && msg.parts) {
@@ -385,12 +425,12 @@ export function extractAgentFileChanges(
   messages.forEach((msg, idx) => {
     if (msg.role !== 'assistant') return
     const isLatest = idx === latestTurnIndex
-    rawDiffs.push(...extractDiffsFromParts(msg.parts, isLatest))
+    rawDiffs.push(...extractDiffsFromParts(msg.parts, isLatest, workspaceRoot))
   })
 
   // Collect from streaming turn
   if (streaming) {
-    rawDiffs.push(...extractDiffsFromParts(streaming, true))
+    rawDiffs.push(...extractDiffsFromParts(streaming, true, workspaceRoot))
   }
 
   if (rawDiffs.length === 0) {
@@ -501,7 +541,7 @@ export function extractAgentFileChanges(
           }
         }
       } else {
-        reviewStatus = 'kept'
+        reviewStatus = isLatestTurn ? 'pending' : 'kept'
       }
     } else if (review && review.status === 'undone') {
       if (review.afterSignature && computeSignature(overallLatestAfter) === review.afterSignature) {
@@ -557,7 +597,8 @@ export function extractAgentFileChanges(
   const pendingCount = pendingFiles.length
   const changeKey = files
     .map(
-      (f) => `${f.path}:${f.addedLines}:${f.removedLines}:${f.latestAfter.length}:${f.reviewStatus}`
+      (f) =>
+        `${f.path}:${f.addedLines}:${f.removedLines}:${computeSignature(f.latestAfter)}:${f.reviewStatus}`
     )
     .join('|')
 
