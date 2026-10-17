@@ -28,16 +28,25 @@ async function main(): Promise<void> {
     getItem: (key: string) => reviews.get(key) ?? null,
     setItem: (key: string, value: string) => reviews.set(key, value)
   }
-  ;(globalThis as { window?: unknown }).window = { roxy: { files: {
-    create: async () => ({ success: true }),
-    read: async () => ({ revision: 'revision' }),
-    write: async (_session: string, _path: string, content: string) => {
-      writes.push(content)
-      return { status: writeStatus }
+  ;(globalThis as { window?: unknown }).window = {
+    roxy: {
+      files: {
+        create: async () => ({ success: true }),
+        read: async () => ({ revision: 'revision' }),
+        write: async (_session: string, _path: string, content: string) => {
+          writes.push(content)
+          return { status: writeStatus }
+        }
+      }
     }
-  } } }
-  const { extractAgentFileChanges, pathsMatch, stripWorkspaceRoot, setFileReviewStatus, undoFileChange } =
-    await import('../src/renderer/src/lib/agent-file-changes')
+  }
+  const {
+    extractAgentFileChanges,
+    pathsMatch,
+    stripWorkspaceRoot,
+    setFileReviewStatus,
+    undoFileChange
+  } = await import('../src/renderer/src/lib/agent-file-changes')
 
   // Basic aggregation checks
   const createdThenDeleted = extractAgentFileChanges(
@@ -110,9 +119,10 @@ async function main(): Promise<void> {
   assert.equal(toolDiff('large.txt', large, large + 'y')?.after, large + 'y')
   assert.equal(toolDiff('unchanged.txt', large, large), undefined)
   const emptyCreated = toolDiff('empty.txt', '', '', false)!
-  const emptySummary = extractAgentFileChanges([message([
-    { type: 'tool', tool: 'write', state: 'done', diff: emptyCreated }
-  ])], null)
+  const emptySummary = extractAgentFileChanges(
+    [message([{ type: 'tool', tool: 'write', state: 'done', diff: emptyCreated }])],
+    null
+  )
   assert.equal(emptySummary.pendingCount, 1)
   assert.equal(emptySummary.files[0].isCreated, true)
 
@@ -121,9 +131,11 @@ async function main(): Promise<void> {
   const prefix = 'x'.repeat(80)
   setFileReviewStatus('cache-session', 'cache.txt', 'kept', prefix + 'a')
   extractAgentFileChanges([message([tool('cache.txt', prefix + 'a', prefix + 'a')])], null)
-  const collision = extractAgentFileChanges([
-    message([tool('cache.txt', prefix + 'a', prefix + 'b')])
-  ], null, 'cache-session')
+  const collision = extractAgentFileChanges(
+    [message([tool('cache.txt', prefix + 'a', prefix + 'b')])],
+    null,
+    'cache-session'
+  )
   assert.equal(collision.pendingCount, 1)
   assert.equal(collision.totalAdded, 1)
 
@@ -134,9 +146,14 @@ async function main(): Promise<void> {
     await fs.writeFile(path.join(directory, 'dirty.txt'), 'user changes')
     await fs.writeFile(path.join(directory, 'delete.txt'), 'remove me')
     const observed = await observeToolFiles(directory, async () => {
-      await promisify(execFile)(process.execPath, ['-e',
-        "const fs=require('node:fs');fs.writeFileSync('dirty.txt','agent changes');fs.writeFileSync('new.txt','new');fs.unlinkSync('delete.txt')"
-      ], { cwd: directory })
+      await promisify(execFile)(
+        process.execPath,
+        [
+          '-e',
+          "const fs=require('node:fs');fs.writeFileSync('dirty.txt','agent changes');fs.writeFileSync('new.txt','new');fs.unlinkSync('delete.txt')"
+        ],
+        { cwd: directory }
+      )
       return { ok: false, output: 'command may fail after writing files' }
     })
     assert.equal(observed.diffs.length, 3)
@@ -162,9 +179,14 @@ async function main(): Promise<void> {
     setFileReviewStatus('shell-session', 'dirty.txt', 'kept', 'agent changes')
     assert.equal(extractAgentFileChanges([message(saved)], null, 'shell-session').pendingCount, 1)
     assert.equal((await observeToolFiles(directory, async () => true)).diffs.length, 0)
-    const nested: MessagePart[] = [{ type: 'tool', tool: 'task', state: 'done', children: [
-      { type: 'tool', tool: 'task', state: 'done', children: saved }
-    ] }]
+    const nested: MessagePart[] = [
+      {
+        type: 'tool',
+        tool: 'task',
+        state: 'done',
+        children: [{ type: 'tool', tool: 'task', state: 'done', children: saved }]
+      }
+    ]
     assert.equal(extractAgentFileChanges([message(nested)], null).latestTurnFiles.length, 3)
   } finally {
     await fs.rm(directory, { recursive: true, force: true })

@@ -342,7 +342,7 @@ function Chat(): JSX.Element {
                   : bottom
                     ? 'w-full min-h-[300px]'
                     : 'min-w-[380px] min-h-[300px]'
-                : 'h-full flex-1 min-w-[380px] min-h-[300px]'
+                : 'h-full flex-1 min-h-[300px]'
             }`}
             style={
               ideMode

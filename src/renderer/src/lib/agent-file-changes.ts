@@ -356,7 +356,10 @@ export async function undoFileChange(
       const readResult = await api.files.read(sessionId, change.path)
       if (!readResult || readResult.revision === null) return false
       const written = await api.files.write(
-        sessionId, change.path, change.initialBefore, readResult.revision
+        sessionId,
+        change.path,
+        change.initialBefore,
+        readResult.revision
       )
       if (written.status !== 'saved') return false
       revertEditorDraft(sessionId, change.path)
@@ -553,9 +556,10 @@ export function extractAgentFileChanges(
 
     const firstDiff = items[0].diff
     const lastDiff = items[items.length - 1].diff
-    const beforeExists = initialBefore !== firstDiff.before || review?.status === 'kept'
-      ? true
-      : (firstDiff.beforeExists ?? Boolean(initialBefore))
+    const beforeExists =
+      initialBefore !== firstDiff.before || review?.status === 'kept'
+        ? true
+        : (firstDiff.beforeExists ?? Boolean(initialBefore))
     const afterExists = lastDiff.afterExists ?? Boolean(latestAfter)
     const stats = {
       ...getLineStats(group.path, initialBefore, latestAfter),

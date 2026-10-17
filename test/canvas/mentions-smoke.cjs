@@ -390,10 +390,15 @@ async function run() {
   await wait()
   if (await evaluate(`return !!document.querySelector('button[title="Collapse sidebar"]')`))
     await click('button[title="Collapse sidebar"]')
+  const composerBounds = await evaluate(`
+    const r = document.querySelector('textarea').getBoundingClientRect()
+    return { left: r.left, right: r.right, bottom: r.bottom, width: innerWidth, height: innerHeight }
+  `)
   assert.ok(
-    await evaluate(
-      `const r = document.querySelector('textarea').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight`
-    )
+    composerBounds.left >= 0 &&
+      composerBounds.right <= composerBounds.width &&
+      composerBounds.bottom <= composerBounds.height,
+    `mobile composer stays inside the viewport: ${JSON.stringify(composerBounds)}`
   )
   assert.equal(await evaluate(`return document.querySelectorAll('select').length`), 0)
   console.log(
