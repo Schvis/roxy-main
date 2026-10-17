@@ -26,7 +26,11 @@ import { visibleImages, type Scene, type ViewState } from '../../src/renderer/sr
 import type { CanvasTheme } from '../../src/renderer/src/canvas/theme'
 import source from '../../src/renderer/src/locales/default.json'
 import { FIXTURES, LARGE_DIFF } from './fixtures'
-import { activePrompt, promptEntries } from '../../src/renderer/src/canvas/prompt-history'
+import {
+  activePrompt,
+  promptEntries,
+  PROMPT_GUTTER
+} from '../../src/renderer/src/canvas/prompt-history'
 import type { Message, MessagePart } from '../../src/shared/types'
 import { parseMarkdown } from '../../src/renderer/src/canvas/markdown'
 import { ansiLineText, parseAnsi } from '../../src/renderer/src/canvas/ansi'
@@ -424,6 +428,65 @@ check('cache repositions blocks and rebases selection ordinals', () => {
   assert.ok(second.blocks[2].y > first.blocks[2].y)
   const row = second.blocks[2].selectable[0]
   assert.equal(hitText(second, row.x + 2, row.y + 4, metrics)?.line, row.index)
+})
+check('empty block caches do not scan history on repeated viewport layouts', () => {
+  const cache = new BlockCache()
+  let idReads = 0
+  const messages = Array.from(
+    { length: 2000 },
+    (_, index): Message => ({
+      get id() {
+        idReads++
+        return `prune-${index}`
+      },
+      chatId: 'prune',
+      role: 'assistant',
+      content: '',
+      parts: [],
+      createdAt: index
+    })
+  )
+  const windowed = layoutTranscript(
+    {
+      messages,
+      streaming: null,
+      width: 600,
+      metrics,
+      theme,
+      view: view(),
+      now: 0,
+      canCancel: () => true,
+      t,
+      viewport: { top: 0, height: 600, tail: true }
+    },
+    cache
+  )
+  assert.ok(windowed.window)
+  idReads = 0
+  for (let frame = 0; frame < 20; frame++) cache.prune(messages)
+  console.log(`    empty cache prune: ${idReads} message ID reads (2000 messages, 20 layouts)`)
+  assert.equal(idReads, 0)
+
+  const input = {
+    messages: FIXTURES.slice(0, 2),
+    streaming: null,
+    width: 600,
+    metrics,
+    theme,
+    view: view(),
+    now: 0,
+    canCancel: () => true,
+    t
+  }
+  const scene = layoutTranscript(input, cache)
+  const first = input.messages[0]
+  const second = input.messages[1]
+  cache.prune([first])
+  const width = input.width - PROMPT_GUTTER
+  assert.equal(cache.get(first, width, theme.epoch, input.view, t), scene.blocks[0])
+  assert.equal(cache.get(second, width, theme.epoch, input.view, t), null)
+  cache.prune([])
+  assert.equal(cache.get(first, width, theme.epoch, input.view, t), null)
 })
 check('diff wrapping, scroll limits, and split selection share geometry', () => {
   const state = createDiffState(LARGE_DIFF.path, LARGE_DIFF.before, LARGE_DIFF.after)

@@ -23,11 +23,59 @@ import { connectVerifiedProvider } from '../src/main/services/provider-connect'
 const root = mkdtempSync(join(tmpdir(), 'roxy-provider-models-'))
 app.setPath('userData', root)
 const originalFetch = globalThis.fetch
+const originalNow = Date.now
 
 void app
   .whenReady()
   .then(async () => {
     try {
+      Date.now = () => originalNow() - 2 * 60 * 60 * 1000
+      let publicCatalogRequests = 0
+      let releaseCatalog!: () => void
+      let catalogGate = new Promise<void>((resolve) => {
+        releaseCatalog = resolve
+      })
+      let catalogFails = true
+      globalThis.fetch = async (url) => {
+        assert.equal(String(url), 'https://models.dev/api.json')
+        publicCatalogRequests++
+        await catalogGate
+        if (catalogFails) return new Response('', { status: 503 })
+        return Response.json({
+          anthropic: { models: { test: { id: 'anthropic-test', tool_call: true } } },
+          google: { models: { test: { id: 'google-test', tool_call: true } } }
+        })
+      }
+      const failedCatalogs = Promise.all([
+        listModelCatalog('anthropic'),
+        listModelCatalog('google'),
+        listModelCatalog('anthropic')
+      ])
+      releaseCatalog()
+      assert.deepEqual(await failedCatalogs, Array(3).fill({ models: [], error: 'unavailable' }))
+      assert.equal(publicCatalogRequests, 1, 'concurrent public catalog failures share one request')
+      catalogFails = false
+      catalogGate = new Promise<void>((resolve) => {
+        releaseCatalog = resolve
+      })
+      const recoveredCatalogs = Promise.all([
+        listModels('anthropic'),
+        listModels('google'),
+        listModels('anthropic')
+      ])
+      releaseCatalog()
+      const recoveredPublic = await recoveredCatalogs
+      assert.equal(publicCatalogRequests, 2, 'a failed fetch is retried once for the next batch')
+      assert.equal(recoveredPublic[0][0]?.id, 'anthropic-test')
+      assert.equal(recoveredPublic[1][0]?.id, 'google-test')
+      assert.deepEqual(recoveredPublic[2], recoveredPublic[0])
+      await listModels('google')
+      assert.equal(publicCatalogRequests, 2, 'warm public catalogs require no additional HTTP')
+      Date.now = originalNow
+      console.log(
+        'PUBLIC CATALOG OK: concurrent discovery shares HTTP and JSON parsing; failure retries'
+      )
+
       // Verify every API-key seed using only mocked, read-only HTTP.
       for (const seed of SEED_PROVIDERS.filter((p) => p.auth === 'api-key')) {
         let requests = 0
@@ -767,6 +815,7 @@ void app
       )
     } finally {
       globalThis.fetch = originalFetch
+      Date.now = originalNow
       closeDb()
       rmSync(root, { recursive: true, force: true })
     }

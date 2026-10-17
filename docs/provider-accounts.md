@@ -15,6 +15,11 @@ GitHub Copilot tokens, refresh promises, reauthentication state, and model catal
 
 Subscription connections share one CLIProxy process but bind to individual auth files. Each file gets a deterministic, unique model prefix. Model discovery uses that file's catalog; inference adds the prefix at the wire boundary. Missing or unusable bindings fail closed instead of falling back to the proxy's credential pool. Account sign-out removes only the bound file.
 
+Public models.dev metadata is cached for one hour. Concurrent cold or expired
+catalog requests share a single HTTP fetch and JSON parse, including requests for
+different providers. Failed fetches are not cached and can be retried. Private,
+account-specific catalog handling remains separate.
+
 ## Selection
 
 Session provider/model pairs continue to store connection IDs. An explicitly selected account that has been disconnected must not resolve to the first remaining connection. Display names do not participate in routing and renaming does not change saved selections.

@@ -951,6 +951,8 @@ export class BlockCache {
 
   /** Forget messages that are no longer in the transcript. */
   prune(messages: Message[]): void {
+    // Windowed transcripts use their own entries; there are no full blocks to prune.
+    if (this.entries.size === 0) return
     const live = new Set(messages.map((m) => m.id))
     for (const id of this.entries.keys()) if (!live.has(id)) this.entries.delete(id)
   }

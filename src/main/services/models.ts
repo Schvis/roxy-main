@@ -38,6 +38,7 @@ interface ModelsDevProvider {
 }
 
 let cache: { at: number; data: Record<string, ModelsDevProvider> } | null = null
+let catalogPending: Promise<Record<string, ModelsDevProvider>> | undefined
 
 interface CopilotModel {
   id: string
@@ -394,11 +395,19 @@ async function listSubscriptionModels(providerId: string): Promise<ModelInfo[]> 
 
 async function getCatalog(): Promise<Record<string, ModelsDevProvider>> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.data
-  const res = await fetch(CATALOG_URL)
-  if (!res.ok) throw new Error(`models.dev returned ${res.status}`)
-  const data = (await res.json()) as Record<string, ModelsDevProvider>
-  cache = { at: Date.now(), data }
-  return data
+  if (catalogPending) return catalogPending
+  catalogPending = (async () => {
+    const res = await fetch(CATALOG_URL)
+    if (!res.ok) throw new Error(`models.dev returned ${res.status}`)
+    const data = (await res.json()) as Record<string, ModelsDevProvider>
+    cache = { at: Date.now(), data }
+    return data
+  })()
+  try {
+    return await catalogPending
+  } finally {
+    catalogPending = undefined
+  }
 }
 
 /**
