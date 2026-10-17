@@ -19,7 +19,6 @@ import { markActivation, track, trackFeature, trackToolUse } from './track'
 import { beginTurn, finishTurn } from './turn-metrics'
 import { modelFamily, reportableAgent } from '../../shared/telemetry'
 import path from 'node:path'
-import { watchAgentNotifications } from './agent-notifications'
 import { startsNewRequest } from '../../shared/interaction-tools'
 import { emitSessionsUpdated } from './session-events'
 
@@ -57,22 +56,7 @@ export async function runSessionTurn(
     repo.setChatMetadata(input.sessionId, { tasks: [] })
     emitSessionsUpdated({ reason: 'metadata', sessionIds: [input.sessionId] })
   }
-  const notifications = watchAgentNotifications(input.sessionId)
-  let ok = false
-  try {
-    const result = await runTrackedSessionTurn(
-      input,
-      (event) => {
-        notifications.apply(event)
-        emit(event)
-      },
-      signal
-    )
-    ok = result.ok
-    return result
-  } finally {
-    notifications.finish(ok, signal.aborted)
-  }
+  return runTrackedSessionTurn(input, emit, signal)
 }
 
 async function runTrackedSessionTurn(

@@ -53,6 +53,7 @@ import type {
   ReasoningEffort
 } from '../../shared/types'
 import { partsToContent } from '../../shared/parts'
+import * as notifications from '../services/notifications'
 import * as repo from '../db/repo'
 import {
   updateOverlayShortcut,
@@ -622,12 +623,6 @@ export function registerIpc(): void {
     broadcastSettings(settings)
     return settings
   })
-  ipcMain.handle(CHANNELS.settingsSetToastNotificationsEnabled, (_e, enabled: boolean) => {
-    if (typeof enabled !== 'boolean') throw new TypeError('Expected a boolean')
-    const settings = repo.setToastNotificationsEnabled(enabled)
-    broadcastSettings(settings)
-    return settings
-  })
   ipcMain.handle(CHANNELS.settingsSetDiscordRpcEnabled, (_e, enabled: boolean) => {
     const settings = repo.setDiscordRpcEnabled(enabled)
     setDiscordRpcEnabledState(enabled)
@@ -742,6 +737,11 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetBranchPrefix, (_e, prefix: string) =>
     repo.setBranchPrefix(prefix)
   )
+  ipcMain.handle(CHANNELS.settingsSetNotifyOnComplete, (_e, enabled: boolean) => {
+    const settings = repo.setNotifyOnComplete(enabled)
+    broadcastSettings(settings)
+    return settings
+  })
   ipcMain.handle(CHANNELS.settingsCompleteOnboarding, () => repo.completeOnboarding())
   ipcMain.handle(CHANNELS.settingsReset, async () => {
     // "Wipes all providers" has to include the subscription tokens held by the
@@ -778,6 +778,16 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.settingsSetTelemetry, (_e, enabled: boolean) =>
     setTrackingEnabled(enabled)
   )
+
+  // ---- notifications ----
+  // Strings arrive translated - see the note on the api type.
+  ipcMain.handle(
+    CHANNELS.notifyToast,
+    (_e, title: string, subtitle: string, body: string, chatId: string) => {
+      notifications.showTurnToast(title, subtitle, body, chatId)
+    }
+  )
+  ipcMain.handle(CHANNELS.notifyTakePending, () => notifications.takePendingActivation())
 
   // ---- providers ----
   ipcMain.handle(CHANNELS.providersList, async () => {
@@ -1121,13 +1131,20 @@ export function registerIpc(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
       properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+      filters: [
+        {
+          name: 'Background media',
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov']
+        }
+      ]
     }
     const chosen = win
       ? await dialog.showOpenDialog(win, options)
       : await dialog.showOpenDialog(options)
     if (chosen.canceled || !chosen.filePaths[0]) return null
-    return broadcastBackground(await background.importBackground(chosen.filePaths[0]))
+    return broadcastBackground(
+      await background.importBackground(chosen.filePaths[0], win ?? undefined)
+    )
   })
   ipcMain.handle(CHANNELS.backgroundRemove, async () =>
     broadcastBackground(await background.removeBackground())

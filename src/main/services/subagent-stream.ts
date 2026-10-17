@@ -36,7 +36,6 @@ import type {
   SubagentSnapshot
 } from '../../shared/api'
 import { PartsFold } from '../../shared/parts'
-import { watchAgentNotifications } from './agent-notifications'
 import { notifyTurnAvailable } from './turn-state'
 import type { Message } from '../../shared/types'
 
@@ -116,7 +115,6 @@ export function startSubagentRun(input: StartRunInput): {
     cancelled: false
   }
   runs.set(input.subChatId, run)
-  const notifications = watchAgentNotifications(run.subChatId, run.background)
   broadcast({ subChatId: run.subChatId, kind: 'run', state: 'running', sequence: ++sequence })
 
   // Closed over rather than read off the map: `endSubagentRuns` can drop this
@@ -127,14 +125,12 @@ export function startSubagentRun(input: StartRunInput): {
     emit: (event) => {
       if (closed) return
       run.fold.apply(event)
-      notifications.apply(event)
       if (event.type === 'tool-start') run.activityStartedAt = Date.now()
       broadcast({ subChatId: run.subChatId, kind: 'event', event, sequence: ++sequence })
     },
-    finish: (state, message, stopped = false) => {
+    finish: (state, message, _stopped = false) => {
       if (closed) return
       closed = true
-      notifications.finish(state === 'completed', run.cancelled || stopped)
       // Drop the run BEFORE announcing the end: the renderer reloads the sub
       // session's persisted transcript on this frame, and a snapshot fetched
       // during that reload must not hand back the now-superseded live parts.

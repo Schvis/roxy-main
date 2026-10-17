@@ -16,6 +16,12 @@ import {
   BROWSER_PARTITION,
   credentialsFor as browserProxyCredentials
 } from './services/browser-proxy'
+import {
+  APP_USER_MODEL_ID,
+  setToastIcon,
+  setToastWindow,
+  setWindowFactory
+} from './services/notifications'
 import { cleanupToolOutputs } from './services/tool-output-store'
 import { cancelAllBackgroundJobs } from './services/background-tasks'
 import { shutdownAllLsp } from './services/lsp'
@@ -42,7 +48,6 @@ import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 import { initDiscordRpc, shutdownDiscordRpc } from './services/discord-rpc'
 import { flushAllActiveTurns } from './services/turn-recovery'
 import { initPortableMode } from './services/portable-mode'
-import { initAgentNotifications } from './services/agent-notifications'
 
 let isQuitting = false
 
@@ -165,6 +170,10 @@ function createWindow(): BrowserWindow {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // Clicking a completion toast has to raise THIS window, not whichever one
+  // happens to be first in getAllWindows() (the agent browser opens its own).
+  setToastWindow(mainWindow)
+
   return mainWindow
 }
 
@@ -224,10 +233,8 @@ if (!gotTheLock) {
       }
     })
 
-    if (process.platform === 'win32') {
-      // The toolkit substitutes electron.exe's path in development, which Windows displays as the sender.
-      app.setAppUserModelId(app.isPackaged ? 'com.roxy.app' : 'Roxy')
-    }
+    app.setAppUserModelId(APP_USER_MODEL_ID)
+    setToastIcon(icon)
     // Give the agent's browser window the Roxy icon too (no asset import in the
     // browser service so the smoke's esbuild bundle stays happy).
     setAppIcon(icon)
@@ -280,7 +287,6 @@ if (!gotTheLock) {
     // Open the database (runs migrations) and wire up IPC before the first window.
     getDb()
     registerIpc()
-    initAgentNotifications()
     // Anonymous usage tracking (opt-out in Settings). Deliberately after the DB
     // and IPC are up so nothing here can delay the first window, and it owns its
     // own storage - a failure in it can't touch either.
@@ -305,6 +311,7 @@ if (!gotTheLock) {
       void startLocalTtsServer()
     }
 
+    setWindowFactory(createWindow)
     const mainWindow = createWindow()
     initAutoUpdater(mainWindow)
     initDiscordRpc()

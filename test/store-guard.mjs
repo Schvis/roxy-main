@@ -746,6 +746,8 @@ const subagentFns = new Function(
     const streamPublishers = new Map()
     const transcriptLoads = new Map()
     const queueLoads = new Map()
+    const automationTurnRevisions = new Map()
+    const notifyIfSessionIdle = async () => {}
     const remoteTurns = new Map()
     let automationSnapshotEvents = null
     let taskRevision = 0

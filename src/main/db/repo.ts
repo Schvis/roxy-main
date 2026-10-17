@@ -232,9 +232,10 @@ export function getSettings(): AppSettings {
             y: map.has('vtuber_window_y') ? Number(map.get('vtuber_window_y')) : undefined
           }
         : null,
-    toastNotificationsEnabled: map.get('toast_notifications_enabled') !== '0',
     discordRpcEnabled: map.get('discord_rpc_enabled') !== '0',
-    discordRpcClientId: map.get('discord_rpc_client_id') ?? DEFAULT_DISCORD_CLIENT_ID
+    discordRpcClientId: map.get('discord_rpc_client_id') ?? DEFAULT_DISCORD_CLIENT_ID,
+    // Notifications are opt-in; an absent setting stays silent.
+    notifyOnComplete: map.get('notify_on_complete') === '1'
   }
 }
 
@@ -673,11 +674,6 @@ export function resetVtuberWindowBounds(): AppSettings {
   return getSettings()
 }
 
-export function setToastNotificationsEnabled(enabled: boolean): AppSettings {
-  setSetting('toast_notifications_enabled', enabled ? '1' : '0')
-  return getSettings()
-}
-
 export function setDiscordRpcEnabled(enabled: boolean): AppSettings {
   setSetting('discord_rpc_enabled', enabled ? '1' : '0')
   return getSettings()
@@ -685,6 +681,11 @@ export function setDiscordRpcEnabled(enabled: boolean): AppSettings {
 
 export function setDiscordRpcClientId(clientId: string): AppSettings {
   setSetting('discord_rpc_client_id', clientId.trim() || DEFAULT_DISCORD_CLIENT_ID)
+  return getSettings()
+}
+
+export function setNotifyOnComplete(enabled: boolean): AppSettings {
+  setSetting('notify_on_complete', enabled ? '1' : null)
   return getSettings()
 }
 

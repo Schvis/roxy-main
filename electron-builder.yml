@@ -52,6 +52,7 @@ nsis:
 portable:
   artifactName: ${name}-${version}-portable.${ext}
 mac:
+  icon: build/icon.icns
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist

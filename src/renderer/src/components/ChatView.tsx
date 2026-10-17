@@ -412,12 +412,20 @@ export function ChatView({
   if (!activeChat) {
     return (
       <div
+        data-wallpaper={
+          (!!background.rendered && backgroundOpacity(background.settings, true) > 0) || undefined
+        }
+        style={
+          {
+            '--chat-wallpaper-opacity': backgroundOpacity(background.settings, true)
+          } as React.CSSProperties
+        }
         className={cn(
           'chat-background-host relative isolate flex h-full flex-1 flex-col bg-bg',
           isOverlay ? 'min-w-[300px] min-h-[320px]' : 'min-w-[380px] min-h-[300px]'
         )}
       >
-        <ChatBackground empty />
+        {(isOverlay || background.settings.sidebarStyle === 'default') && <ChatBackground empty />}
         <header
           className={cn(
             'flex h-12 shrink-0 items-center justify-between px-4',
@@ -454,7 +462,12 @@ export function ChatView({
   }
 
   return (
-    <div className="@container/chat relative flex h-full min-w-0 flex-1 bg-bg">
+    <div
+      className="@container/chat relative flex h-full min-w-0 flex-1 bg-bg"
+      data-shared-pane={
+        (background.settings.sidebarStyle !== 'default' && !!background.rendered) || undefined
+      }
+    >
       {botPaneOpen && activeBot && (
         <BotSettingsPane
           key={activeBot.id}
@@ -529,10 +542,17 @@ export function ChatView({
         key="conversation"
         className="chat-background-host relative isolate flex min-h-0 min-w-0 flex-1 flex-col"
         data-wallpaper={wallpaper || undefined}
+        style={
+          {
+            '--chat-wallpaper-opacity': backgroundOpacity(background.settings, isEmpty)
+          } as React.CSSProperties
+        }
         data-glass={(wallpaper && background.settings.glass) || undefined}
       >
-        {wallpaper && <ChatBackground empty={isEmpty} />}
-        <header className="titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4">
+        {wallpaper && (isOverlay || background.settings.sidebarStyle === 'default') && (
+          <ChatBackground empty={isEmpty} />
+        )}
+        <header className="titlebar reserve-controls-right flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           {activeBot ? (
             <div className="flex min-w-0 items-center gap-2">
               <BotAvatar username={activeBot.username} size={28} />

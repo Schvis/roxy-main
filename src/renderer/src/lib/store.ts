@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { DEFAULT_AGENT_ID, getAgent } from '@shared/agents'
 import type { Language } from '@shared/i18n'
-import { moveVisibleQueueItem } from '@shared/queue'
 import { startsNewRequest } from '@shared/interaction-tools'
+import { isClaimedQueueItem, moveVisibleQueueItem, nextQueueItem } from '@shared/queue'
 import i18n, { applyLanguage } from '../i18n'
 import type {
   AppSettings,
@@ -58,6 +58,7 @@ import { shouldAutoWorkstream, statusKeyForSession } from '@shared/workstream'
 import { api } from './api'
 import { applyMotion, motionSnapshot, type MotionPreference } from './motion'
 import { createStreamPublisher, type StreamPublisher } from './stream-publisher'
+import { notifyTurnComplete, ownsCompletionNotifications } from './notify'
 import type { ComposerImage } from './images'
 import { pruneComposerDrafts, type ComposerDrafts } from './composerDrafts'
 import { remainingOptimisticMessages, visibleMessages } from './optimistic-messages'
@@ -299,6 +300,7 @@ interface RoxyStore {
   setActivePromptId: (id: string | null) => Promise<void>
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
   setBranchPrefix: (prefix: string) => Promise<void>
+  setNotifyOnComplete: (enabled: boolean) => Promise<void>
   setLanguage: (language: Language) => Promise<void>
   setMotion: (preference: MotionPreference) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
@@ -328,7 +330,6 @@ interface RoxyStore {
   setVtuberShowStatus: (show: boolean) => Promise<void>
   setVtuberFollowCursor: (follow: boolean) => Promise<void>
   resetVtuberPosition: () => Promise<void>
-  setToastNotificationsEnabled: (enabled: boolean) => Promise<void>
   setDiscordRpcEnabled: (enabled: boolean) => Promise<void>
   setDiscordRpcClientId: (clientId: string) => Promise<void>
   selectChat: (id: string) => Promise<void>
@@ -502,6 +503,7 @@ const asChatId = (value: unknown): string | undefined =>
 
 let botsSubscribed = false
 let automationSubscribed = false
+let notifyActivatedSubscribed = false
 let llmDeltaSubscribed = false
 let taskUpdateSubscribed = false
 let remoteStateSubscribed = false
@@ -550,6 +552,8 @@ const subagentRunRevisions = new Map<string, number>()
 const subagentHydrations = new Map<string, SubagentDelta[]>()
 let taskRevision = 0
 const taskRevisions = new Map<string, number>()
+/** Bumped on every turn start/end per session, so a completion can tell it went stale. */
+const automationTurnRevisions = new Map<string, number>()
 const transcriptLoads = new Map<string, number>()
 const queueLoads = new Map<string, number>()
 
@@ -638,14 +642,20 @@ function applyAutomationDelta(payload: AutomationDelta): void {
         )
       }))
     }
+    automationTurnRevisions.set(id, (automationTurnRevisions.get(id) ?? 0) + 1)
     if (payload.message) rememberMessage(payload.message)
     useRoxyStore.setState((s) => {
       const automationSpeakers = { ...s.automationSpeakers }
       if (payload.state === 'running')
         automationSpeakers[id] = { botId: payload.botId, botUsername: payload.botUsername }
       else delete automationSpeakers[id]
+      // A new turn starts clean, like clearStop() in sendMessage: a Stop left
+      // over from an idle session or a compaction must not silence this one.
+      const stopChats = { ...s.stopChats }
+      if (payload.state === 'running') delete stopChats[id]
       return {
         automationSpeakers,
+        stopChats,
         startingAutomation: {
           ...s.startingAutomation,
           [id]: payload.state === 'running' && payload.phase === 'starting'
@@ -666,10 +676,75 @@ function applyAutomationDelta(payload: AutomationDelta): void {
   if (payload.kind === 'turn') {
     void loadTranscript(id)
     if (payload.state !== 'running') {
-      void useRoxyStore.getState().refreshChats()
+      // Queued, bot and scheduled turns run in main; this is the renderer's only
+      // sign that one ended. A Stop pressed on it is consumed here, so the next
+      // turn in this session is not silenced by a stale flag.
+      const stopped = Boolean(useRoxyStore.getState().stopChats[id])
+      if (stopped)
+        useRoxyStore.setState((s) => {
+          const stopChats = { ...s.stopChats }
+          delete stopChats[id]
+          return { stopChats }
+        })
+      // Captured now: if another turn starts while these round trips are in
+      // flight, this completion is stale and must not announce itself.
+      const turnRevision = automationTurnRevisions.get(id)
+      void useRoxyStore
+        .getState()
+        .refreshChats()
+        .then(() =>
+          stopped ? undefined : notifyIfSessionIdle(id, { turnRevision, fromAutomation: true })
+        )
+        .catch((error) => console.warn('Failed to notify turn completion:', error))
       void useRoxyStore.getState().refreshUsage()
     }
   }
+}
+
+/**
+ * Notify that a session's turn finished, unless queued work is about to start.
+ *
+ * Checking the queue keeps a chain of prompts (or a bot handoff) from chiming
+ * once per step: only the turn that leaves the session idle announces itself.
+ * Reuse main's `nextQueueItem` admission policy: blocked automation can yield
+ * to user prompts, and claimed work anywhere in the queue keeps it busy.
+ *
+ * `turnRevision` pins the turn being announced. Main can start the next turn
+ * while the queue is being read; that one will announce itself later.
+ *
+ * `fromAutomation` marks a turn main ran off this queue. Check for main's Stop
+ * marker in that case; after a direct send the marker may be stale.
+ */
+async function notifyIfSessionIdle(
+  chatId: string,
+  {
+    turnRevision = automationTurnRevisions.get(chatId),
+    fromAutomation = false
+  }: { turnRevision?: number; fromAutomation?: boolean } = {}
+): Promise<void> {
+  if (!ownsCompletionNotifications || !useRoxyStore.getState().settings?.notifyOnComplete) return
+  let items: QueueItem[]
+  try {
+    items = await api.queue.list(chatId)
+  } catch (error) {
+    console.warn('Failed to check queue before notifying:', error)
+    return
+  }
+  // Stopped from somewhere this renderer never saw (the phone, a bot tool):
+  // main marks the interrupted item instead of setting `stopChats`.
+  if (fromAutomation && items[0]?.state === 'failed' && items[0].error === 'Stopped.') return
+  if (items.some(isClaimedQueueItem) || nextQueueItem(items)) return
+  const state = useRoxyStore.getState()
+  if (
+    automationTurnRevisions.get(chatId) !== turnRevision ||
+    state.sendingChats[chatId] ||
+    state.runningAutomation[chatId] ||
+    state.stopChats[chatId] ||
+    !state.settings?.notifyOnComplete
+  )
+    return
+  const chat = state.chats.find((c) => c.id === chatId)
+  if (chat) notifyTurnComplete(state.settings, chat)
 }
 
 /** Private bot turns always belong to main, even when idle. */
@@ -1464,6 +1539,30 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     })
     // Warm the usage/cost dashboard for the titlebar pill (best-effort, async).
     void get().refreshUsage()
+
+    if (!notifyActivatedSubscribed) {
+      notifyActivatedSubscribed = true
+      const activate = async (chatId: string): Promise<void> => {
+        if (!get().settings?.onboardingCompleted) return
+        // The session may have been deleted between the toast and the click, and
+        // selectChat on a missing id would blank the view for no reason.
+        if (!get().chats.some((c) => c.id === chatId)) await get().refreshChats()
+        if (!get().chats.some((c) => c.id === chatId)) return
+        await get().selectChat(chatId)
+        if (window.location.hash !== '#/') window.location.hash = '#/'
+      }
+      api.notifications.onActivated((chatId) => {
+        void activate(chatId).catch((error) => console.warn('Failed to open notification:', error))
+      })
+      // Install the live listener first, then resolve the reopening click before
+      // bootstrap's first-session fallback can select a different chat.
+      try {
+        const pendingChatId = await api.notifications.takePendingActivation()
+        if (pendingChatId) await activate(pendingChatId)
+      } catch (error) {
+        console.warn('Failed to restore notification activation:', error)
+      }
+    }
 
     if (!botsSubscribed) {
       botsSubscribed = true
@@ -2420,11 +2519,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
-  setToastNotificationsEnabled: async (enabled) => {
-    const settings = await api.settings.setToastNotificationsEnabled(enabled)
-    set({ settings })
-  },
-
   setDiscordRpcEnabled: async (enabled) => {
     const settings = await api.settings.setDiscordRpcEnabled(enabled)
     set({ settings })
@@ -2482,6 +2576,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       applyMotion(previous)
       throw error
     }
+  },
+
+  setNotifyOnComplete: async (enabled) => {
+    set({ settings: await api.settings.setNotifyOnComplete(enabled) })
   },
 
   selectChat: async (id) => {
@@ -2978,6 +3076,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         if (active && !get().chats.some((c) => c.id === active)) {
           await get().selectChat(chatId)
         }
+        if (!wasStopped) await notifyIfSessionIdle(chatId)
         // Main is the only queue consumer. Wake it after the renderer has
         // persisted this direct turn, never pop items or execute them here.
         if (wakeQueue && !wasStopped) await api.automation.wake()

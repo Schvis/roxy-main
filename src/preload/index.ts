@@ -27,22 +27,6 @@ import type { BackgroundState } from '../shared/background'
  * to an ipcMain.handle channel registered in src/main/ipc/index.ts.
  */
 const roxy: RoxyApi = {
-  notifications: {
-    onRequested: (callback) => {
-      const handler = (
-        _event: Electron.IpcRendererEvent,
-        request: import('../shared/agent-notifications').AgentNotificationRequest
-      ): void => callback(request)
-      ipcRenderer.on(CHANNELS.agentNotificationRequested, handler)
-      return () => ipcRenderer.removeListener(CHANNELS.agentNotificationRequested, handler)
-    },
-    show: (id, title, body) => ipcRenderer.invoke(CHANNELS.agentNotificationShow, id, title, body),
-    onClicked: (callback) => {
-      const handler = (): void => callback()
-      ipcRenderer.on(CHANNELS.agentNotificationClicked, handler)
-      return () => ipcRenderer.removeListener(CHANNELS.agentNotificationClicked, handler)
-    }
-  },
   files: {
     list: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesList, sessionId, path),
     openFolder: (sessionId, path) => ipcRenderer.invoke(CHANNELS.filesOpenFolder, sessionId, path),
@@ -124,6 +108,8 @@ const roxy: RoxyApi = {
     setVoiceWakeWords: (words) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceWakeWords, words),
     setActivePromptId: (id) => ipcRenderer.invoke(CHANNELS.settingsSetActivePromptId, id),
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
+    setNotifyOnComplete: (enabled) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetNotifyOnComplete, enabled),
     setLanguage: (language) => ipcRenderer.invoke(CHANNELS.settingsSetLanguage, language),
     setMotion: (motion) => ipcRenderer.invoke(CHANNELS.settingsSetMotion, motion),
     setTtsEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsEnabled, enabled),
@@ -158,8 +144,6 @@ const roxy: RoxyApi = {
     setVtuberFollowCursor: (follow) =>
       ipcRenderer.invoke(CHANNELS.settingsSetVtuberFollowCursor, follow),
     resetVtuberPosition: () => ipcRenderer.invoke(CHANNELS.settingsResetVtuberPosition),
-    setToastNotificationsEnabled: (enabled) =>
-      ipcRenderer.invoke(CHANNELS.settingsSetToastNotificationsEnabled, enabled),
     setDiscordRpcEnabled: (enabled) =>
       ipcRenderer.invoke(CHANNELS.settingsSetDiscordRpcEnabled, enabled),
     setDiscordRpcClientId: (clientId) =>
@@ -180,6 +164,16 @@ const roxy: RoxyApi = {
     reset: () => ipcRenderer.invoke(CHANNELS.settingsReset),
     getTelemetry: () => ipcRenderer.invoke(CHANNELS.settingsGetTelemetry),
     setTelemetry: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTelemetry, enabled)
+  },
+  notifications: {
+    toast: (title, subtitle, body, chatId) =>
+      ipcRenderer.invoke(CHANNELS.notifyToast, title, subtitle, body, chatId),
+    takePendingActivation: () => ipcRenderer.invoke(CHANNELS.notifyTakePending),
+    onActivated: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, chatId: string): void => callback(chatId)
+      ipcRenderer.on(CHANNELS.notifyActivated, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.notifyActivated, handler)
+    }
   },
   providers: {
     listConnected: () => ipcRenderer.invoke(CHANNELS.providersList),

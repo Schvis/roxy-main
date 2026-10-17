@@ -966,13 +966,6 @@ export interface ShellState {
 }
 
 export interface RoxyApi {
-  notifications: {
-    onRequested(
-      callback: (request: import('./agent-notifications').AgentNotificationRequest) => void
-    ): () => void
-    show(id: string, title: string, body: string): Promise<void>
-    onClicked(callback: () => void): () => void
-  }
   files: {
     /** Root-relative or absolute contained path; '' and '.' select the session root.
      * Direct children, folders first, root-relative '/' paths; symlinks skipped.
@@ -1089,6 +1082,8 @@ export interface RoxyApi {
     setVoiceWakeWords(words: string[]): Promise<AppSettings>
     setActivePromptId(id: string | null): Promise<AppSettings>
     setBranchPrefix(prefix: string): Promise<AppSettings>
+    /** Notify when a turn finishes: chime + OS toast, or nothing. */
+    setNotifyOnComplete(enabled: boolean): Promise<AppSettings>
     /** Set the UI language. An unknown code falls back to English. */
     setLanguage(language: Language): Promise<AppSettings>
     setMotion(motion: MotionPreference): Promise<AppSettings>
@@ -1122,7 +1117,6 @@ export interface RoxyApi {
     setVtuberShowStatus(show: boolean): Promise<AppSettings>
     setVtuberFollowCursor(follow: boolean): Promise<AppSettings>
     resetVtuberPosition(): Promise<AppSettings>
-    setToastNotificationsEnabled(enabled: boolean): Promise<AppSettings>
     setDiscordRpcEnabled(enabled: boolean): Promise<AppSettings>
     setDiscordRpcClientId(clientId: string): Promise<AppSettings>
     onChanged(callback: (settings: AppSettings) => void): () => void
@@ -1137,6 +1131,21 @@ export interface RoxyApi {
      */
     getTelemetry(): Promise<boolean>
     setTelemetry(enabled: boolean): Promise<boolean>
+  }
+  notifications: {
+    /**
+     * Post a native OS toast for session `chatId`. All strings arrive already
+     * translated: main has no i18next instance, so the renderer resolves them
+     * before calling.
+     */
+    toast(title: string, subtitle: string, body: string, chatId: string): Promise<void>
+    /** Collect a click that reopened the window, before selecting the initial chat. */
+    takePendingActivation(): Promise<string | null>
+    /**
+     * Subscribe to toast clicks; returns an unsubscribe fn. The payload is the
+     * session id the toast was posted for, so the UI can open it.
+     */
+    onActivated(callback: (chatId: string) => void): () => void
   }
   providers: {
     listConnected(): Promise<ConnectedProvider[]>
