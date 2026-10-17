@@ -1,6 +1,6 @@
 {
   "name": "roxy",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Roxy — an open-source AI coding agent for engineers.",
   "main": "./out/main/index.js",
   "author": "Roxy (https://github.com/roxy-gg/roxy)",
@@ -59,7 +59,7 @@
     "smoke:quota-order-ui": "electron test/quota-order-ui.cjs",
     "smoke:bot-order-ui": "electron test/bot-order-ui.cjs",
     "smoke:notifications": "node test/notifications.mjs",
-    "smoke:provider-models": "esbuild test/provider-models.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/provider-models.cjs && electron test/.out/provider-models.cjs",
+    "smoke:provider-models": "node script/build-smoke.mjs test/provider-models.ts test/.out/provider-models.cjs && electron test/.out/provider-models.cjs",
     "smoke:bots": "esbuild test/bots-shared.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/bots-shared.cjs && node test/.out/bots-shared.cjs && esbuild src/preload/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/bots-preload.cjs && node script/build-smoke.mjs test/bots.ts test/.out/bots.cjs && electron test/.out/bots.cjs",
     "smoke:cookies": "esbuild test/cookies.ts --bundle --platform=node --format=cjs --packages=external --loader:.png=file --outfile=test/.out/cookies.cjs && electron test/.out/cookies.cjs",
     "smoke:browser-proxy": "esbuild test/browser-proxy.ts --bundle --platform=node --format=cjs --packages=external --loader:.png=file --outfile=test/.out/browser-proxy.cjs && electron test/.out/browser-proxy.cjs",

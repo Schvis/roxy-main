@@ -165,11 +165,7 @@
     "attachSelected_other": "Attach {{count}} items",
     "attachThisFolder": "Attach folder: {{name}}/",
     "backTo": "返回 {{title}}",
-    "backgroundRunning_one": "{{count}} 个子代理仍在运行",
-    "backgroundRunning_other": "{{count}} 个子代理仍在运行",
     "cancel": "取消",
-    "cancelBackground_one": "取消 {{count}} 个后台子代理",
-    "cancelBackground_other": "取消 {{count}} 个后台子代理",
     "cancelChanges": "Cancel",
     "cancelPlanPrompt": "Cancel the planned changes.",
     "cancelSubagent": "取消此子代理",
@@ -1504,6 +1500,37 @@
       "prefixFootnote": "仅影响新工作流。现有分支保持其名称 — 从撰写器下方的栏中重命名。",
       "prefixPlaceholder": "无前缀",
       "prefixTitle": "分支前缀"
+    },
+    "activity": {
+      "activeDays": "Active days",
+      "currentStreak": "Current streak",
+      "date": "Date",
+      "days_one": "day",
+      "days_other": "days",
+      "description": "One turn is one assistant reply. Your activity history stays here even when you delete a conversation.",
+      "failed": "Couldn't load your activity. Reopen Settings to try again.",
+      "longestStreak": "Longest streak",
+      "peak_one": "Busiest day in this period: {{value}} turn.",
+      "peak_other": "Busiest day in this period: {{value}} turns.",
+      "period": "{{start}} to {{end}}",
+      "recent": "Last 7 days",
+      "total": "Agent turns",
+      "turnCount_one": "{{value}} turn",
+      "turnCount_other": "{{value}} turns",
+      "turns_one": "turn in this period",
+      "turns_other": "turns in this period"
+    },
+    "navigation": {
+      "accounts": "Accounts",
+      "activity": "Activity",
+      "activityEmpty": "Your activity will appear here after your first agent response.",
+      "addOns": "Add-Ons",
+      "colors": "Colors",
+      "general": "General",
+      "openRemote": "Manage remote access",
+      "section": "Settings section",
+      "theme": "Theme",
+      "worktrees": "Worktree configuration"
     }
   },
   "sidebar": {
@@ -1711,7 +1738,15 @@
     "unchanged_other": "{{count}} 行未更改",
     "working": "工作中",
     "writingAs": "{{name}} 正在书写…",
-    "you": "你"
+    "you": "你",
+    "deletePromptFailed": "Couldn't delete this prompt. Stop any running response, then try again.",
+    "deletePromptHint": "Delete this prompt and its failed response from the conversation and future model context",
+    "editPrompt": "Edit",
+    "promptFailed": "Failed",
+    "promptInterrupted": "Interrupted",
+    "promptStopped": "Stopped",
+    "resendPrompt": "Resend",
+    "retryConflict": "This request changed elsewhere. Your draft is kept here; close and reopen to retry."
   },
   "usage": {
     "allProviders": "所有提供商，最近 30 天",
@@ -1858,5 +1893,19 @@
     "updatedFrom": "已从 {{upstream}} 更新。",
     "updating": "正在更新…",
     "working": "正在处理…"
+  },
+  "subscription": {
+    "blurb": "Sign in with your {{provider}} account to use the models available to your plan through a local proxy. No API key required. Your provider's plan limits and charges still apply.",
+    "browser": "Finish signing in with {{provider}} in your browser.",
+    "continue": "Continue with {{provider}}",
+    "deviceCode": "If prompted, enter this code in your browser: <code>{{code}}</code>",
+    "downloading": "Downloading the local proxy...",
+    "failed": "Sign-in failed.",
+    "howItWorks": "Roxy includes <proxy>CLIProxyAPI v{{version}}</proxy> (checksum-verified during the build and validated before launch) and runs it on 127.0.0.1 while Roxy is open. It holds the login on this machine and exposes it to Roxy as a normal model endpoint. Your credentials never reach Roxy's servers, and the proxy is closed when you quit.",
+    "signOut": "Sign out",
+    "signingOut": "Signing out...",
+    "starting": "Starting the local proxy...",
+    "title": "Use your {{provider}} subscription",
+    "waiting": "Waiting for sign-in..."
   }
 }

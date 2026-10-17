@@ -165,11 +165,7 @@
     "attachSelected_other": "Attach {{count}} items",
     "attachThisFolder": "Attach folder: {{name}}/",
     "backTo": "العودة إلى {{title}}",
-    "backgroundRunning_one": "وكيل فرعي واحد {{count}} لا يزال قيد التشغيل",
-    "backgroundRunning_other": "{{count}} وكلاء فرعيين لا يزالون قيد التشغيل",
     "cancel": "إلغاء",
-    "cancelBackground_one": "إلغاء {{count}} وكيل فرعي في الخلفية",
-    "cancelBackground_other": "إلغاء {{count}} وكلاء فرعيين في الخلفية",
     "cancelChanges": "Cancel",
     "cancelPlanPrompt": "Cancel the planned changes.",
     "cancelSubagent": "إلغاء هذا الوكيل الفرعي",
@@ -1504,6 +1500,37 @@
       "prefixFootnote": "يؤثر فقط على مسارات العمل الجديدة. تحتفظ الفروع الموجودة بأسمائها — أعد تسمية أحدها من الشريط أسفل المُنشئ.",
       "prefixPlaceholder": "لا توجد بادئة",
       "prefixTitle": "بادئة الفرع"
+    },
+    "activity": {
+      "activeDays": "Active days",
+      "currentStreak": "Current streak",
+      "date": "Date",
+      "days_one": "day",
+      "days_other": "days",
+      "description": "One turn is one assistant reply. Your activity history stays here even when you delete a conversation.",
+      "failed": "Couldn't load your activity. Reopen Settings to try again.",
+      "longestStreak": "Longest streak",
+      "peak_one": "Busiest day in this period: {{value}} turn.",
+      "peak_other": "Busiest day in this period: {{value}} turns.",
+      "period": "{{start}} to {{end}}",
+      "recent": "Last 7 days",
+      "total": "Agent turns",
+      "turnCount_one": "{{value}} turn",
+      "turnCount_other": "{{value}} turns",
+      "turns_one": "turn in this period",
+      "turns_other": "turns in this period"
+    },
+    "navigation": {
+      "accounts": "Accounts",
+      "activity": "Activity",
+      "activityEmpty": "Your activity will appear here after your first agent response.",
+      "addOns": "Add-Ons",
+      "colors": "Colors",
+      "general": "General",
+      "openRemote": "Manage remote access",
+      "section": "Settings section",
+      "theme": "Theme",
+      "worktrees": "Worktree configuration"
     }
   },
   "sidebar": {
@@ -1711,7 +1738,15 @@
     "unchanged_other": "{{count}} سطرًا غير متغير",
     "working": "جاري العمل",
     "writingAs": "{{name}} يكتب…",
-    "you": "أنت"
+    "you": "أنت",
+    "deletePromptFailed": "Couldn't delete this prompt. Stop any running response, then try again.",
+    "deletePromptHint": "Delete this prompt and its failed response from the conversation and future model context",
+    "editPrompt": "Edit",
+    "promptFailed": "Failed",
+    "promptInterrupted": "Interrupted",
+    "promptStopped": "Stopped",
+    "resendPrompt": "Resend",
+    "retryConflict": "This request changed elsewhere. Your draft is kept here; close and reopen to retry."
   },
   "usage": {
     "allProviders": "جميع المزودين، آخر 30 يومًا",
@@ -1858,5 +1893,19 @@
     "updatedFrom": "تم التحديث من {{upstream}}.",
     "updating": "جارٍ التحديث…",
     "working": "جارٍ العمل…"
+  },
+  "subscription": {
+    "blurb": "Sign in with your {{provider}} account to use the models available to your plan through a local proxy. No API key required. Your provider's plan limits and charges still apply.",
+    "browser": "Finish signing in with {{provider}} in your browser.",
+    "continue": "Continue with {{provider}}",
+    "deviceCode": "If prompted, enter this code in your browser: <code>{{code}}</code>",
+    "downloading": "Downloading the local proxy...",
+    "failed": "Sign-in failed.",
+    "howItWorks": "Roxy includes <proxy>CLIProxyAPI v{{version}}</proxy> (checksum-verified during the build and validated before launch) and runs it on 127.0.0.1 while Roxy is open. It holds the login on this machine and exposes it to Roxy as a normal model endpoint. Your credentials never reach Roxy's servers, and the proxy is closed when you quit.",
+    "signOut": "Sign out",
+    "signingOut": "Signing out...",
+    "starting": "Starting the local proxy...",
+    "title": "Use your {{provider}} subscription",
+    "waiting": "Waiting for sign-in..."
   }
 }

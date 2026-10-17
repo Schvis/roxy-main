@@ -242,13 +242,9 @@ export function ChatView({
     s.activeChatId ? (s.streamingChats[s.activeChatId] ?? null) : null
   )
   const subagentPreviews = useRoxyStore((s) => s.subagentPreviews)
-  // Keep absent state undefined so the selector does not allocate an empty array.
-  const runningTasks = useRoxyStore((s) =>
-    s.activeChatId ? s.runningTasks[s.activeChatId] : undefined
-  )
   const { messages, streaming } = useMemo(
-    () => taskTranscript(mergedMessages, storedStreaming, subagentPreviews, runningTasks),
-    [mergedMessages, storedStreaming, subagentPreviews, runningTasks]
+    () => taskTranscript(mergedMessages, storedStreaming, subagentPreviews),
+    [mergedMessages, storedStreaming, subagentPreviews]
   )
   const sending = useRoxyStore((s) =>
     s.activeChatId
@@ -256,9 +252,6 @@ export function ChatView({
       : false
   )
   const submit = useRoxyStore((s) => s.submit)
-  const starting = useRoxyStore((s) =>
-    s.activeChatId ? !!s.startingAutomation[s.activeChatId] : false
-  )
   const stop = useRoxyStore((s) => s.stop)
   const storedQueue = useRoxyStore((s) => s.queue)
   const optimisticQueue = useRoxyStore((s) =>
@@ -273,7 +266,7 @@ export function ChatView({
   // Only user requests appear here; automated handoffs and schedules stay hidden.
   const queue = useMemo(() => allQueued.filter(isVisibleQueueItem), [allQueued])
   const deliveryIssues = allQueued.filter(
-    (item) => !isVisibleQueueItem(item) && item.state === 'failed'
+    (item) => item.state === 'failed' && !messages.some((message) => message.id === item.messageId)
   )
   const newSession = useRoxyStore((s) => s.newSession)
   const selectChat = useRoxyStore((s) => s.selectChat)
@@ -289,7 +282,6 @@ export function ChatView({
   const providers = useRoxyStore((s) => s.providers)
   const copilotNeedsReauthentication = useRoxyStore((s) => s.copilotNeedsReauthentication)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
-  const backgroundTaskCount = runningTasks?.length ?? 0
   // A subagent working in ITS OWN session. Tracked separately from `sending`
   // (which is per-chat local-send state): nobody "sent" this turn from the UI —
   // the parent agent delegated it — so the only signal is the live run itself.
@@ -308,7 +300,6 @@ export function ChatView({
     return () => clearInterval(clock)
   }, [activeChatId, subagentRunning])
   const cancelSubagent = useRoxyStore((s) => s.cancelSubagent)
-  const cancelBackgroundTask = useRoxyStore((s) => s.cancelBackgroundTask)
   const cancelToolCall = useRoxyStore((s) => s.cancelToolCall)
 
   const hasContent = messages.length > 0 || (streaming !== null && streaming.length > 0)
@@ -403,7 +394,7 @@ export function ChatView({
   const botPaneOpen = !!activeBot && botSettings?.botId === activeBot.id
   const sessionTasks = activeChat?.tasks ?? []
   const tasksDone = sessionTasks.filter((t) => t.status === 'completed').length
-  // Any session can carry a description + checklist: the `general` subagent has
+  // Any session can carry a description + checklist: the Explore subagent has
   // the metadata tool too, and its plan is exactly what you open its session to
   // read. Gate on having something to show, not on the session's kind.
   const hasSessionInfo = !!activeChat?.description?.trim() || sessionTasks.length > 0
@@ -640,21 +631,6 @@ export function ChatView({
             </div>
           )}
           <div className="flex shrink-0 items-center gap-2">
-            {backgroundTaskCount > 0 && activeChatId && (
-              <button
-                onClick={() => {
-                  for (const task of runningTasks ?? []) {
-                    void cancelBackgroundTask(activeChatId, task.jobId)
-                  }
-                }}
-                title={t('chat.cancelBackground', { count: backgroundTaskCount })}
-                className="press-scale group flex shrink-0 items-center gap-1 sq sq-md rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent/20"
-              >
-                <Loader2 className="h-3 w-3 animate-spin group-hover:hidden" />
-                <Square className="hidden h-2.5 w-2.5 fill-current group-hover:block" />
-                <span className="tabular-nums">{backgroundTaskCount}</span>
-              </button>
-            )}
             {activeBot && (
               <button
                 onClick={() => {
@@ -774,35 +750,17 @@ export function ChatView({
             onCancelTool={(callId) => void cancelToolCall(callId)}
           />
         )}
-        {/* The transcript used to end on a hard clip: the scrollport edge sliced
-          text mid-glyph, straight into the composer’s flat gutter, and the two
-          together read as a black bar cutting the pane in half. This is a
-          gradient of the pane’s own background laid over the last 24px of the
-          scroller, so lines dissolve into the composer instead of being cut.
-
-          Pulled back up by its own height (-mt-6) so it costs no layout — the
-          scroller keeps every pixel of flex-1 — and inert to the pointer, so
-          scrolling and text selection still work underneath it. The matching
-          pb-6 on the message column is what keeps the last line legible: at
-          max scroll it ends above the gradient instead of under it.
-
-          The mr-2.5 is the scrollbar gutter (10px, see ::-webkit-scrollbar
-          in main.css). The bar occupies the scroller’s right edge, so a
-          full-width fade would paint over its last 24px and wash out the
-          thumb exactly when you drag it to the end. */}
+        {/* The fade overlaps the scroller without adding layout space. The last
+          message's own bottom padding keeps its text clear of the fade, and
+          mr-2.5 leaves the scrollbar uncovered. */}
         <div
           aria-hidden
           className={cn(
-            'pointer-events-none relative z-10 -mt-6 mr-2.5 h-6 shrink-0',
+            'pointer-events-none relative z-10 -mt-2 mr-2.5 h-2 shrink-0',
             !wallpaper && 'bg-gradient-to-b from-transparent to-bg'
           )}
         />
 
-        {starting && (
-          <p role="status" className="mx-auto w-full max-w-3xl px-4 pt-2 text-xs text-text-subtle">
-            {t('queue.starting')}
-          </p>
-        )}
         {deliveryIssues.length > 0 && (
           <div className={cn('px-4 pt-2', !wallpaper && 'bg-bg')}>
             <div className="mx-auto max-w-3xl">
@@ -854,69 +812,6 @@ export function ChatView({
               </Queue>
             </div>
           </div>
-        )}
-
-        {backgroundTaskCount > 0 && activeChatId && (
-          <section
-            aria-label={t('chat.backgroundRunning', { count: backgroundTaskCount })}
-            className="shrink-0 px-4 pt-2"
-          >
-            <div className="mx-auto max-w-3xl rounded-lg border border-border bg-surface2 px-3 py-2">
-              <div className="mb-1 flex items-center gap-2 text-[11px] text-text-muted">
-                <Loader2 aria-hidden className="h-3 w-3 shrink-0 animate-spin text-accent" />
-                {t('chat.backgroundRunning', { count: backgroundTaskCount })}
-              </div>
-              <div className="max-h-28 overflow-y-auto">
-                {runningTasks?.map((task) => {
-                  const latest = task.subChatId
-                    ? subagentPreviews[task.subChatId]?.at(-1)
-                    : undefined
-                  const activity =
-                    latest?.type === 'tool'
-                      ? [latest.tool, latest.title].filter(Boolean).join(' ')
-                      : t(
-                          latest?.type === 'text'
-                            ? 'transcript.activityWriting'
-                            : 'transcript.activityThinking'
-                        )
-                  return (
-                    <div key={task.jobId} className="flex min-w-0 items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={!task.subChatId}
-                        onClick={() => task.subChatId && void selectChat(task.subChatId)}
-                        title={task.description}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1.5 text-left hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-accent"
-                      >
-                        <Hammer aria-hidden className="h-3.5 w-3.5 shrink-0 text-accent" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs text-text">
-                            {task.description}
-                          </span>
-                          <span className="block truncate font-mono text-[10px] text-text-subtle">
-                            {activity}
-                          </span>
-                        </span>
-                        <ChevronRight
-                          aria-hidden
-                          className="h-3.5 w-3.5 shrink-0 text-text-subtle"
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void cancelBackgroundTask(activeChatId, task.jobId)}
-                        title={t('chat.cancelSubagent')}
-                        aria-label={t('chat.cancelSubagent')}
-                        className="press-scale flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-white/5 hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
-                      >
-                        <Square aria-hidden className="h-2.5 w-2.5 fill-current" />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </section>
         )}
 
         {provider?.seedId === 'github-copilot' && (

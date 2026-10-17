@@ -761,7 +761,7 @@ export function Composer({
   const canSend = !!value.trim() || images.length > 0 || contextAttachments.length > 0
 
   return (
-    <div className="composer-gutter w-full min-w-0 bg-bg px-4 pb-1.5 pt-2">
+    <div className="composer-gutter w-full min-w-0 bg-bg px-4 pb-1.5">
       <div
         ref={containerRef}
         onDragOver={(e) => {

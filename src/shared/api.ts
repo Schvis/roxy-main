@@ -525,16 +525,19 @@ export type LlmEvent =
       diffs?: ToolDiff[]
     }
   /**
-   * One step of a SUBAGENT's turn, addressed to the `task` card that spawned it.
-   * `callId` is the parent `task` call; `event` is the child's own event, folded
-   * into that card's `children` instead of the top-level parts list.
+   * A subagent step addressed to its parent batch card. The outer event
+   * identifies the batch; an inner tool-child identifies one child card.
    *
    * Wrapping (rather than prefixing child call ids and emitting them flat) keeps
    * the nesting explicit end-to-end: the fold knows a child event is a child, so
    * it can never be mistaken for a call the parent model made and replayed as
    * bogus tool history on the next turn.
    */
-  | { type: 'tool-child'; callId: string; event: LlmChildEvent }
+  | {
+      type: 'tool-child'
+      callId: string
+      event: LlmChildEvent | { type: 'tool-child'; callId: string; event: LlmChildEvent }
+    }
 
 /** The subset of `LlmEvent` a subagent can emit â€” everything except further nesting. */
 export type LlmChildEvent = Exclude<LlmEvent, { type: 'tool-child' }>
@@ -613,21 +616,7 @@ export interface MessagesUpdated {
   chatId: string
 }
 
-/** A background subagent task's lifecycle state, broadcast to all windows. */
-export interface TaskUpdate {
-  jobId: string
-  /** The parent session that launched the task. */
-  sessionId: string
-  /** The subagent's own `sub` session, when persisted. */
-  subChatId: string | null
-  description: string
-  subagentType: string
-  state: 'running' | 'completed' | 'error'
-  startedAt: number
-  finishedAt?: number
-}
-
-/** A model offered by a provider (from models.dev). */
+/** A model offered by a provider, from its live catalog or models.dev. */
 export interface ModelInfo {
   id: string
   name: string
@@ -642,10 +631,15 @@ export interface ModelInfo {
    * Undefined = unknown, so the full Low..Max ladder is offered and clamping
    * falls back to per-provider rules. An explicit list lets the picker hide
    * levels the model would reject, and lets the wire send one it accepts.
+   * An empty list offers no effort override; Copilot then uses its server default.
    */
   reasoningEfforts?: ReasoningEffort[]
   /** Max input context window in tokens, when known. */
   contextLimit?: number
+  /** Account-advertised input-budget tiers and default (Copilot billing metadata). */
+  contextOptions?: number[]
+  defaultContextLimit?: number
+  supportedEndpoints?: string[]
   /** Max output tokens, when known. */
   outputLimit?: number
   /**
@@ -1570,14 +1564,6 @@ export interface RoxyApi {
   images: {
     /** Generate durable image data through an OpenAI-compatible endpoint. */
     generate(input: ImageGenerationInput): Promise<ImageGenerationResult>
-  }
-  tasks: {
-    /** Running background tasks, optionally restricted to one session. */
-    listRunning(sessionId?: string): Promise<TaskUpdate[]>
-    /** Cancel a running background task by its job id. */
-    cancel(jobId: string): Promise<void>
-    /** Subscribe to background-task state changes; returns an unsubscribe fn. */
-    onUpdate(callback: (update: TaskUpdate) => void): () => void
   }
   subagents: {
     /**

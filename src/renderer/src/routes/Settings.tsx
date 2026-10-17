@@ -1,22 +1,30 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
 import {
+  Activity,
+  ArrowUpDown,
+  Bell,
   ChevronDown,
-  ChevronRight,
-  Globe,
-  Palette,
-  Plus,
-  Trash2,
-  Mic,
-  X,
+  DatabaseBackup,
   FolderOpen,
-  SlidersHorizontal,
-  Cpu,
-  Briefcase,
-  Sparkles,
+  GitBranch,
+  Globe,
+  Image,
+  Info,
+  Languages,
+  Lightbulb,
+  Mic,
+  MonitorSmartphone,
+  Palette,
+  Plug,
+  Plus,
   RotateCcw,
-  ArrowUpDown
+  Shield,
+  Sparkles,
+  Trash2,
+  UserRound,
+  X
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useRoxyStore } from '../lib/store'
@@ -32,7 +40,6 @@ import {
 } from '@shared/branch'
 import { randomSlug, slugToBranchSegment } from '@shared/slugs'
 import { PageShell } from '../components/PageShell'
-import { McpServers } from '../components/McpServers'
 import type { AppVersions } from '@shared/types'
 import type { UpdateInfo } from '@shared/api'
 import { resolveSeed } from '@shared/providers'
@@ -49,15 +56,52 @@ import { recordKeybindFromEvent } from '../lib/keybind'
 import { AudioRecorder } from '../lib/audio-recorder'
 import { cameraManager } from '../lib/vision'
 
-const TABS = [
-  { id: 'general', labelKey: 'settings.tabs.general', icon: SlidersHorizontal },
-  { id: 'providers', labelKey: 'settings.tabs.providers', icon: Cpu },
-  { id: 'voice', labelKey: 'settings.tabs.voice', icon: Mic },
-  { id: 'vtuber', labelKey: 'settings.tabs.vtuber', icon: Sparkles },
-  { id: 'workspace', labelKey: 'settings.tabs.workspace', icon: Briefcase }
+import { BackgroundSettings } from '../components/BackgroundSettings'
+import { RemoteWorkspaceDialog } from '../components/RemoteWorkspaceDialog'
+import { SidebarNavItem } from '../components/SidebarFrame'
+import Themes from './Themes'
+import Skills from './Skills'
+import Mcp from './Mcp'
+
+const SETTINGS_GROUPS = [
+  {
+    label: 'settings.navigation.theme',
+    items: [
+      { id: 'background', label: 'appearance.background', icon: Image },
+      { id: 'colors', label: 'settings.navigation.colors', icon: Palette },
+      { id: 'motion', label: 'settings.motion.label', icon: Sparkles }
+    ]
+  },
+  {
+    label: 'settings.navigation.addOns',
+    items: [
+      { id: 'skills', label: 'sidebar.skills', icon: Lightbulb },
+      { id: 'mcp', label: 'sidebar.mcpServers', icon: Plug },
+      { id: 'backup', label: 'settings.backup.heading', icon: DatabaseBackup }
+    ]
+  },
+  {
+    label: 'settings.navigation.general',
+    items: [
+      { id: 'profile', label: 'settings.profile.heading', icon: UserRound },
+      { id: 'voice', label: 'settings.tabs.voice', icon: Mic },
+      { id: 'vtuber', label: 'settings.tabs.vtuber', icon: Sparkles },
+      { id: 'overlay', label: 'settings.overlay.heading', icon: MonitorSmartphone },
+      { id: 'discord', label: 'settings.discord.heading', icon: Activity },
+      { id: 'accounts', label: 'settings.navigation.accounts', icon: UserRound },
+      { id: 'browser', label: 'settings.browser.heading', icon: Globe },
+      { id: 'language', label: 'settings.language.heading', icon: Languages },
+      { id: 'worktrees', label: 'settings.navigation.worktrees', icon: GitBranch },
+      { id: 'notifications', label: 'settings.notifications.heading', icon: Bell },
+      { id: 'remote', label: 'sidebar.remoteWorkspace', icon: MonitorSmartphone },
+      { id: 'activity', label: 'settings.navigation.activity', icon: Activity },
+      { id: 'privacy', label: 'settings.privacy.heading', icon: Shield },
+      { id: 'about', label: 'settings.about.heading', icon: Info }
+    ]
+  }
 ] as const
 
-type SettingsTab = (typeof TABS)[number]['id']
+type SettingsSection = (typeof SETTINGS_GROUPS)[number]['items'][number]['id']
 
 /** The section heading repeated down the page. */
 const SECTION_HEADING = 'mb-3 text-xs font-semibold uppercase tracking-wide text-text-subtle'
@@ -65,9 +109,28 @@ const SECTION_HEADING = 'mb-3 text-xs font-semibold uppercase tracking-wide text
 export default function Settings(): JSX.Element {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { section } = useParams()
   const location = useLocation()
-  const initialTab = (location.state as { tab?: SettingsTab } | null)?.tab ?? 'general'
-  const [currentTab, setCurrentTab] = useState<SettingsTab>(initialTab)
+  const legacyTab = (location.state as { tab?: string } | null)?.tab
+  const legacySection =
+    legacyTab === 'providers'
+      ? 'accounts'
+      : legacyTab === 'workspace'
+        ? 'worktrees'
+        : legacyTab === 'general'
+          ? 'profile'
+          : legacyTab
+  const selected = SETTINGS_GROUPS.flatMap((group) => [...group.items]).find(
+    (item) => item.id === (section ?? legacySection)
+  )
+  const panel: SettingsSection = selected?.id ?? 'activity'
+  // Mount on first visit, then retain editors and their unsaved drafts.
+  const [visited, setVisited] = useState<Set<SettingsSection>>(() => new Set([panel]))
+  useEffect(() => {
+    setVisited((previous) => (previous.has(panel) ? previous : new Set([...previous, panel])))
+  }, [panel])
+  const [remoteOpen, setRemoteOpen] = useState(false)
+  const remotePhase = useRoxyStore((s) => s.remote.phase)
   const providers = useRoxyStore((s) => s.providers)
   const settings = useRoxyStore((s) => s.settings)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
@@ -156,6 +219,9 @@ export default function Settings(): JSX.Element {
   const [versions, setVersions] = useState<AppVersions | null>(null)
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [confirmingReset, setConfirmingReset] = useState(false)
+  useEffect(() => {
+    setConfirmingReset(false)
+  }, [panel])
   const [cookiesOpen, setCookiesOpen] = useState(false)
   const cookiesPanelId = useId()
   const [resetting, setResetting] = useState(false)
@@ -806,240 +872,6 @@ export default function Settings(): JSX.Element {
   const ttsProvider = settings?.ttsProvider ?? 'local'
   const fishAudioModel = settings?.fishAudioModel ?? 's2.1-pro'
 
-  const renderGeneral = (): JSX.Element => (
-    <>
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.profile.heading')}</h2>
-        <form
-          className="sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void saveProfile()
-          }}
-        >
-          <p className="mb-4 text-xs text-text-muted">{t('settings.profile.description')}</p>
-          <div className="flex flex-wrap items-center gap-4">
-            {profileAvatar ? (
-              <img src={profileAvatar} alt="" className="h-14 w-14 rounded-xl object-cover" />
-            ) : (
-              <div
-                className="flex h-14 w-14 items-center justify-center rounded-xl bg-surface-2 text-text-muted"
-                aria-hidden="true"
-              >
-                {(profileName || t('transcript.you')).charAt(0)}
-              </div>
-            )}
-            <label className="cursor-pointer rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-text hover:bg-surface-3">
-              {t('settings.profile.chooseImage')}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="sr-only"
-                onChange={(event) => {
-                  handleProfileImage(event.target.files?.[0])
-                  event.target.value = ''
-                }}
-              />
-            </label>
-            {profileAvatar && (
-              <button
-                type="button"
-                className="text-xs text-text-muted hover:text-text"
-                onClick={() => setProfileAvatar('')}
-              >
-                {t('settings.profile.removeImage')}
-              </button>
-            )}
-          </div>
-          {profileImageFile && (
-            <ProfileImageCropper
-              file={profileImageFile}
-              onCancel={() => setProfileImageFile(null)}
-              onApply={(dataUrl) => {
-                setProfileAvatar(dataUrl)
-                setProfileImageFile(null)
-              }}
-            />
-          )}
-          <label className="mt-4 grid max-w-sm gap-1 text-xs text-text-muted">
-            {t('settings.profile.name')}
-            <input
-              value={profileName}
-              maxLength={80}
-              onChange={(event) => setProfileName(event.target.value)}
-              placeholder={t('transcript.you')}
-              className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-            />
-          </label>
-          {profileError && (
-            <p role="alert" className="mt-2 text-xs text-danger">
-              {profileError}
-            </p>
-          )}
-          <Button
-            type="submit"
-            className="mt-4"
-            disabled={
-              savingProfile ||
-              profileImageFile !== null ||
-              (profileName === (settings?.userProfileName ?? '') &&
-                profileAvatar === (settings?.userProfileAvatar ?? ''))
-            }
-          >
-            {t('common.save')}
-          </Button>
-        </form>
-      </section>
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.language.heading')}</h2>
-        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <label htmlFor="language" className="text-sm font-medium text-text">
-              {t('settings.language.label')}
-            </label>
-            <p className="mt-0.5 text-xs text-text-muted">{t('settings.language.description')}</p>
-            {language !== SOURCE_LANGUAGE && (
-              <p className="mt-2 text-xs text-text-subtle">{t('settings.language.translatedBy')}</p>
-            )}
-          </div>
-          <select
-            id="language"
-            value={language}
-            onChange={(e) => void setLanguage(normalizeLanguage(e.target.value))}
-            className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.nativeName}
-              </option>
-            ))}
-          </select>
-        </div>
-      </section>
-
-      <MotionSettings onChange={setMotion} />
-      <ActivitySection />
-
-      <button
-        type="button"
-        onClick={() => navigate('/themes')}
-        className="mb-8 flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left hover:border-border-strong focus-visible:outline-accent"
-      >
-        <Palette aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-text">{t('appearance.title')}</span>
-          <span className="mt-0.5 block text-xs text-text-muted">
-            {t('appearance.description')}
-          </span>
-        </span>
-        <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-text-subtle" />
-      </button>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.privacy.heading')}</h2>
-        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-text">{t('settings.privacy.title')}</div>
-            <p className="mt-0.5 text-xs text-text-muted">{t('settings.privacy.description')}</p>
-            <p className="mt-2 text-xs text-text-muted">
-              <Trans i18nKey="settings.privacy.labels" />
-            </p>
-          </div>
-          <Switch checked={telemetryEnabled} onChange={(v) => void setTelemetryEnabled(v)} />
-        </div>
-      </section>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.notifications.heading')}</h2>
-        <NotificationSettings />
-      </section>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.discord.heading')}</h2>
-        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-text">{t('settings.discord.title')}</div>
-            <p className="mt-0.5 text-xs text-text-muted">{t('settings.discord.description')}</p>
-          </div>
-          <Switch
-            checked={settings?.discordRpcEnabled ?? true}
-            onChange={(v) => void setDiscordRpcEnabled(v)}
-          />
-        </div>
-      </section>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.about.heading')}</h2>
-        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-text">
-                {t('settings.about.version', { version: versions?.app ?? t('common.dash') })}
-              </div>
-              <p className="mt-0.5 text-xs text-text-muted">{updateLabel}</p>
-            </div>
-            {update?.state.status === 'downloaded' ? (
-              <Button variant="primary" className="shrink-0" onClick={() => api.updates.install()}>
-                {t('settings.about.restartToUpdate')}
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                className="shrink-0"
-                disabled={!update?.packaged || updateBusy}
-                onClick={() => void api.updates.check()}
-                title={update?.packaged ? undefined : t('settings.about.installedAppOnly')}
-              >
-                {updateBusy ? t('settings.about.checking') : t('settings.about.checkForUpdates')}
-              </Button>
-            )}
-          </div>
-          {versions && (
-            <p className="text-[11px] text-text-subtle">
-              {t('settings.about.runtime', {
-                electron: versions.electron,
-                chrome: versions.chrome,
-                node: versions.node
-              })}
-            </p>
-          )}
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-danger">
-          {t('settings.danger.heading')}
-        </h2>
-        <div className="flex flex-col gap-3 sq sq-xl sq-ring sq-ring-danger rounded-xl border border-danger/30 bg-danger/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-text">{t('settings.danger.resetTitle')}</div>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {t('settings.danger.resetDescription')}
-            </p>
-          </div>
-          {confirmingReset ? (
-            <div className="flex shrink-0 items-center gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setConfirmingReset(false)}
-                disabled={resetting}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button variant="danger" onClick={resetEverything} disabled={resetting}>
-                {resetting ? t('settings.danger.wiping') : t('settings.danger.confirm')}
-              </Button>
-            </div>
-          ) : (
-            <Button variant="danger" className="shrink-0" onClick={() => setConfirmingReset(true)}>
-              <Trash2 className="h-3.5 w-3.5" /> {t('settings.danger.reset')}
-            </Button>
-          )}
-        </div>
-      </section>
-    </>
-  )
-
   const renderProviders = (): JSX.Element => (
     <>
       <section className="mb-8">
@@ -1216,9 +1048,226 @@ export default function Settings(): JSX.Element {
     </>
   )
 
-  const renderWorkspace = (): JSX.Element => (
-    <>
-      <section className="mb-8">
+  return (
+    <PageShell
+      title={t('settings.title')}
+      contentKey={panel}
+      sidebar={
+        <>
+          <label htmlFor="settings-section" className="sr-only">
+            {t('settings.navigation.section')}
+          </label>
+          <select
+            id="settings-section"
+            value={panel}
+            onChange={(event) => navigate('/settings/' + event.target.value)}
+            className="h-10 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm text-text sm:hidden"
+          >
+            {SETTINGS_GROUPS.map((group) => (
+              <optgroup key={group.label} label={t(group.label)}>
+                {group.items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {t(item.label)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <nav aria-label={t('settings.title')} className="hidden flex-col gap-5 sm:flex">
+            {SETTINGS_GROUPS.map((group) => (
+              <section key={group.label} aria-labelledby={group.label}>
+                <h2
+                  id={group.label}
+                  className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-text-subtle"
+                >
+                  {t(group.label)}
+                </h2>
+                <div className="flex flex-col gap-0.5">
+                  {group.items.map(({ id, label, icon: Icon }) => (
+                    <SidebarNavItem
+                      key={id}
+                      id={'settings-' + id}
+                      aria-current={panel === id ? 'page' : undefined}
+                      aria-controls={'settings-' + id + '-panel'}
+                      onClick={() => navigate('/settings/' + id)}
+                    >
+                      <Icon aria-hidden="true" className="h-4 w-4 shrink-0 opacity-80" />
+                      <span className="min-w-0 flex-1">{t(label)}</span>
+                      {id === 'remote' && remotePhase !== 'idle' && remotePhase !== 'error' && (
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 shrink-0 rounded-full',
+                            remotePhase === 'live' ? 'bg-success' : 'bg-warning'
+                          )}
+                          title={t(
+                            remotePhase === 'live'
+                              ? 'sidebar.sharingLive'
+                              : 'sidebar.sharingConnecting'
+                          )}
+                        />
+                      )}
+                    </SidebarNavItem>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </nav>
+        </>
+      }
+      onBack={() => navigate('/')}
+      onEscape={() => {
+        if (resetting) return true
+        if (promptDialogOpen) {
+          if (!creatingPrompt) setPromptDialogOpen(false)
+          return true
+        }
+        if (!confirmingReset) return false
+        setConfirmingReset(false)
+        return true
+      }}
+    >
+      {addingAccount && (
+        <AddAccount
+          onClose={() => {
+            setAddingAccount(false)
+          }}
+        />
+      )}
+      {setup && (
+        <ProviderSetup
+          modal
+          seed={resolveSeed(setup.seedId)}
+          connectionId={setup.connectionId}
+          onClose={() => setSetup(null)}
+        />
+      )}
+      <div
+        id="settings-background-panel"
+        role="region"
+        aria-labelledby="settings-background"
+        hidden={panel !== 'background'}
+      >
+        {(visited.has('background') || panel === 'background') && <BackgroundSettings />}
+      </div>
+      <div
+        id="settings-colors-panel"
+        role="region"
+        aria-labelledby="settings-colors"
+        hidden={panel !== 'colors'}
+      >
+        {(visited.has('colors') || panel === 'colors') && <Themes />}
+      </div>
+      <div
+        id="settings-skills-panel"
+        role="region"
+        aria-labelledby="settings-skills"
+        hidden={panel !== 'skills'}
+      >
+        {(visited.has('skills') || panel === 'skills') && <Skills active={panel === 'skills'} />}
+      </div>
+      <div
+        id="settings-mcp-panel"
+        role="region"
+        aria-labelledby="settings-mcp"
+        hidden={panel !== 'mcp'}
+      >
+        {(visited.has('mcp') || panel === 'mcp') && <Mcp active={panel === 'mcp'} />}
+      </div>
+      <div
+        id="settings-activity-panel"
+        role="region"
+        aria-labelledby="settings-activity"
+        hidden={panel !== 'activity'}
+      >
+        {(visited.has('activity') || panel === 'activity') && <ActivitySection />}
+      </div>
+      <div
+        id="settings-motion-panel"
+        role="region"
+        aria-labelledby="settings-motion"
+        hidden={panel !== 'motion'}
+      >
+        {(visited.has('motion') || panel === 'motion') && <MotionSettings onChange={setMotion} />}
+      </div>
+      <section
+        id="settings-remote-panel"
+        role="region"
+        aria-labelledby="settings-remote"
+        hidden={panel !== 'remote'}
+      >
+        <h2 className={SECTION_HEADING}>{t('remote.title')}</h2>
+        <p className="mb-4 text-sm text-text-muted">{t('remote.idleBody')}</p>
+        <Button onClick={() => setRemoteOpen(true)}>
+          <MonitorSmartphone className="h-4 w-4" />
+          {t('settings.navigation.openRemote')}
+        </Button>
+      </section>
+      {remoteOpen && <RemoteWorkspaceDialog onClose={() => setRemoteOpen(false)} />}
+
+      <div
+        id="settings-accounts-panel"
+        role="region"
+        aria-labelledby="settings-accounts"
+        hidden={panel !== 'accounts'}
+      >
+        {renderProviders()}
+      </div>
+
+      {/* A native <select> on purpose. The picker is read once and then never
+          again, so it earns none of the cost of a custom popover -- and the
+          native control already gives us type-ahead, keyboard nav and the OS's
+          own font stack, which matters for scripts the app font may not cover. */}
+      <section
+        id="settings-language-panel"
+        role="region"
+        aria-labelledby="settings-language"
+        hidden={panel !== 'language'}
+        className="mb-8"
+      >
+        <h2 className={SECTION_HEADING}>{t('settings.language.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <label htmlFor="language" className="text-sm font-medium text-text">
+              {t('settings.language.label')}
+            </label>
+            <p className="mt-0.5 text-xs text-text-muted">{t('settings.language.description')}</p>
+            {language !== SOURCE_LANGUAGE && (
+              <p className="mt-2 text-xs text-text-subtle">{t('settings.language.translatedBy')}</p>
+            )}
+          </div>
+          <select
+            id="language"
+            value={language}
+            onChange={(e) => void setLanguage(normalizeLanguage(e.target.value))}
+            className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
+          >
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.nativeName}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
+      <section
+        id="settings-notifications-panel"
+        role="region"
+        aria-labelledby="settings-notifications"
+        hidden={panel !== 'notifications'}
+        className="mb-8"
+      >
+        <h2 className={SECTION_HEADING}>{t('settings.notifications.heading')}</h2>
+        <NotificationSettings />
+      </section>
+
+      <section
+        id="settings-worktrees-panel"
+        role="region"
+        aria-labelledby="settings-worktrees"
+        hidden={panel !== 'worktrees'}
+        className="mb-8"
+      >
         <h2 className={SECTION_HEADING}>{t('settings.workstreams.heading')}</h2>
         <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -1242,7 +1291,7 @@ export default function Settings(): JSX.Element {
           <p className="mt-0.5 text-xs text-text-muted">
             <Trans i18nKey="settings.workstreams.prefixDescription" />
           </p>
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <input
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
@@ -1253,12 +1302,15 @@ export default function Settings(): JSX.Element {
               placeholder={t('settings.workstreams.prefixPlaceholder')}
               aria-label={t('settings.workstreams.prefixAriaLabel')}
               className={cn(
-                'w-48 sq sq-lg sq-ring rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle',
+                'w-48 max-w-full sq sq-lg sq-ring rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle',
                 prefixError
                   ? 'border-danger [--sq-ring:var(--color-danger)]'
                   : 'border-border focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)]'
               )}
             />
+            {/* The example is the point: "roxy" in a box means nothing until
+                you see a whole branch name next to it. Uses a real session
+                slug, because that is what branches actually look like. */}
             <span className="min-w-0 truncate font-mono text-xs text-text-subtle">
               {placeholderBranchName(prefix, example)}
             </span>
@@ -1279,42 +1331,13 @@ export default function Settings(): JSX.Element {
         </div>
       </section>
 
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.overlay.heading')}</h2>
-        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-text">{t('settings.overlay.modeTitle')}</div>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {t('settings.overlay.modeDescription')}
-            </p>
-          </div>
-          <Switch
-            checked={settings?.overlayMode ?? false}
-            onChange={(v) => void setOverlayMode(v)}
-          />
-        </div>
-
-        <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-          <div className="text-sm font-medium text-text">{t('settings.overlay.keybindTitle')}</div>
-          <p className="mt-0.5 text-xs text-text-muted">
-            {t('settings.overlay.keybindDescription')}
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              value={keybind}
-              onKeyDown={handleKeybindDown}
-              onKeyUp={handleKeybindUp}
-              onBlur={() => setKeybind(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')}
-              readOnly
-              spellCheck={false}
-              placeholder="Click to record keybind"
-              className="w-64 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)] cursor-pointer"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="mb-8">
+      <section
+        id="settings-browser-panel"
+        role="region"
+        aria-labelledby="settings-browser"
+        hidden={panel !== 'browser'}
+        className="mb-8"
+      >
         <h2 className={SECTION_HEADING}>{t('settings.browser.heading')}</h2>
         <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -1369,17 +1392,13 @@ export default function Settings(): JSX.Element {
         </div>
       </section>
 
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.codeHosts.heading')}</h2>
-        <CodeHosts />
-      </section>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('settings.mcp.heading')}</h2>
-        <McpServers />
-      </section>
-
-      <section className="mb-8">
+      <section
+        id="settings-backup-panel"
+        role="region"
+        aria-labelledby="settings-backup"
+        hidden={panel !== 'backup'}
+        className="mb-8"
+      >
         <h2 className={SECTION_HEADING}>{t('settings.backup.heading')}</h2>
         <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
           <div className="min-w-0">
@@ -1392,52 +1411,265 @@ export default function Settings(): JSX.Element {
           <ConfigBackup onImported={() => void bootstrap()} />
         </div>
       </section>
-    </>
-  )
 
-  return (
-    <PageShell
-      title={t('settings.title')}
-      onBack={() => navigate('/')}
-      onEscape={() => {
-        if (resetting) return true
-        if (promptDialogOpen) {
-          if (!creatingPrompt) setPromptDialogOpen(false)
-          return true
-        }
-        if (!confirmingReset) return false
-        setConfirmingReset(false)
-        return true
-      }}
-    >
-      <div className="mb-6 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
-        {TABS.map((tab) => {
-          const Icon = tab.icon
-          const isActive = currentTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setCurrentTab(tab.id)}
-              className={cn(
-                'press-scale flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                isActive
-                  ? 'border border-border bg-surface-2 text-text shadow-sm'
-                  : 'text-text-muted hover:bg-surface hover:text-text'
+      <section
+        id="settings-privacy-panel"
+        role="region"
+        aria-labelledby="settings-privacy"
+        hidden={panel !== 'privacy'}
+        className="mb-8"
+      >
+        <h2 className={SECTION_HEADING}>{t('settings.privacy.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.privacy.title')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">{t('settings.privacy.description')}</p>
+            <p className="mt-2 text-xs text-text-muted">
+              <Trans i18nKey="settings.privacy.labels" />
+            </p>
+          </div>
+          <Switch checked={telemetryEnabled} onChange={(v) => void setTelemetryEnabled(v)} />
+        </div>
+      </section>
+      <section
+        id="settings-about-panel"
+        role="region"
+        aria-labelledby="settings-about"
+        hidden={panel !== 'about'}
+        className="mb-8"
+      >
+        <h2 className={SECTION_HEADING}>{t('settings.about.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-text">
+                {t('settings.about.version', { version: versions?.app ?? t('common.dash') })}
+              </div>
+              <p className="mt-0.5 text-xs text-text-muted">{updateLabel}</p>
+            </div>
+            {update?.state.status === 'downloaded' ? (
+              <Button variant="primary" className="shrink-0" onClick={() => api.updates.install()}>
+                {t('settings.about.restartToUpdate')}
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                className="shrink-0"
+                disabled={!update?.packaged || updateBusy}
+                onClick={() => void api.updates.check()}
+                title={update?.packaged ? undefined : t('settings.about.installedAppOnly')}
+              >
+                {updateBusy ? t('settings.about.checking') : t('settings.about.checkForUpdates')}
+              </Button>
+            )}
+          </div>
+          {versions && (
+            <p className="text-[11px] text-text-subtle">
+              {t('settings.about.runtime', {
+                electron: versions.electron,
+                chrome: versions.chrome,
+                node: versions.node
+              })}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section hidden={panel !== 'about'} className="mt-8">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-danger">
+          {t('settings.danger.heading')}
+        </h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring sq-ring-danger rounded-xl border border-danger/30 bg-danger/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.danger.resetTitle')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {t('settings.danger.resetDescription')}
+            </p>
+          </div>
+          {confirmingReset ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmingReset(false)}
+                disabled={resetting}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button variant="danger" onClick={resetEverything} disabled={resetting}>
+                {resetting ? t('settings.danger.wiping') : t('settings.danger.confirm')}
+              </Button>
+            </div>
+          ) : (
+            <Button variant="danger" className="shrink-0" onClick={() => setConfirmingReset(true)}>
+              <Trash2 className="h-3.5 w-3.5" /> {t('settings.danger.reset')}
+            </Button>
+          )}
+        </div>
+      </section>
+
+      <div
+        id="settings-profile-panel"
+        role="region"
+        aria-labelledby="settings-profile"
+        hidden={panel !== 'profile'}
+      >
+        <section className="mb-8">
+          <h2 className={SECTION_HEADING}>{t('settings.profile.heading')}</h2>
+          <form
+            className="sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveProfile()
+            }}
+          >
+            <p className="mb-4 text-xs text-text-muted">{t('settings.profile.description')}</p>
+            <div className="flex flex-wrap items-center gap-4">
+              {profileAvatar ? (
+                <img src={profileAvatar} alt="" className="h-14 w-14 rounded-xl object-cover" />
+              ) : (
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-xl bg-surface-2 text-text-muted"
+                  aria-hidden="true"
+                >
+                  {(profileName || t('transcript.you')).charAt(0)}
+                </div>
               )}
+              <label className="cursor-pointer rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-text hover:bg-surface-3">
+                {t('settings.profile.chooseImage')}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={(event) => {
+                    handleProfileImage(event.target.files?.[0])
+                    event.target.value = ''
+                  }}
+                />
+              </label>
+              {profileAvatar && (
+                <button
+                  type="button"
+                  className="text-xs text-text-muted hover:text-text"
+                  onClick={() => setProfileAvatar('')}
+                >
+                  {t('settings.profile.removeImage')}
+                </button>
+              )}
+            </div>
+            {profileImageFile && (
+              <ProfileImageCropper
+                file={profileImageFile}
+                onCancel={() => setProfileImageFile(null)}
+                onApply={(dataUrl) => {
+                  setProfileAvatar(dataUrl)
+                  setProfileImageFile(null)
+                }}
+              />
+            )}
+            <label className="mt-4 grid max-w-sm gap-1 text-xs text-text-muted">
+              {t('settings.profile.name')}
+              <input
+                value={profileName}
+                maxLength={80}
+                onChange={(event) => setProfileName(event.target.value)}
+                placeholder={t('transcript.you')}
+                className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+              />
+            </label>
+            {profileError && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                {profileError}
+              </p>
+            )}
+            <Button
+              type="submit"
+              className="mt-4"
+              disabled={
+                savingProfile ||
+                profileImageFile !== null ||
+                (profileName === (settings?.userProfileName ?? '') &&
+                  profileAvatar === (settings?.userProfileAvatar ?? ''))
+              }
             >
-              <Icon className="h-3.5 w-3.5" />
-              <span>{t(tab.labelKey)}</span>
-            </button>
-          )
-        })}
+              {t('common.save')}
+            </Button>
+          </form>
+        </section>
       </div>
 
-      {currentTab === 'general' && renderGeneral()}
-      {currentTab === 'providers' && renderProviders()}
-      {currentTab === 'workspace' && renderWorkspace()}
+      <div
+        id="settings-overlay-panel"
+        role="region"
+        aria-labelledby="settings-overlay"
+        hidden={panel !== 'overlay'}
+      >
+        <section className="mb-8">
+          <h2 className={SECTION_HEADING}>{t('settings.overlay.heading')}</h2>
+          <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-text">{t('settings.overlay.modeTitle')}</div>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {t('settings.overlay.modeDescription')}
+              </p>
+            </div>
+            <Switch
+              checked={settings?.overlayMode ?? false}
+              onChange={(v) => void setOverlayMode(v)}
+            />
+          </div>
 
-      {currentTab === 'voice' && (
+          <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+            <div className="text-sm font-medium text-text">
+              {t('settings.overlay.keybindTitle')}
+            </div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {t('settings.overlay.keybindDescription')}
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={keybind}
+                onKeyDown={handleKeybindDown}
+                onKeyUp={handleKeybindUp}
+                onBlur={() =>
+                  setKeybind(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
+                }
+                readOnly
+                spellCheck={false}
+                placeholder="Click to record keybind"
+                className="w-64 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)] cursor-pointer"
+              />
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div
+        id="settings-discord-panel"
+        role="region"
+        aria-labelledby="settings-discord"
+        hidden={panel !== 'discord'}
+      >
+        <section className="mb-8">
+          <h2 className={SECTION_HEADING}>{t('settings.discord.heading')}</h2>
+          <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-text">{t('settings.discord.title')}</div>
+              <p className="mt-0.5 text-xs text-text-muted">{t('settings.discord.description')}</p>
+            </div>
+            <Switch
+              checked={settings?.discordRpcEnabled ?? true}
+              onChange={(v) => void setDiscordRpcEnabled(v)}
+            />
+          </div>
+        </section>
+      </div>
+
+      <div
+        id="settings-voice-panel"
+        role="region"
+        aria-labelledby="settings-voice"
+        hidden={panel !== 'voice'}
+      >
         <>
           <section className="mb-8">
             <h2 className={SECTION_HEADING}>{t('settings.voiceInput.heading')}</h2>
@@ -2496,9 +2728,14 @@ export default function Settings(): JSX.Element {
             )}
           </section>
         </>
-      )}
+      </div>
 
-      {currentTab === 'vtuber' && (
+      <div
+        id="settings-vtuber-panel"
+        role="region"
+        aria-labelledby="settings-vtuber"
+        hidden={panel !== 'vtuber'}
+      >
         <section className="mb-8">
           <h2 className={SECTION_HEADING}>{t('settings.vtuber.heading')}</h2>
           <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -2671,7 +2908,7 @@ export default function Settings(): JSX.Element {
             </>
           )}
         </section>
-      )}
+      </div>
 
       {promptDialogOpen && (
         <div
@@ -2732,22 +2969,6 @@ export default function Settings(): JSX.Element {
             </div>
           </form>
         </div>
-      )}
-
-      {addingAccount && (
-        <AddAccount
-          onClose={() => {
-            setAddingAccount(false)
-          }}
-        />
-      )}
-      {setup && (
-        <ProviderSetup
-          modal
-          seed={resolveSeed(setup.seedId)}
-          connectionId={setup.connectionId}
-          onClose={() => setSetup(null)}
-        />
       )}
     </PageShell>
   )

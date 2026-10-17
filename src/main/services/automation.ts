@@ -19,7 +19,6 @@ import { HOST_USERNAME, isHostSpeaker } from '../../shared/bots'
 import { nextQueueItem } from '../../shared/queue'
 import { imageReferenceText, redactImageData } from '../../shared/attachments'
 import { omitMessageImages, validateForwardedImages } from './attachments'
-import { backgroundTaskRequest } from '../../shared/parallel'
 import * as repo from '../db/repo'
 import * as bots from '../db/bots'
 import { getDb } from '../db/database'
@@ -175,7 +174,7 @@ export function enqueuePrompt(
     throw new Error('not_before must be an epoch timestamp in milliseconds')
   }
   const count = getDb()
-    .prepare('SELECT COUNT(*) AS n FROM queue WHERE chat_id = ?')
+    .prepare("SELECT COUNT(*) AS n FROM queue WHERE chat_id = ? AND state != 'failed'")
     .get(chatId) as { n: number }
   if (count.n >= 100) throw new Error('This session already has 100 queued messages')
   const trimmed = content.trim()
@@ -234,9 +233,13 @@ export function startAutomation(): void {
   // Never replay uncertain tool side effects automatically after a crash.
   getDb()
     .prepare(
-      `UPDATE queue SET state = 'failed', error = 'Interrupted by app shutdown. Edit this message to retry.' WHERE state IN ('starting', 'running')`
+      `UPDATE queue SET state = 'failed', error = 'Interrupted by app shutdown. Retry this prompt to continue.' WHERE state IN ('starting', 'running')`
     )
     .run()
+  for (const row of getDb()
+    .prepare("SELECT id, error FROM queue WHERE state = 'failed' AND message_id IS NULL")
+    .all() as { id: string; error: string | null }[])
+    repo.failQueueItem(row.id, row.error ?? 'Model request failed')
   timer = setInterval(wakeAutomation, 1000)
   unsubscribeTurns = onTurnAvailable(requestAutomationWake)
   wakeAutomation()
@@ -315,8 +318,7 @@ function history(
   budget: number,
   outputReserve: number,
   speaker?: ReturnType<typeof bots.getBot>,
-  asHost = false,
-  suppliedReports: ReadonlySet<string> = new Set()
+  asHost = false
 ): ChatMessage[] {
   const since = repo.getChat(chatId)?.contextSummaryAt ?? 0
   const self = asHost ? undefined : (speaker ?? bots.chatBot(chatId))
@@ -333,10 +335,7 @@ function history(
     .listMessages(chatId)
     .filter(
       (m) =>
-        (m.role === 'user' || m.role === 'assistant') &&
-        m.createdAt > since &&
-        !waiting.has(m.id) &&
-        !suppliedReports.has(m.id)
+        (m.role === 'user' || m.role === 'assistant') && m.createdAt > since && !waiting.has(m.id)
     )
     .map((m) => reconstructTurn(m, self))
     .filter((g) => g.length)
@@ -432,9 +431,8 @@ async function deliver(item: QueueItem): Promise<void> {
   } catch (error) {
     release()
     // A persistent DB/claim error must not spin on the release wake forever.
-    getDb()
-      .prepare("UPDATE queue SET state = 'failed', error = ? WHERE id = ?")
-      .run(error instanceof Error ? error.message : String(error), item.id)
+    repo.failQueueItem(item.id, error instanceof Error ? error.message : String(error))
+    notifyTranscriptChanged(item.chatId)
     notifyAutomation(item.chatId)
     throw error
   }
@@ -547,9 +545,7 @@ async function deliver(item: QueueItem): Promise<void> {
       ? providers.find((p) => p.id === config.providerId)
       : providers[0]
     if (!provider)
-      throw new Error(
-        `Connect the provider selected for ${owner}, then edit the queued message to retry.`
-      )
+      throw new Error(`Connect the provider selected for ${owner}, then retry the prompt.`)
     const catalog = await listModels(provider.id).catch(() => [])
     const selected = config.providerId === provider.id ? config.model : null
     const model =
@@ -566,10 +562,14 @@ async function deliver(item: QueueItem): Promise<void> {
       validateForwardedImages(item.images)
       if (info?.imageInput !== true)
         throw new Error(
-          `Images were retained but not sent: ${model} ${info?.imageInput === false ? 'does not support image input' : 'has no verified image-input capability in the provider catalog'}. Choose a vision-capable model and retry, or remove the queued images to proceed without seeing them. No model was switched.`
+          `Images were retained but not sent: ${model} ${info?.imageInput === false ? 'does not support image input' : 'has no verified image-input capability in the provider catalog'}. Choose a vision-capable model and retry, or edit the prompt to remove its images. No model was switched.`
         )
     }
-    const budget = contextBudgetFor(config.contextLimit, info?.contextLimit ?? 128000)
+    const budget = contextBudgetFor(
+      config.contextLimit,
+      info?.contextLimit ?? 128000,
+      info?.defaultContextLimit
+    )
     const chat = repo.getChat(item.chatId)
     const estimated = repo
       .listMessages(item.chatId)
@@ -581,40 +581,13 @@ async function deliver(item: QueueItem): Promise<void> {
     if (!guest && !hostVisiting && estimated > budget * 0.8)
       await compactChat(item.chatId, provider.id, model, controller.signal)
     if (controller.signal.aborted) throw new Error('Stopped.')
-    // message_id anchors the first pending report. Later sibling reports are
-    // coalesced into this continuation even if compaction covered their rows.
-    const transcript = repo.listMessages(item.chatId)
-    const firstReport = transcript.findIndex(
-      (message) =>
-        message.id === previous.message_id &&
-        message.parts.some((part) => part.type === 'tool' && part.resultFor)
-    )
-    const reports =
-      firstReport < 0
-        ? []
-        : transcript
-            .slice(firstReport)
-            .filter(
-              (message) =>
-                message.botId === (previous.bot_id ?? undefined) &&
-                (!!message.botId || message.botUsername === (previous.bot_username ?? undefined)) &&
-                message.parts.some((part) => part.type === 'tool' && part.resultFor)
-            )
-    const requestMessage = transcript.find((m) => m.id === requestMessageId)
-    const previousMessages = history(
-      item.chatId,
-      budget,
-      info?.outputLimit ?? 4096,
-      guest,
-      asHost,
-      new Set(reports.map((message) => message.id))
-    )
+    const requestMessage = repo.listMessages(item.chatId).find((m) => m.id === requestMessageId)
+    const previousMessages = history(item.chatId, budget, info?.outputLimit ?? 4096, guest, asHost)
     const messages = withRequest(
       // Machine handoffs select their attachments explicitly. Shared history
       // must not re-add removed images or disclose unrelated old screenshots.
       item.sourceChatId ? previousMessages.map(omitMessageImages) : previousMessages,
-      (reports.length ? backgroundTaskRequest(reports, item.content) : item.content) +
-        (requestMessage ? imageReferenceText(requestMessage) : ''),
+      item.content + (requestMessage ? imageReferenceText(requestMessage) : ''),
       guest?.username ?? (previous.bot_id && !bot ? 'Roxy' : undefined),
       item.images
     )
@@ -763,43 +736,43 @@ async function deliver(item: QueueItem): Promise<void> {
     }
   } catch (error) {
     const message = redactImageData(error instanceof Error ? error.message : String(error))
-    getDb()
-      .prepare(`UPDATE queue SET state = 'failed', error = ? WHERE id = ?`)
-      .run(message, item.id)
-    if (item.images?.length && !fold.parts.length && repo.getChat(item.chatId))
-      repo.addMessage({
-        chatId: item.chatId,
-        role: 'assistant',
-        content: `Image request could not finish: ${message}\nThe images remain in this session and its queue for retry.`,
-        ...returnAuthor
-      })
-    if (
-      item.replyToChatId &&
-      item.replyToChatId !== item.chatId &&
-      repo.getChat(item.replyToChatId)
-    ) {
-      repo.addMessage({
-        chatId: item.replyToChatId,
-        role: 'assistant',
-        content: `The delegated request could not finish: ${message}\nThe request remains in ${bot ? `@${bot.username}'s` : "the target session's"} queue for retry or removal.`,
-        ...returnAuthor
-      })
-      notifyAutomation(item.replyToChatId)
-      notifyTranscriptChanged(item.replyToChatId)
-    }
-    if (fold.parts.length && repo.getChat(item.chatId)) {
-      savedMessage = repo.addMessage({
-        chatId: item.chatId,
-        role: 'assistant',
-        content: partsToContent(fold.parts),
-        parts: fold.parts,
-        ...(bot
-          ? { botId: bot.id, botUsername: bot.username }
-          : hostVisiting
-            ? { botUsername: HOST_USERNAME }
-            : {})
-      })
-    }
+    getDb().transaction(() => {
+      if (item.images?.length && !fold.parts.length && repo.getChat(item.chatId))
+        savedMessage = repo.addMessage({
+          chatId: item.chatId,
+          role: 'assistant',
+          content: `Image request could not finish: ${message}\nThe images remain attached to the original prompt for retry.`,
+          ...returnAuthor
+        })
+      if (
+        item.replyToChatId &&
+        item.replyToChatId !== item.chatId &&
+        repo.getChat(item.replyToChatId)
+      ) {
+        repo.addMessage({
+          chatId: item.replyToChatId,
+          role: 'assistant',
+          content: `The delegated request could not finish: ${message}\nThe request remains in ${bot ? `@${bot.username}'s` : "the target session's"} queue for retry or removal.`,
+          ...returnAuthor
+        })
+        notifyAutomation(item.replyToChatId)
+        notifyTranscriptChanged(item.replyToChatId)
+      }
+      if (fold.parts.length && repo.getChat(item.chatId)) {
+        savedMessage = repo.addMessage({
+          chatId: item.chatId,
+          role: 'assistant',
+          content: partsToContent(fold.parts),
+          parts: fold.parts,
+          ...(bot
+            ? { botId: bot.id, botUsername: bot.username }
+            : hostVisiting
+              ? { botUsername: HOST_USERNAME }
+              : {})
+        })
+      }
+      repo.failQueueItem(item.id, message, savedMessage?.id)
+    })()
   } finally {
     live.delete(item.chatId)
     activityStartedAt.delete(item.chatId)

@@ -170,6 +170,17 @@ async function run() {
       'return Math.abs(document.querySelector("canvas").width / devicePixelRatio - el.clientWidth) <= 1'
     )
   )
+  check(
+    'table immediately after prose renders as separate canvas columns',
+    await probe(`
+      const lines=scene.blocks.flatMap(b=>b.selectable);
+      const concern=lines.find(l=>l.text.trim()==='Concern');
+      const before=lines.find(l=>l.text.trim()==='Before');
+      const after=lines.find(l=>l.text.trim()==='After');
+      return concern && before && after && concern.y===before.y && before.y===after.y &&
+        concern.x<before.x && before.x<after.x && !lines.some(l=>l.text.includes('| ---'));
+    `)
+  )
 
   await clickDom('#top')
   await clickDom('#stream')
@@ -831,6 +842,22 @@ async function promptHistory() {
     (await win.webContents.capturePage()).toPNG()
   )
 
+  await clickDom('#fail-prompt')
+  await clickDom('#top')
+  check(
+    'failed prompt owns resend, edit and delete controls on canvas',
+    await probe(`
+    const regions=scene.blocks.flatMap(b=>b.regions);
+    return ['resend-prompt', 'edit-prompt', 'delete-prompt'].every(type=>regions.some(r=>r.action.type===type));
+  `)
+  )
+  await clickDom('#clear-failure')
+  check(
+    'clearing failure invalidates cached canvas controls',
+    await probe(`
+    return !scene.blocks.flatMap(b=>b.regions).some(r=>['edit-prompt','resend-prompt','delete-prompt'].includes(r.action.type));
+  `)
+  )
   await clickDom('#long-history')
   await wait(200)
   check(

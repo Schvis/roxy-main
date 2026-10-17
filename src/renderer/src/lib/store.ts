@@ -26,8 +26,7 @@ import type {
   RemoteDelta,
   RemoteState,
   SessionsUpdated,
-  SubagentDelta,
-  TaskUpdate
+  SubagentDelta
 } from '@shared/api'
 import {
   selectPromptName,
@@ -195,7 +194,6 @@ interface RoxyStore {
   /** Chats currently being compacted, keyed by chat id. */
   compactingChats: Record<string, boolean>
   /** Running background subagent tasks, keyed by parent session id (Phase 11). */
-  runningTasks: Record<string, TaskUpdate[]>
   /**
    * Subagent sessions with a run in flight, by SUB chat id. Drives the live
    * bubble in a subagent's own chat view and its sidebar spinner — both of which
@@ -396,7 +394,6 @@ interface RoxyStore {
    */
   cancelToolCall: (callId: string) => Promise<void>
   /** Cancel one detached background task launched by a session. */
-  cancelBackgroundTask: (sessionId: string, jobId: string) => Promise<void>
   /** Start sharing the active session to a phone via the roxy.gg relay. */
   startRemote: () => Promise<void>
   /** Stop sharing + revoke the room/token (Stop sharing). */
@@ -462,8 +459,6 @@ interface RoxyStore {
     mode: 'new' | 'fromBranch' | 'attach'
     branch?: string
   }) => Promise<void>
-  /** Handle a background subagent task state change (Phase 11). */
-  handleTaskUpdate: (update: TaskUpdate) => Promise<void>
   setCommandsOpen: (open: boolean) => void
   contextPickerOpen: boolean
   setContextPickerOpen: (open: boolean) => void
@@ -505,7 +500,6 @@ let botsSubscribed = false
 let automationSubscribed = false
 let notifyActivatedSubscribed = false
 let llmDeltaSubscribed = false
-let taskUpdateSubscribed = false
 let remoteStateSubscribed = false
 let remoteDeltaSubscribed = false
 let subagentDeltaSubscribed = false
@@ -550,8 +544,6 @@ let automationSnapshotEvents: AutomationDelta[] | null = null
 let subagentRevision = 0
 const subagentRunRevisions = new Map<string, number>()
 const subagentHydrations = new Map<string, SubagentDelta[]>()
-let taskRevision = 0
-const taskRevisions = new Map<string, number>()
 /** Bumped on every turn start/end per session, so a completion can tell it went stale. */
 const automationTurnRevisions = new Map<string, number>()
 const transcriptLoads = new Map<string, number>()
@@ -1484,7 +1476,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   optimisticQueue: {},
   stopChats: {},
   compactingChats: {},
-  runningTasks: {},
   runningSubagents: {},
   subagentPreviews: {},
   remote: { phase: 'idle', guests: 0, rev: 0 },
@@ -1720,32 +1711,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       })
     }
 
-    // Background subagent tasks (Phase 11) report state out-of-band — they can
-    // finish long after the launching turn's request has ended, so this global
-    // subscription (not the per-request delta handler) keeps the UI live: it
-    // tracks the running-count badge and reloads the parent/sub transcript when a
-    // detached task lands its report.
-    if (!taskUpdateSubscribed) {
-      taskUpdateSubscribed = true
-      api.tasks.onUpdate((update) => {
-        void get().handleTaskUpdate(update)
-      })
-      const revision = taskRevision
-      void api.tasks
-        .listRunning()
-        .then((running) => {
-          for (const update of running) {
-            if ((taskRevisions.get(update.jobId) ?? 0) <= revision)
-              void get().handleTaskUpdate(update)
-          }
-        })
-        .catch(() => {})
-    }
-
-    // A subagent's own live stream. Separate from the requestId-keyed llm:delta
-    // channel on purpose: a subagent run outlives the request that launched it
-    // (a background one by design), and after a window reload there is no
-    // request to route by — but its session id is still on screen in the sidebar.
+    // A child session keeps its own live stream so opening it mid-run or after
+    // a window reload can recover its full transcript.
     if (!subagentDeltaSubscribed) {
       subagentDeltaSubscribed = true
       api.subagents.onDelta((payload) => applySubagentDelta(payload))
@@ -3257,7 +3224,11 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           return
         }
         const modelContext = info?.contextLimit ?? 128_000
-        const contextBudget = contextBudgetFor(config.contextLimit, modelContext)
+        const contextBudget = contextBudgetFor(
+          config.contextLimit,
+          modelContext,
+          info?.defaultContextLimit
+        )
         const agentId = config.agentId
         // Auto-compact before the window overflows the model's *real* budget:
         // trigger once used tokens pass contextBudget minus the larger of the
@@ -3431,7 +3402,23 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
 
   removeQueued: async (id) => {
+    const item = get().queue.find((entry) => entry.id === id)
     await api.queue.remove(id)
+    if (item) {
+      const remaining = new Set((await api.messages.list(item.chatId)).map((message) => message.id))
+      set((s) => ({
+        optimisticMessages: {
+          ...s.optimisticMessages,
+          [item.chatId]: (s.optimisticMessages[item.chatId] ?? []).filter(
+            (message) =>
+              (message.id !== item.messageId && message.id !== item.responseMessageId) ||
+              remaining.has(message.id)
+          )
+        }
+      }))
+      await loadTranscript(item.chatId)
+      await get().refreshChats()
+    }
     await get().refreshQueue()
   },
 
@@ -3450,11 +3437,23 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
 
   editQueued: async (id, content, images) => {
+    const item = get().queue.find((item) => item.id === id)
     await api.queue.update(
       id,
       content,
       images?.map(({ dataUrl, mediaType, name }) => ({ dataUrl, mediaType, name }))
     )
+    if (item?.state === 'failed') {
+      set((s) => ({
+        optimisticMessages: {
+          ...s.optimisticMessages,
+          [item.chatId]: (s.optimisticMessages[item.chatId] ?? []).filter(
+            (message) => message.id !== item.messageId && message.id !== item.responseMessageId
+          )
+        }
+      }))
+      await loadTranscript(item.chatId)
+    }
     await get().refreshQueue()
     await api.automation.wake()
   },
@@ -3500,11 +3499,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     await api.tools.cancel(callId)
   },
 
-  cancelBackgroundTask: async (_sessionId, jobId) => {
-    // Keep the pending-work strip until main confirms this job actually ended.
-    await api.tasks.cancel(jobId)
-  },
-
   compactConversation: async (targetChatId) => {
     // Same guard as `stop`: this shape is one bare onClick away from sending a
     // SyntheticEvent over IPC to api.context.compact.
@@ -3540,30 +3534,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         delete next[chatId]
         return { compactingChats: next }
       })
-    }
-  },
-
-  handleTaskUpdate: async (update) => {
-    taskRevisions.set(update.jobId, ++taskRevision)
-    // Track the per-session running set for the badge: a `running` update adds
-    // the job, a terminal one removes it.
-    set((s) => {
-      const current = s.runningTasks[update.sessionId] ?? []
-      const without = current.filter((t) => t.jobId !== update.jobId)
-      const nextForSession = update.state === 'running' ? [...without, update] : without
-      const runningTasks = { ...s.runningTasks }
-      if (nextForSession.length) runningTasks[update.sessionId] = nextForSession
-      else delete runningTasks[update.sessionId]
-      return { runningTasks }
-    })
-
-    // Keep the sidebar in sync and reload whichever transcript the user is on:
-    // the parent gets the delivered report card; the sub session shows its work.
-    await get().refreshChats()
-    const active = get().activeChatId
-    if (!active) return
-    if (active === update.sessionId || active === update.subChatId) {
-      await loadTranscript(active)
     }
   }
 }))

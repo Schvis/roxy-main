@@ -18,7 +18,6 @@ import {
   Hammer,
   PanelLeftClose,
   PanelLeftOpen,
-  Palette,
   Plus,
   Settings,
   Square,
@@ -236,6 +235,14 @@ export function Sidebar({
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
   // The open right-click menu: which session, and where the cursor was.
   const [contextMenu, setContextMenu] = useState<{ chat: Chat; x: number; y: number } | null>(null)
+  const remotePhase = useRoxyStore((s) => s.remote.phase)
+  // Green only when truly live; amber while spinning up or reconnecting.
+  const remoteDot: 'green' | 'amber' | null =
+    remotePhase === 'live'
+      ? 'green'
+      : remotePhase === 'starting' || remotePhase === 'offline'
+        ? 'amber'
+        : null
 
   // Double-click a session name to rename it inline. Enter / click-away saves,
   // Escape cancels. `cancelRef` lets the shared blur handler tell the two apart.
@@ -550,22 +557,24 @@ export function Sidebar({
 
         {tools(true)}
         <BotsSection rail />
-        <div className="mt-auto flex flex-col items-center gap-1">
+        <div className="mb-3 mt-auto flex flex-col items-center gap-1">
           <button
-            type="button"
-            onClick={() => navigate('/themes')}
-            title={t('appearance.title')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-          >
-            <Palette className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
             onClick={() => navigate('/settings')}
             title={t('sidebar.settings')}
-            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+            className="relative press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
           >
             <Settings className="h-4 w-4" />
+            {remoteDot && (
+              <span
+                className={cn(
+                  'absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-2 ring-surface',
+                  remoteDot === 'green' ? 'bg-success' : 'bg-warning'
+                )}
+                title={t(
+                  remoteDot === 'green' ? 'sidebar.sharingLive' : 'sidebar.sharingConnecting'
+                )}
+              />
+            )}
           </button>
         </div>
       </aside>
@@ -998,18 +1007,23 @@ export function Sidebar({
         />
       )}
 
-      <UpdateCard />
-
-      <div className="flex flex-col gap-0.5 border-t border-border/40 p-2">
-        <SidebarNavItem onClick={() => navigate('/themes')} title={t('appearance.title')}>
-          <Palette className="h-4 w-4 shrink-0" />
-          <span className="truncate font-medium">{t('appearance.title')}</span>
-        </SidebarNavItem>
-        <SidebarNavItem onClick={() => navigate('/settings')} title={t('sidebar.settings')}>
-          <Settings className="h-4 w-4 shrink-0" />
-          <span className="truncate font-medium">{t('sidebar.settings')}</span>
+      <div className="border-t border-border px-3 py-2">
+        <SidebarNavItem className="w-full" onClick={() => navigate('/settings')}>
+          <Settings aria-hidden="true" className="h-4 w-4 shrink-0 opacity-80" />
+          <span className="flex-1">{t('sidebar.settings')}</span>
+          {remoteDot && (
+            <span
+              className={cn(
+                'h-2 w-2 shrink-0 rounded-full',
+                remoteDot === 'green' ? 'bg-success' : 'bg-warning'
+              )}
+              title={t(remoteDot === 'green' ? 'sidebar.sharingLive' : 'sidebar.sharingConnecting')}
+            />
+          )}
         </SidebarNavItem>
       </div>
+
+      <UpdateCard />
     </SidebarFrame>
   )
 }

@@ -251,11 +251,7 @@
     "copilotAuthenticate": "Authenticate on GitHub",
     "copilotReconnected": "GitHub Copilot is reconnected. You can retry your message when you are ready.",
     "backTo": "Back to {{title}}",
-    "backgroundRunning_one": "{{count}} subagent still running",
-    "backgroundRunning_other": "{{count}} subagents still running",
     "cancel": "cancel",
-    "cancelBackground_one": "Cancel {{count}} background subagent",
-    "cancelBackground_other": "Cancel {{count}} background subagents",
     "cancelSubagent": "Cancel this subagent",
     "copied": "Copied",
     "descriptionAndTasks": "Description & tasks",
@@ -1159,6 +1155,37 @@
       "reset": "Reset everything",
       "confirm": "Yes, wipe everything",
       "wiping": "Wiping…"
+    },
+    "navigation": {
+      "theme": "Theme",
+      "addOns": "Add-Ons",
+      "general": "General",
+      "colors": "Colors",
+      "accounts": "Accounts",
+      "worktrees": "Worktree configuration",
+      "activity": "Activity",
+      "activityEmpty": "Your activity will appear here after your first agent response.",
+      "section": "Settings section",
+      "openRemote": "Manage remote access"
+    },
+    "activity": {
+      "description": "One turn is one assistant reply. Your activity history stays here even when you delete a conversation.",
+      "period": "{{start}} to {{end}}",
+      "total": "Agent turns",
+      "activeDays": "Active days",
+      "currentStreak": "Current streak",
+      "longestStreak": "Longest streak",
+      "turns_one": "turn in this period",
+      "turns_other": "turns in this period",
+      "days_one": "day",
+      "days_other": "days",
+      "recent": "Last 7 days",
+      "date": "Date",
+      "turnCount_one": "{{value}} turn",
+      "turnCount_other": "{{value}} turns",
+      "peak_one": "Busiest day in this period: {{value}} turn.",
+      "peak_other": "Busiest day in this period: {{value}} turns.",
+      "failed": "Couldn't load your activity. Reopen Settings to try again."
     }
   },
   "sidebar": {
@@ -1438,7 +1465,15 @@
     "activityStarting": "starting…",
     "activityThinking": "thinking…",
     "activityWriting": "writing…",
-    "activityImage": "captured an image"
+    "activityImage": "captured an image",
+    "promptFailed": "Failed",
+    "promptStopped": "Stopped",
+    "promptInterrupted": "Interrupted",
+    "editPrompt": "Edit",
+    "resendPrompt": "Resend",
+    "deletePromptHint": "Delete this prompt and its failed response from the conversation and future model context",
+    "deletePromptFailed": "Couldn't delete this prompt. Stop any running response, then try again.",
+    "retryConflict": "This request changed elsewhere. Your draft is kept here; close and reopen to retry."
   },
   "diff": {
     "unified": "Unified",
@@ -1858,5 +1893,19 @@
     "abortMergeConfirm": "Abort the current merge and revert unmerged changes?",
     "completeMerge": "Complete Merge",
     "noConflictsFound": "No conflict markers found in this file."
+  },
+  "subscription": {
+    "title": "Use your {{provider}} subscription",
+    "blurb": "Sign in with your {{provider}} account to use the models available to your plan through a local proxy. No API key required. Your provider's plan limits and charges still apply.",
+    "continue": "Continue with {{provider}}",
+    "browser": "Finish signing in with {{provider}} in your browser.",
+    "deviceCode": "If prompted, enter this code in your browser: <code>{{code}}</code>",
+    "failed": "Sign-in failed.",
+    "waiting": "Waiting for sign-in...",
+    "downloading": "Downloading the local proxy...",
+    "starting": "Starting the local proxy...",
+    "signOut": "Sign out",
+    "signingOut": "Signing out...",
+    "howItWorks": "Roxy includes <proxy>CLIProxyAPI v{{version}}</proxy> (checksum-verified during the build and validated before launch) and runs it on 127.0.0.1 while Roxy is open. It holds the login on this machine and exposes it to Roxy as a normal model endpoint. Your credentials never reach Roxy's servers, and the proxy is closed when you quit."
   }
 }

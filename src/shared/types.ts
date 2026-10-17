@@ -405,6 +405,9 @@ export interface QueueItem {
   requestKind?: 'interruption' | 'new'
   id: string
   chatId: string
+  /** Original transcript prompt and the response owned by its failed attempt. */
+  messageId?: string
+  responseMessageId?: string
   content: string
   /** Images to send with the prompt when it's dequeued. */
   images?: QueueImage[]
@@ -467,7 +470,7 @@ export interface SkillDef {
 // ---- Settings ----------------------------------------------------------------
 
 /** Thinking/reasoning effort, mapped per provider (reasoning models only). */
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 /**
  * Global app settings.

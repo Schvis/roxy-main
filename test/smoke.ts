@@ -66,16 +66,6 @@ import {
   cleanupToolOutputs
 } from '../src/main/services/tool-output-store'
 import {
-  registerBackgroundJob,
-  finishBackgroundJob,
-  listRunningBackgroundJobs,
-  activeBackgroundSubChatIds,
-  hasActiveBackgroundJobs,
-  cancelBackgroundJob,
-  cancelSessionBackgroundJobs,
-  _resetBackgroundJobs
-} from '../src/main/services/background-tasks'
-import {
   startToolRun,
   cancelToolCall,
   cancelToolCallsFor,
@@ -351,6 +341,8 @@ async function main(): Promise<void> {
   )
 
   check('reasoning effort default high', repo.getSettings().reasoningEffort === 'high')
+  repo.setReasoningEffort('none')
+  check('setReasoningEffort persists None', repo.getSettings().reasoningEffort === 'none')
   repo.setReasoningEffort('low')
   check('setReasoningEffort persists', repo.getSettings().reasoningEffort === 'low')
   repo.setReasoningEffort('max')
@@ -2827,100 +2819,6 @@ async function main(): Promise<void> {
     !(await run('bot_manage', { action: 'read', id: 'nope' })).ok
   )
 
-  // ---- background-task registry (Phase 11: parallel + background subagents) ----
-  {
-    _resetBackgroundJobs()
-    const s1 = 'sess_bg_1'
-    const s2 = 'sess_bg_2'
-    const j1 = registerBackgroundJob({
-      sessionId: s1,
-      subChatId: 'sub_1',
-      description: 'crunch',
-      subagentType: 'general'
-    })
-    check(
-      'registerBackgroundJob returns a job id',
-      typeof j1.jobId === 'string' && j1.jobId.length > 0
-    )
-    check('a fresh background job signal is not aborted', j1.signal.aborted === false)
-    check(
-      'listRunningBackgroundJobs shows the running job',
-      listRunningBackgroundJobs(s1).length === 1
-    )
-    check('hasActiveBackgroundJobs true while running', hasActiveBackgroundJobs(s1) === true)
-    check(
-      'activeBackgroundSubChatIds tracks the sub session',
-      activeBackgroundSubChatIds().has('sub_1')
-    )
-
-    // A second session's job is isolated; a null subChatId is not a workspace owner.
-    const j2 = registerBackgroundJob({
-      sessionId: s2,
-      subChatId: null,
-      description: 'watch',
-      subagentType: 'explore'
-    })
-    check(
-      'background jobs are isolated per session',
-      listRunningBackgroundJobs(s1).length === 1 && listRunningBackgroundJobs(s2).length === 1
-    )
-    check(
-      'null subChatId is not tracked as an active child',
-      activeBackgroundSubChatIds().size === 1 && activeBackgroundSubChatIds().has('sub_1')
-    )
-
-    // Cancel aborts the signal, but the job stays listed until its run settles + finishes.
-    cancelBackgroundJob(j1.jobId)
-    check('cancelBackgroundJob aborts the job signal', j1.signal.aborted === true)
-    check(
-      'a cancelled job is still listed until it finishes',
-      listRunningBackgroundJobs(s1).length === 1
-    )
-
-    // Finishing removes it from the live registry, not the transcript database.
-    finishBackgroundJob(j1.jobId, 'error')
-    check('finishBackgroundJob removes the job', listRunningBackgroundJobs(s1).length === 0)
-    check(
-      'a finished job releases its live workspace claim',
-      !activeBackgroundSubChatIds().has('sub_1')
-    )
-    check(
-      'hasActiveBackgroundJobs false after the last job finishes',
-      hasActiveBackgroundJobs(s1) === false
-    )
-    check(
-      'finishing an unknown job id is a no-op',
-      (finishBackgroundJob('nope', 'completed'), true)
-    )
-
-    // cancelSessionBackgroundJobs aborts every job belonging to a session.
-    finishBackgroundJob(j2.jobId, 'completed')
-    const a = registerBackgroundJob({
-      sessionId: s1,
-      subChatId: 'sub_a',
-      description: 'a',
-      subagentType: 'general'
-    })
-    const b = registerBackgroundJob({
-      sessionId: s1,
-      subChatId: 'sub_b',
-      description: 'b',
-      subagentType: 'general'
-    })
-    cancelSessionBackgroundJobs(s1)
-    check(
-      'cancelSessionBackgroundJobs aborts every session signal',
-      a.signal.aborted && b.signal.aborted
-    )
-
-    // _resetBackgroundJobs clears everything (test isolation).
-    _resetBackgroundJobs()
-    check(
-      '_resetBackgroundJobs clears the registry',
-      listRunningBackgroundJobs(s1).length === 0 && !hasActiveBackgroundJobs(s1)
-    )
-  }
-
   // ---- per-call tool cancellation: the registry that makes Stop granular ----
   // Stop used to be all-or-nothing: a wedged `bash` could only be escaped by
   // killing the whole turn, losing its reasoning and every other tool result.
@@ -4137,8 +4035,8 @@ async function main(): Promise<void> {
         { ...enabled, id: 'blocked', policy: { state: 'disabled' } },
         { ...enabled, id: 'unconfigured', policy: {} },
         { ...enabled, id: 'future-policy', policy: { state: 'pending' } },
-        { ...enabled, id: 'hidden', model_picker_enabled: false },
-        { ...enabled, id: 'internal', model_picker_enabled: undefined },
+        { ...enabled, id: 'hidden', model_picker_enabled: false, policy: undefined },
+        { ...enabled, id: 'internal', model_picker_enabled: undefined, policy: undefined },
         { ...enabled, id: 'embedding', capabilities: { type: 'embeddings' } },
         { ...enabled, id: 'wrong-api', supported_endpoints: ['/messages'] },
         { ...enabled, id: 'no-policy', policy: undefined, is_chat_default: true },
@@ -4222,7 +4120,7 @@ async function main(): Promise<void> {
           requests[0].auth === 'Bearer copilot-test-account-a'
       )
       check(
-        'Copilot: only enabled, picker-visible chat models on supported APIs survive',
+        'Copilot: only advertised, policy-allowed chat models on supported APIs survive',
         models.map((m) => m.id).join(',') === 'no-policy,test-new-model,plain-chat'
       )
       check(

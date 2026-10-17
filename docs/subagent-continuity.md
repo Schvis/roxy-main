@@ -1,8 +1,23 @@
 # Subagent Continuity
 
-`task` delegates to a child session. It is not a persistent bot
-handoff. Foreground delegates return into their launching tool call; detached
-delegates can outlive the entire launching turn.
+`task` delegates to a child session. It is not a persistent bot handoff.
+
+## Current behavior (upstream sync, 2026-10-18)
+
+Parallel task calls form a batch. The parent waits for every child, receives results
+in call order, and resumes only after the batch joins. Other parent tools in the
+same response are deferred until a later model step. Detached/background launches
+are no longer supported. Parallel children share their parent's workspace, so
+write-capable tasks must target disjoint files to avoid edit races.
+
+`ask_user` remains a barrier: sibling tools do not start while input is required.
+Child sessions remain available for transcript navigation and live recovery.
+`npm run smoke:subagents` covers host/bot mixed outcomes and batch cancellation;
+`npm run smoke:store` covers transcript recovery and stale-event ordering.
+
+The sections below document the earlier detached-task implementation and its
+historical investigations; detached continuation guarantees and the old regression
+matrix do not describe the current batch system.
 
 ## Failure Modes
 

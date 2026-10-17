@@ -23,7 +23,6 @@ import {
   setWindowFactory
 } from './services/notifications'
 import { cleanupToolOutputs } from './services/tool-output-store'
-import { cancelAllBackgroundJobs } from './services/background-tasks'
 import { shutdownAllLsp } from './services/lsp'
 import { shutdownAllMcp } from './services/mcp'
 import { shutdownRemote } from './services/remote'
@@ -355,7 +354,6 @@ app.on('will-quit', () => {
   unregisterVoiceShortcut()
   killAllBackground()
   killAllShells()
-  cancelAllBackgroundJobs()
   closeAllBrowsers()
   shutdownAllLsp()
   void shutdownAllMcp()

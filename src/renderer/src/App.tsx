@@ -11,9 +11,6 @@ import { api } from './lib/api'
 import { initTtsPlayer } from './lib/tts-player'
 
 const Integrations = lazy(() => import('./routes/Integrations'))
-const Skills = lazy(() => import('./routes/Skills'))
-const Mcp = lazy(() => import('./routes/Mcp'))
-const Themes = lazy(() => import('./routes/Themes'))
 const Settings = lazy(() => import('./routes/Settings'))
 const GitPage = lazy(() => import('./routes/GitPage'))
 const VtuberStandalone = lazy(() =>
@@ -231,10 +228,10 @@ function AppRoutes({ onboarded }: { onboarded: boolean }): JSX.Element {
               <Route path="/vtuber" element={<VtuberStandalone />} />
               <Route path="/terminal" element={<StandaloneTerminal />} />
               <Route path="/integrations" element={<Integrations />} />
-              <Route path="/skills" element={<Skills />} />
-              <Route path="/mcp" element={<Mcp />} />
-              <Route path="/themes" element={<Themes />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/skills" element={<Navigate to="/settings/skills" replace />} />
+              <Route path="/mcp" element={<Navigate to="/settings/mcp" replace />} />
+              <Route path="/themes" element={<Navigate to="/settings/background" replace />} />
+              <Route path="/settings/:section?" element={<Settings />} />
               <Route path="/git" element={<GitPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

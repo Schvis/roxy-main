@@ -71,6 +71,7 @@ const hooks = {
   useMemo: (factory) => factory(),
   useCallback: (callback) => callback,
   useId: () => 'test-id',
+  useLayoutEffect: () => {},
   useEffect: (effect) => current.effects.push(effect)
 }
 const windowEvents = new Map()
@@ -591,6 +592,7 @@ const sidebarUI = load('src/renderer/src/components/Sidebar.tsx', '', {
 })
 state.projectOrder = []
 state.bots = []
+state.remote = { phase: 'off' }
 state.sidebarRailed = true
 for (const enabled of [false, true]) {
   state.settings = { ideMode: enabled }
