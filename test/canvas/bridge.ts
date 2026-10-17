@@ -86,7 +86,27 @@ window.roxy = {
     setRecordingState: async () => {},
     onStartRecording: () => () => {},
     onStopRecording: () => () => {},
-    transcribe: async () => ({ text: '' })
+    transcribe: async () => ({ text: '' }),
+    getStatus: async () => ({ installed: true }),
+    installDependencies: async () => ({ ok: true, log: '' }),
+    onInstallProgress: () => () => {},
+    getInstalledModels: async () => [],
+    downloadModel: async () => ({ ok: true }),
+    onDownloadProgress: () => () => {},
+    setShortcutPaused: async () => {}
+  },
+  tts: {
+    getStatus: async () => ({ installed: true, running: false }),
+    install: async () => ({ ok: true, log: '' }),
+    startServer: async () => ({ ok: true }),
+    stopServer: async () => ({ ok: true }),
+    onInstallProgress: () => () => {},
+    getServerLogs: async () => '',
+    clearServerLogs: async () => {},
+    onServerLog: () => () => {},
+    getModels: async () => ({ models: [], current: '', indexes: [], currentIndex: '' }),
+    openModelsFolder: async () => {},
+    testVoice: async () => ({ ok: true })
   },
   copilot: {
     start: async () => {
