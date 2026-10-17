@@ -117,7 +117,8 @@ function foldInto(
             state: event.ok ? 'done' : 'error',
             output: cap > 0 ? capChildOutput(event.output) : event.output,
             image: event.image,
-            diff: event.diff
+            diff: event.diff,
+            diffs: event.diffs
           }
         : p
     )

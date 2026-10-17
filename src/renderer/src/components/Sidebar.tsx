@@ -12,6 +12,7 @@ import type { TFunction } from 'i18next'
 import { useMotion } from '../lib/motion'
 import {
   FolderOpen,
+  Search,
   GitBranch,
   GitFork,
   Hammer,
@@ -38,7 +39,6 @@ import { BotsSection } from './BotsSection'
 import { BrailleSpinner } from './ThinkingIndicator'
 import { UpdateCard } from './UpdateCard'
 import { SidebarFrame, SidebarNavItem } from './SidebarFrame'
-import { IdeModeToggle } from './IdeModeToggle'
 
 /**
  * How often to re-read git + PR state for EVERY session.
@@ -146,9 +146,70 @@ function FolderMorph({ open, className }: { open: boolean; className?: string })
   )
 }
 
-export function Sidebar(): JSX.Element {
+export type SidebarTool = 'files' | 'search' | 'git'
+
+interface SidebarProps {
+  changedFileCount?: number
+  tool?: SidebarTool | null
+  onToolChange?: (tool: SidebarTool | null) => void
+}
+
+export function Sidebar({
+  tool = null,
+  onToolChange,
+  changedFileCount = 0
+}: SidebarProps): JSX.Element {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
+  const setIdeTab = useRoxyStore((s) => s.setIdeTab)
+  const tools = (rail: boolean): JSX.Element | null =>
+    onToolChange ? (
+      <div className={cn('flex gap-1', rail ? 'mt-2 flex-col' : 'px-3 pt-2')}>
+        {(['files', 'search', 'git'] as const)
+          .filter((tab) => ideMode || tab === 'git')
+          .map((tab) => {
+            const Icon = tab === 'files' ? FolderOpen : tab === 'search' ? Search : GitBranch
+            const label = t(
+              tab === 'files' ? 'ide.filesTab' : tab === 'search' ? 'ide.searchTab' : 'ide.gitTab'
+            )
+            return (
+              <button
+                key={tab}
+                type="button"
+                title={
+                  tab === 'git' && changedFileCount > 0 ? `${label} (${changedFileCount})` : label
+                }
+                aria-label={
+                  tab === 'git' && changedFileCount > 0 ? `${label} (${changedFileCount})` : label
+                }
+                aria-pressed={tool === tab}
+                onClick={() => {
+                  setIdeTab(tab)
+                  onToolChange(tool === tab ? null : tab)
+                }}
+                className={cn(
+                  'press-scale relative flex h-8 items-center justify-center rounded-lg',
+                  rail ? 'w-8' : 'flex-1',
+                  tool === tab
+                    ? 'bg-elevated text-accent'
+                    : 'text-text-muted hover:bg-white/5 hover:text-text'
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {tab === 'git' && changedFileCount > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold leading-none text-white shadow-xs"
+                  >
+                    {changedFileCount > 99 ? '99+' : changedFileCount}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+      </div>
+    ) : null
   const chats = useRoxyStore((s) => s.chats)
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const selectChat = useRoxyStore((s) => s.selectChat)
@@ -479,9 +540,6 @@ export function Sidebar(): JSX.Element {
         >
           <PanelLeftOpen className="h-4 w-4" />
         </button>
-        <div className="mt-2">
-          <IdeModeToggle />
-        </div>
         <button
           onClick={newSession}
           title={t('sidebar.newProject')}
@@ -490,6 +548,7 @@ export function Sidebar(): JSX.Element {
           <FolderOpen className="h-4 w-4" />
         </button>
 
+        {tools(true)}
         <BotsSection rail />
         <div className="mt-auto flex flex-col items-center gap-1">
           <button
@@ -539,6 +598,7 @@ export function Sidebar(): JSX.Element {
         <BotsSection />
       </div>
 
+      {tools(false)}
       <div className="mt-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3">
         <section className="flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center px-1">

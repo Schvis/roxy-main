@@ -20,6 +20,7 @@ import type {
 } from '../../shared/types'
 import type { Bot, BotJob } from '../../shared/bots'
 import { isInterruptibleTool } from '../../shared/tools'
+import { planToolGuidance, UPDATE_PLAN_DESCRIPTION } from '../../shared/interaction-tools'
 import { MAX_FORWARDED_IMAGES } from '../../shared/attachments'
 import { PartsFold, partsToContent, taskPreview } from '../../shared/parts'
 import {
@@ -33,8 +34,7 @@ import {
   selectPromptName,
   buildEnvironment,
   assembleSystemPrompt,
-  GIT_COMMIT_TRAILER_PROMPT,
-  FISH_AUDIO_EMOTION_PROMPT
+  GIT_COMMIT_TRAILER_PROMPT
 } from '../../shared/prompt'
 import { flattenToolHistory, sanitizeToolCallId } from '../../shared/tool-history'
 import { pruneToolMessages, KEEP_RECENT_TOKENS, messageTokens } from '../../shared/context'
@@ -656,17 +656,11 @@ function buildSystemMessage(
   // Plan-mode reminder keeps recency priority over them.
   const instructions = cwd ? loadProjectInstructions(cwd) : []
   const agentPrompt = agent?.promptFile ? agentPromptText[agent.promptFile] : undefined
-  const settings = repo.getSettings()
-  const emotionInstructions =
-    settings.ttsShowEmotions || (settings.ttsEnabled && settings.ttsProvider === 'fish')
-      ? [FISH_AUDIO_EMOTION_PROMPT]
-      : []
   const extra = [
     ...instructions,
     ...(skillInfo ? [skillInfo] : []),
     ...(mcpInfo ? [mcpInfo] : []),
-    ...(agentPrompt ? [agentPrompt] : []),
-    ...emotionInstructions
+    ...(agentPrompt ? [agentPrompt] : [])
   ]
   // Who speaks this turn: Roxy herself, a bot in its own chat, or a bot invited
   // into someone else's session (`asBotId`). Roxy is the host and orchestrates;
@@ -779,6 +773,12 @@ function buildSystemMessage(
     visiting && contextLimit && hostSummary
       ? truncateSummary(hostSummary, Math.floor(contextLimit * HOST_SUMMARY_SHARE) * 4)
       : hostSummary
+  const planGuidance = planToolGuidance(agent?.tools ?? 'all')
+  if (planGuidance) {
+    extra.push(planGuidance)
+    const tasks = chatId ? repo.getChat(chatId)?.tasks : undefined
+    if (tasks?.length) extra.push(`Current session plan (task data):\n${JSON.stringify(tasks)}`)
+  }
   return assembleSystemPrompt({
     base,
     environment,
@@ -806,6 +806,54 @@ function gatherMcpRecords(cwd: string): McpServerRecord[] {
 
 /** OpenAI function schemas for the workspace/browser tools (the base toolset). */
 const BASE_SCHEMAS = [
+  fn(
+    'ask_user',
+    'Ask the user for decisions before proceeding. Execution pauses until all questions are answered. Use the user’s language; custom answers are always available. Do not combine with work requiring these answers.',
+    {
+      questions: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 12,
+        items: {
+          type: 'object',
+          properties: {
+            question: str('Question text.'),
+            header: str('Optional short heading.'),
+            options: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { label: str('Choice text.'), description: str('Optional detail.') },
+                required: ['label']
+              }
+            }
+          },
+          required: ['question']
+        }
+      }
+    },
+    ['questions']
+  ),
+  fn(
+    'update_plan',
+    UPDATE_PLAN_DESCRIPTION,
+    {
+      explanation: str('Optional reason for the update.'),
+      plan: {
+        type: 'array',
+        maxItems: 100,
+        items: {
+          type: 'object',
+          properties: {
+            step: str('Brief actionable step.'),
+            status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] }
+          },
+          required: ['step', 'status']
+        }
+      }
+    },
+    ['plan']
+  ),
   fn(
     'read',
     'Read a file from the workspace.',
@@ -1777,6 +1825,8 @@ async function runLoop(o: LoopOptions): Promise<string> {
       // Every result is paired back to its call id in the ORIGINAL order, so the
       // assistant.tool_calls → role:'tool' structure the model sees stays valid.
       const { tasks, others } = partitionToolCalls(toolCalls)
+      // A question is a batch barrier: never start sibling work speculatively.
+      const askingUser = others.some((call) => call.name === 'ask_user')
 
       // Subagents inherit their parent's cwd verbatim — they must, since their
       // work has to land in the tree that spawned them. That makes two parallel
@@ -1844,16 +1894,34 @@ async function runLoop(o: LoopOptions): Promise<string> {
       for (let i = 0; i < tasks.length; i++) recordSubagent(metricsId)
       if (tasks.length > 0) trackFeature(metricsId, 'subagent')
 
-      const tasksSettled = runTasksByWriteCapability(tasks, {
-        isWriteCapable: (tc) => isWriteCapableSubagent(parseTaskInput(tc.args).subagentType),
-        limit: MAX_PARALLEL_SUBAGENTS,
-        run: runTask,
-        aborted: () => signal.aborted
-      })
+      const tasksSettled = askingUser
+        ? Promise.resolve(
+            tasks.map((call) => ({
+              task: call,
+              result: {
+                id: call.id,
+                content:
+                  'Deferred: ask_user must be answered first. Retry after reading the answers.'
+              }
+            }))
+          )
+        : runTasksByWriteCapability(tasks, {
+            isWriteCapable: (tc) => isWriteCapableSubagent(parseTaskInput(tc.args).subagentType),
+            limit: MAX_PARALLEL_SUBAGENTS,
+            run: runTask,
+            aborted: () => signal.aborted
+          })
 
       const resultById = new Map<string, string>()
       for (const tc of others) {
         if (signal.aborted) break
+        if (askingUser && tc.name !== 'ask_user') {
+          resultById.set(
+            tc.id,
+            'Deferred: ask_user must be answered first. Retry after reading the answers.'
+          )
+          continue
+        }
         let input: Record<string, unknown> = {}
         try {
           input = tc.args.trim() ? (JSON.parse(tc.args) as Record<string, unknown>) : {}
@@ -1920,7 +1988,8 @@ async function runLoop(o: LoopOptions): Promise<string> {
           output: result.output,
           ok: result.ok,
           image: result.image,
-          diff: result.diff
+          diff: result.diff,
+          diffs: result.diffs
         })
         // Count the call. `recordTool` collapses the name through the closed
         // vocabulary, so an MCP tool reports as the literal `mcp` and its
@@ -2430,6 +2499,8 @@ function subagentSystemPrompt(agent: AgentDef, cwd: string, skillInfo?: string):
   if (agent.tools !== 'all') {
     lines.push(`You may only use these tools: ${agent.tools.join(', ')}.`)
   }
+  const planGuidance = planToolGuidance(agent.tools)
+  if (planGuidance) lines.push(planGuidance)
   // Surface any discovered skills so the subagent can load one when it allows the tool.
   if (skillInfo && agentAllowsSkill(agent)) lines.push(skillInfo)
   // Attribute Roxy on any commit a bash-capable subagent makes (mirrors the lead agent).

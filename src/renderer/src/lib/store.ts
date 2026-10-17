@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { DEFAULT_AGENT_ID, getAgent } from '@shared/agents'
 import type { Language } from '@shared/i18n'
 import { moveVisibleQueueItem } from '@shared/queue'
+import { startsNewRequest } from '@shared/interaction-tools'
 import i18n, { applyLanguage } from '../i18n'
 import type {
   AppSettings,
@@ -32,7 +33,6 @@ import {
   selectPromptName,
   buildEnvironment,
   assembleSystemPrompt,
-  FISH_AUDIO_EMOTION_PROMPT,
   type PromptName
 } from '@shared/prompt'
 import { PROMPT_TEXT, AGENT_PROMPT_TEXT } from '@shared/prompt-text'
@@ -318,7 +318,6 @@ interface RoxyStore {
   setFishAudioModel: (model: string) => Promise<void>
   setFishAudioVoice: (voice: string) => Promise<void>
   setFishAudioMaxWords: (maxWords: number) => Promise<void>
-  setTtsShowEmotions: (show: boolean) => Promise<void>
   setVtuberEnabled: (enabled: boolean) => Promise<void>
   setVtuberModelPath: (path: string) => Promise<void>
   setVtuberVisionEnabled: (enabled: boolean) => Promise<void>
@@ -368,7 +367,12 @@ interface RoxyStore {
    * to Roxy.
    */
   submitToCollaborator: (content: string, botId: string, images?: ComposerImage[]) => Promise<void>
-  sendMessage: (content: string, chatId?: string, images?: ComposerImage[]) => Promise<void>
+  sendMessage: (
+    content: string,
+    chatId?: string,
+    images?: ComposerImage[],
+    requestKind?: 'interruption' | 'new'
+  ) => Promise<void>
   removeQueued: (id: string) => Promise<void>
   moveQueued: (id: string, direction: 'up' | 'down') => Promise<void>
   /** Edit a queued prompt in place (text + images), keeping its queue position. */
@@ -627,6 +631,13 @@ function applyAutomationDelta(payload: AutomationDelta): void {
     return
   }
   if (payload.kind === 'turn') {
+    if (payload.resetPlan) {
+      useRoxyStore.setState((s) => ({
+        chats: s.chats.map((chat) =>
+          chat.id === id ? { ...chat, tasks: [], tasksInitialized: true } : chat
+        )
+      }))
+    }
     if (payload.message) rememberMessage(payload.message)
     useRoxyStore.setState((s) => {
       const automationSpeakers = { ...s.automationSpeakers }
@@ -674,6 +685,7 @@ async function enqueuePrompt(
   text: string,
   images?: ComposerImage[],
   options?: {
+    requestKind?: 'interruption' | 'new'
     sourceChatId?: string
     asBotId?: string
     recipientId?: string
@@ -1090,7 +1102,10 @@ function applySubagentDelta(payload: SubagentDelta): void {
   const event = payload.event
   if (event.type === 'tool-end' && event.ok) {
     const card = turn.parts.find((p) => p.type === 'tool' && p.callId === event.callId)
-    if (card?.type === 'tool' && card.tool === 'change_session_metadata') {
+    if (
+      card?.type === 'tool' &&
+      (card.tool === 'change_session_metadata' || card.tool === 'update_plan')
+    ) {
       void useRoxyStore.getState().refreshChats()
     }
   }
@@ -1259,9 +1274,10 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   },
   setIdeSelectedFile: (entry, line, root) => {
     const state = get()
-    const autoIde = Boolean(entry && !state.settings?.ideMode)
-    if (autoIde) {
-      void api.settings.setIdeMode(true)
+    const ideMode = Boolean(entry)
+    const modeChanged = ideMode !== Boolean(state.settings?.ideMode)
+    if (modeChanged) {
+      void api.settings.setIdeMode(ideMode)
     }
     const currentChatId = state.activeChatId
     const filePayload = entry
@@ -1279,8 +1295,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       ideSelectedFile: entry,
       ideSelectedLine: line,
       ideSelectedRoot: entry ? (root ?? null) : null,
-      ...(autoIde && state.settings
-        ? { settings: { ...state.settings, ideMode: true, ttsEnabled: false } }
+      ...(modeChanged && state.settings
+        ? { settings: { ...state.settings, ideMode, ...(ideMode ? { ttsEnabled: false } : {}) } }
         : {})
     })
   },
@@ -2354,11 +2370,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
-  setTtsShowEmotions: async (show) => {
-    const settings = await api.settings.setTtsShowEmotions(show)
-    set({ settings })
-  },
-
   setVtuberEnabled: async (enabled) => {
     const settings = await api.settings.setVtuberEnabled(enabled)
     set({ settings })
@@ -2803,7 +2814,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
           return { sendingChats, stopChats }
         })
       }
-      await get().sendMessage(text, undefined, images)
+      await get().sendMessage(text, chatId, images, 'interruption')
       return
     }
 
@@ -2847,7 +2858,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     })
   },
 
-  sendMessage: async (content, targetChatId, images) => {
+  sendMessage: async (content, targetChatId, images, requestKind) => {
     const chatId = targetChatId ?? get().activeChatId
     if (!chatId) return
     // All real model sends use main's admission/persistence, including a send
@@ -2858,15 +2869,15 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       get().settings
     )
     if (!content.startsWith('!') && (configForSend.providerId || get().providers.length > 0)) {
-      await enqueuePrompt(chatId, content, images)
+      await enqueuePrompt(chatId, content, images, { requestKind })
       return
     }
     if (isBotChat(chatId, get())) {
-      await enqueuePrompt(chatId, content, images)
+      await enqueuePrompt(chatId, content, images, { requestKind })
       return
     }
     if (get().sendingChats[chatId]) {
-      await enqueuePrompt(chatId, content, images)
+      await enqueuePrompt(chatId, content, images, { requestKind })
       return
     }
     if (content.startsWith('!') && !content.slice(1).trim()) return
@@ -3055,7 +3066,9 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
             state: result.ok ? 'done' : 'error',
             title,
             output: result.output,
-            image: result.image
+            image: result.image,
+            diff: result.diff,
+            diffs: result.diffs
           }
         ]
         setStreaming(parts)
@@ -3205,7 +3218,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
             } else if (
               event.ok &&
               ended?.type === 'tool' &&
-              ended.tool === 'change_session_metadata'
+              (ended.tool === 'change_session_metadata' || ended.tool === 'update_plan')
             ) {
               // The agent renamed / described / re-tasked its own session —
               // refresh so the sidebar title + the SessionInfo strip update live.
@@ -3233,12 +3246,20 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
         // the stuck-cancel bug, and it could only be cleared by restarting.
         let result: LlmResult
         try {
+          if (startsNewRequest({ messages: chatMessages, requestKind })) {
+            set((s) => ({
+              chats: s.chats.map((chat) =>
+                chat.id === chatId ? { ...chat, tasks: [], tasksInitialized: true } : chat
+              )
+            }))
+          }
           result = await api.llm.start({
             requestId,
             sessionId: chatId,
             providerId: provider.id,
             model,
             messages: chatMessages,
+            requestKind,
             agentId,
             reasoning: info?.reasoning ?? false,
             // Clamp to what THIS model accepts. A session's effort is sticky
@@ -3487,12 +3508,7 @@ export function buildSystemPrompt(
   const instructions = workspace
     ? (useRoxyStore.getState().projectInstructions[workspace] ?? [])
     : []
-  const settings = useRoxyStore.getState().settings
-  const emotionInstructions =
-    settings?.ttsShowEmotions || (settings?.ttsEnabled && settings?.ttsProvider === 'fish')
-      ? [FISH_AUDIO_EMOTION_PROMPT]
-      : []
-  const extra = [...instructions, ...(agentPrompt ? [agentPrompt] : []), ...emotionInstructions]
+  const extra = [...instructions, ...(agentPrompt ? [agentPrompt] : [])]
   return assembleSystemPrompt({
     base,
     environment,

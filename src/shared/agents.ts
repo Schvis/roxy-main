@@ -40,7 +40,7 @@ export const AGENTS: AgentDef[] = [
     mode: 'primary',
     hidden: false,
     color: '#3fb950',
-    tools: ['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'skill'],
+    tools: ['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'skill', 'ask_user', 'update_plan'],
     promptFile: 'plan.txt'
   },
   {

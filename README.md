@@ -136,7 +136,7 @@ python script/setup_tts_env.py
 npm run tts:server
 ```
 
-You can also enable **Fish Audio API** under Settings for cloud-based voice synthesis without local GPU requirements.
+You can also enable **Fish Audio API** under Settings for cloud-based voice synthesis without local GPU requirements. Fish Audio speaks plain response text without added emotion tags or emotion-specific prompt instructions.
 
 ## Useful scripts
 
@@ -188,6 +188,17 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
   [`tools.ts`](src/main/harness/tools.ts) is the authoritative `runTool` dispatcher. The user-facing
   catalog in [`src/shared/tools.ts`](src/shared/tools.ts) mirrors it (the "Skills & Tools" page) and
   is guarded against drift by the shared smoke suite.
+- **Interactive tools** — `ask_user({ questions: [{ question, header?, options? }] })` pauses the
+  tool loop until the existing question popup submits all answers through `tools.input` IPC.
+  Stop/cancel resolves the pending call; sibling calls in the same batch are deferred until the
+  model reads the answers. Options use `{ label, description? }`; custom answers are supported.
+  `update_plan({ plan: [{ step, status }], explanation? })` replaces the session's SQLite-backed
+  checklist (`pending`, `in_progress`, `completed`; at most one active step, empty array clears).
+  Structured plans are authoritative; legacy question tags and explicit visible prose plans remain display fallbacks. Private reasoning and unintroduced bullet lists never create plans.
+  Force-send during work preserves the canonical plan across interruption and reload; the model keeps/updates it for a continuation or explicitly clears/replaces it for a task switch. Delivery context is persisted, not inferred from English keywords. API callers can set `requestKind: 'new'` to force an immediate reset even while working. A natural-language task switch during force-send is interpreted by the model, not deterministically by the client.
+Each ordinary new request clears the canonical plan when it starts (queued requests wait for admission), even if no new plan is published. Empty resets survive reload and suppress historical tool/prose plans; internal handoffs and question/tool answers keep the current request's plan.
+  Tool descriptions define the interaction contract. Agents with `update_plan` also receive brief guidance to publish a plan before substantive multi-step work and update it as steps change, overriding stale model-family TodoWrite/markdown conventions. Simple questions and trivial tasks need no plan; long planning/question prompt blocks are not injected.
+  Run `npm run smoke:interactions` for validation, blocking/answer/cancellation, and plan-state regressions.
 - **Providers** — the hand-rolled OpenAI/Copilot SSE path (with Copilot's short-lived-token refresh)
   lives in [`services/llm.ts`](src/main/services/llm.ts); Anthropic + Google route through the Vercel
   AI SDK in [`services/aisdk.ts`](src/main/services/aisdk.ts) so every family gets tool-calling.
@@ -209,10 +220,26 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
 
 ### Integrated IDE & Git Workflow
 
-- **IDE Mode Toggle** — Collapse the session explorer sidebar, then use the code icon above
-  the new-project folder icon to switch IDE mode on or off. The toggle remains available
-  when IDE mode is off and saves the same preference as Settings. Chat messages and drafts
-  stay open when switching modes.
+- **Sidebar Tools** — File explorer, file search, and Git workflow open in an independent
+  panel beside the main sidebar, leaving the session list visible. Explorer and search are
+  available only in IDE mode; Git is available in either mode. Click the active tool again
+  or use the panel's close button to dismiss it. Tool icons remain accessible when the
+  sidebar is collapsed, and opening a tool preserves that collapsed state.
+
+- **Changed Files Badge** — Chat shows a compact badge with the changed-file count and
+  total added/deleted lines. Click it to select a file from the popup, or keep/undo changes.
+  Write/edit snapshots (including large files), manual `!` tool results, and foreground
+  shell file changes are retained in the transcript, so the badge survives reopening a
+  session. Shell observation compares actual files before/after a command, not Git HEAD,
+  preserving pre-existing edits as the baseline; even failed commands can change files.
+  It observes UTF-8 text up to 100 KB/file, 2,000 files and 8 MB per snapshot, excluding
+  symlinks, binaries, `.git`, `node_modules`, `dist`, and `out`. Background processes,
+  external editors and MCP tools are not attributed to a shell call; concurrent changes
+  in the same workspace cannot be distinguished. Git's sidebar dirty indicator and IDE
+  decorations remain independent working-tree views, not pending agent-review counts.
+- **Automatic IDE Mode** — Click a file mention or file change in chat to open the editor.
+  Closing the file or diff closes IDE mode instead of leaving an empty editor. No manual
+  IDE toggle is needed; chat messages and drafts stay open when the editor opens or closes.
 - **File Editor & Tree** — [`src/renderer/src/components/FileEditor.tsx`](src/renderer/src/components/FileEditor.tsx)
   provides an in-app editor with syntax highlighting powered by Shiki, active file tabs, and context attachment.
 - **Git Actions & Conflict Solver** — [`src/renderer/src/components/GitActionsView.tsx`](src/renderer/src/components/GitActionsView.tsx)

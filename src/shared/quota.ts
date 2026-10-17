@@ -485,7 +485,15 @@ export function bucketAppliesTo(bucket: QuotaBucket, model: string | undefined):
   if (!bucket.models && !bucket.family) return true
   if (!model) return false
   const bare = bareModel(model)
-  if (bucket.models) return bucket.models.some((m) => bareModel(m) === bare)
+  if (bucket.models)
+    return bucket.models.some((m) => {
+      const metered = bareModel(m)
+      if (metered === bare) return true
+      // Gemini tiered allowances cover every thinking level of the same model.
+      if (!metered.startsWith('gemini-') || !metered.endsWith('-tiered')) return false
+      const base = metered.slice(0, -'-tiered'.length)
+      return bare.replace(/-(?:minimal|low|medium|high)$/, '').replace(/-tiered$/, '') === base
+    })
   return bare.includes(bucket.family!)
 }
 

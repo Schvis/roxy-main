@@ -483,15 +483,243 @@ for (const enabled of [false, true]) {
   const folderIndex = railNodes.findIndex(
     (node) => node.type === 'button' && node.props.title === 'sidebar.newProject'
   )
-  assert.ok(
-    toggleIndex >= 0 && toggleIndex < folderIndex,
-    'Collapsed session rail toggle sits above folder icon'
-  )
+  assert.equal(toggleIndex, -1, 'IDE opens from file links, without a manual toggle')
+  assert.ok(folderIndex >= 0, 'New-project button remains available')
 }
 state.sidebarRailed = false
 assert.ok(
   !nodes(render(sidebarUI.Sidebar, {}).tree).some((node) => node.type === ideUI.IdeModeToggle)
 )
+const toolSelections = []
+const tabSelections = []
+state.setIdeTab = (tab) => tabSelections.push(tab)
+state.setSidebarRailed = (value) => {
+  state.sidebarRailed = value
+}
+for (const rail of [false, true]) {
+  state.sidebarRailed = rail
+  for (const enabled of [false, true]) {
+    state.settings = { ideMode: enabled }
+    const sidebar = render(sidebarUI.Sidebar, {
+      tool: 'git',
+      onToolChange: (tool) => toolSelections.push(tool)
+    })
+    const buttons = nodes(sidebar.tree).filter((node) => node.type === 'button')
+    const toolButton = (label) => buttons.find((node) => node.props['aria-label'] === label)
+    assert.equal(Boolean(toolButton('ide.filesTab')), enabled)
+    assert.equal(Boolean(toolButton('ide.searchTab')), enabled)
+    const gitButton = toolButton('ide.gitTab')
+    assert.ok(gitButton, 'Git workflow is available in both modes')
+    assert.equal(gitButton.props['aria-pressed'], true)
+    gitButton.props.onClick()
+    assert.equal(tabSelections.at(-1), 'git')
+    assert.equal(toolSelections.at(-1), null)
+    if (rail) assert.equal(state.sidebarRailed, true, 'Git does not expand the main sidebar')
+    if (!rail) {
+      assert.ok(
+        nodes(sidebar.tree).some(
+          (node) =>
+            node.props?.className?.includes('overflow-y-auto') &&
+            !node.props.className.includes('hidden')
+        ),
+        'Session list stays visible with Git open'
+      )
+    }
+    state.sidebarRailed = rail
+  }
+}
+for (const rail of [false, true]) {
+  state.sidebarRailed = rail
+  for (const count of [0, 7, 120]) {
+    const sidebar = render(sidebarUI.Sidebar, { changedFileCount: count, onToolChange: () => {} })
+    const button = nodes(sidebar.tree).find(
+      (node) => node.type === 'button' && node.props['aria-label']?.startsWith('ide.gitTab')
+    )
+    assert.ok(button)
+    assert.equal(button.props.title, count ? `ide.gitTab (${count})` : 'ide.gitTab')
+    const badge = nodes(button).find(
+      (node) => node.type === 'span' && node.props['aria-hidden'] === 'true'
+    )
+    assert.equal(Boolean(badge), count > 0)
+    if (badge) assert.equal(badge.props.children, count > 99 ? '99+' : count)
+  }
+}
+state.settings = { ideMode: false }
+chat = render(chatUI.default, {}, chat.context)
+nodes(chat.tree)
+  .find((node) => node.type?.name === 'IdeWorkspace')
+  .props.onChangedFileCount(9)
+chat = render(chatUI.default, {}, chat.context)
+assert.equal(
+  nodes(chat.tree).find((node) => node.type?.name === 'Sidebar').props.changedFileCount,
+  9
+)
+let chatSidebar = nodes(chat.tree).find((node) => node.type?.name === 'Sidebar')
+chatSidebar.props.onToolChange('files')
+chat = render(chatUI.default, {}, chat.context)
+chatSidebar = nodes(chat.tree).find((node) => node.type?.name === 'Sidebar')
+assert.equal(chatSidebar.props.tool, null, 'File tools cannot remain visible outside IDE mode')
+chatSidebar.props.onToolChange('git')
+chat = render(chatUI.default, {}, chat.context)
+chatSidebar = nodes(chat.tree).find((node) => node.type?.name === 'Sidebar')
+assert.equal(chatSidebar.props.tool, 'git')
+const workspace = nodes(chat.tree).find((node) => node.type?.name === 'IdeWorkspace')
+assert.equal(workspace.props.sidebarTab, 'git')
+assert.equal(workspace.props.ideMode, false)
+const gitPanel = nodes(chat.tree).find(
+  (node) => node.type === 'aside' && node.props['aria-label'] === 'ide.gitTab'
+)
+assert.ok(gitPanel, 'Git opens in an independent panel beside the sidebar')
+const gitHost = nodes(gitPanel).find((node) => node.ref)
+const gitPortalTarget = {}
+gitHost.ref(gitPortalTarget)
+chat = render(chatUI.default, {}, chat.context)
+assert.equal(
+  nodes(chat.tree).find((node) => node.type?.name === 'IdeWorkspace').props.sidebarTarget,
+  gitPortalTarget
+)
+find(gitPanel, 'button').props.onClick()
+chat = render(chatUI.default, {}, chat.context)
+assert.ok(
+  !nodes(chat.tree).some((node) => node.type === 'aside'),
+  'Git panel close button dismisses it'
+)
+state.settings = { ideMode: true }
+for (const tool of ['files', 'search']) {
+  const label = tool === 'files' ? 'ide.filesTab' : 'ide.searchTab'
+  chatSidebar.props.onToolChange(tool)
+  chat = render(chatUI.default, {}, chat.context)
+  const panel = nodes(chat.tree).find(
+    (node) => node.type === 'aside' && node.props['aria-label'] === label
+  )
+  assert.ok(panel, `${tool} opens independently beside the sidebar`)
+  const host = {}
+  nodes(panel)
+    .find((node) => node.ref)
+    .ref(host)
+  chat = render(chatUI.default, {}, chat.context)
+  const editor = nodes(chat.tree).find((node) => node.type?.name === 'IdeWorkspace')
+  assert.equal(editor.props.sidebarTarget, host)
+  assert.equal(editor.props.sidebarTab, tool)
+  for (const rail of [false, true]) {
+    state.sidebarRailed = rail
+    const sidebar = render(sidebarUI.Sidebar, {
+      tool,
+      onToolChange: (next) => toolSelections.push(next)
+    })
+    const button = nodes(sidebar.tree).find(
+      (node) => node.type === 'button' && node.props['aria-label'] === label
+    )
+    button.props.onClick()
+    assert.equal(toolSelections.at(-1), null, 'Active tool button closes independent panel')
+    assert.equal(state.sidebarRailed, rail, 'File tools preserve sidebar collapse state')
+    if (!rail)
+      assert.ok(
+        nodes(sidebar.tree).some(
+          (node) =>
+            node.props?.className?.includes('overflow-y-auto') &&
+            !node.props.className.includes('hidden')
+        ),
+        'Session list remains visible'
+      )
+  }
+  find(panel, 'button').props.onClick()
+  chat = render(chatUI.default, {}, chat.context)
+  assert.ok(!nodes(chat.tree).some((node) => node.type === 'aside'))
+}
+const openedChanges = []
+state.messages = []
+state.streamingChats = {}
+state.setIdeSelectedFile = (...args) => openedChanges.push(args)
+const changedFile = {
+  path: 'src/example.ts',
+  fileName: 'example.ts',
+  addedLines: 12,
+  removedLines: 4,
+  isModified: true,
+  reviewStatus: 'pending'
+}
+const changesUI = load('src/renderer/src/components/AgentFileChangesPopup.tsx', '', {
+  '../lib/agent-file-changes': {
+    extractAgentFileChanges: () => ({ files: [changedFile], latestTurnFiles: [changedFile] }),
+    subscribeFileReviews: () => () => {}
+  }
+})
+let changes = render(changesUI.AgentFileChangesPopup, {})
+assert.ok(
+  !nodes(changes.tree).some((node) => node.props?.role === 'dialog'),
+  'Changed files start as a badge'
+)
+const badge = find(changes.tree, 'button')
+assert.equal(badge.props['aria-haspopup'], 'dialog')
+assert.ok(
+  nodes(badge).some((node) => node.props?.children?.includes?.(12)),
+  'Badge includes added lines'
+)
+badge.props.onClick()
+changes = render(changesUI.AgentFileChangesPopup, {}, changes.context)
+assert.ok(
+  nodes(changes.tree).some((node) => node.props?.role === 'dialog'),
+  'Badge opens file picker'
+)
+nodes(changes.tree)
+  .find((node) => node.props?.role === 'button')
+  .props.onClick()
+assert.equal(openedChanges.at(-1)[0].path, changedFile.path)
+changes = render(changesUI.AgentFileChangesPopup, {}, changes.context)
+assert.ok(
+  !nodes(changes.tree).some((node) => node.props?.role === 'dialog'),
+  'Selecting a file closes picker'
+)
+const storeSource = readFileSync('src/renderer/src/lib/store.ts', 'utf8')
+const fileActionsSource = storeSource.slice(
+  storeSource.indexOf('  setIdeSelectedFile: (entry, line, root) => {'),
+  storeSource.indexOf('  pendingContextAttachments: {},')
+)
+let editorState = {
+  settings: { ideMode: false, ttsEnabled: true },
+  chats: [{ id: 'chat', workspacePath: 'D:\\project' }],
+  activeChatId: 'chat',
+  projectOrder: []
+}
+const persistedModes = []
+const editorActions = new Function(
+  'get',
+  'set',
+  'api',
+  'saveSessionActiveFile',
+  'saveActiveFile',
+  transformSync(`return ({${fileActionsSource}})`, { loader: 'ts' }).code
+)(
+  () => editorState,
+  (update) => {
+    editorState = { ...editorState, ...update }
+  },
+  { settings: { setIdeMode: async (enabled) => persistedModes.push(enabled) } },
+  () => {},
+  () => {}
+)
+Object.assign(editorState, editorActions)
+editorActions.openFileInEditor('src/main.ts', 12)
+assert.equal(editorState.settings.ideMode, true, 'Chat file mention opens IDE')
+assert.equal(editorState.ideSelectedLine, 12)
+assert.equal(editorState.settings.ttsEnabled, false)
+assert.deepEqual(persistedModes, [true])
+editorActions.setIdeSelectedFile(null, undefined, 'D:\\project')
+assert.equal(editorState.settings.ideMode, false, 'Closing last file closes IDE')
+assert.equal(editorState.ideSelectedFile, null)
+assert.deepEqual(persistedModes, [true, false], 'Closing IDE persists the disabled state')
+editorActions.setIdeSelectedFile(
+  { path: 'changed.ts', name: 'changed.ts', directory: false },
+  undefined,
+  'D:\\project'
+)
+assert.equal(editorState.settings.ideMode, true, 'File change selection reopens IDE')
+assert.deepEqual(persistedModes, [true, false, true])
+assert.ok(
+  ideSource.includes('if (selected && ideMode)'),
+  'Restored files do not reopen a closed IDE on mount'
+)
 console.log(
-  'UI PREFERENCES OK: quota ordering, bot drag/keyboard/RTL/click isolation, alert color, storage, menus, Escape lifecycle and IDE toggle'
+  'UI PREFERENCES OK: quota ordering, bot drag/keyboard/RTL/click isolation, alert color, storage, menus, Escape lifecycle and automatic IDE lifecycle'
 )

@@ -567,7 +567,36 @@ Tool finished.
   assert.ok(stripped.includes('Completed: Inspect files'))
 }
 
+function testPreferencesAreNotPlans(): void {
+  const preferences = `1. Concise & Direct: Adopt a professional, direct tone.
+2. Minimal Output: Aim for fewer than 3 lines.
+3. No Chitchat: Avoid conversational filler.`
+  const actionList = `- Adopt a professional tone
+- Focus strictly on the query
+- Avoid conversational filler`
+  assert.deepEqual(extractPlainBulletPlan(actionList, { isStreaming: true }), [])
+  assert.equal(
+    extractAgentSteps(undefined, [], [{ type: 'text', text: preferences }]).totalCount,
+    0
+  )
+  const reasoning = 'Plan:\n- [ ] Adopt a professional tone\n- [ ] Focus on the query'
+  assert.equal(
+    extractAgentSteps(undefined, [], [{ type: 'reasoning', text: reasoning }]).totalCount,
+    0
+  )
+  const message = {
+    id: 'preferences',
+    chatId: 'c',
+    role: 'assistant',
+    content: 'Hello.',
+    parts: [{ type: 'reasoning', text: reasoning }]
+  } as Message
+  assert.equal(extractAgentSteps(undefined, [message], null).totalCount, 0)
+  assert.equal(extractPlainBulletPlan('Plan:\n- Inspect files\n- Run tests').length, 2)
+}
+
 function main(): void {
+  testPreferencesAreNotPlans()
   testParseTasksInput()
   testExtractMarkdownChecklist()
   testExtractPlainBulletPlan()

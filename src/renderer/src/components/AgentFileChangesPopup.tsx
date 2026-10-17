@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Message, MessagePart } from '@shared/types'
 import {
   Check,
-  ChevronDown,
-  ChevronUp,
   FileCode,
   FileEdit,
   FileMinus,
@@ -25,8 +23,6 @@ import {
   type AgentFileChange
 } from '../lib/agent-file-changes'
 import { cn } from '../lib/cn'
-
-const DISMISSED_KEY_PREFIX = 'roxy.file_changes_dismissed.'
 
 export interface AgentFileChangesPopupProps {
   messages?: Message[]
@@ -68,38 +64,32 @@ export function AgentFileChangesPopup({
     [messages, streaming, activeChatId, workspaceRoot, reviewNonce]
   )
 
-  const isDismissedStored = (chatId: string | null, changeKey: string): boolean => {
-    if (typeof localStorage === 'undefined' || !chatId || !changeKey) return false
-    try {
-      return localStorage.getItem(`${DISMISSED_KEY_PREFIX}${chatId}`) === changeKey
-    } catch {
-      return false
+  const [isExpanded, setIsExpanded] = useState(false)
+  const popupRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    setIsExpanded(false)
+  }, [activeChatId])
+  useEffect(() => {
+    if (!isExpanded) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (popupRef.current && !popupRef.current.contains(event.target as Node)) setIsExpanded(false)
     }
-  }
-
-  const [isDismissed, setIsDismissed] = useState(() =>
-    isDismissedStored(activeChatId, summary.changeKey)
-  )
-  const [isExpanded, setIsExpanded] = useState(true)
-  const [lastChangeKey, setLastChangeKey] = useState(summary.changeKey)
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        setIsExpanded(false)
+        popupRef.current?.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isExpanded])
   const [activeTab, setActiveTab] = useState<'all' | 'latest'>('all')
   const [revertingPath, setRevertingPath] = useState<string | null>(null)
   const [isRevertingAll, setIsRevertingAll] = useState(false)
-
-  // Auto-expand and un-dismiss whenever fresh file changes land from the agent
-  useEffect(() => {
-    if (summary.changeKey && summary.changeKey !== lastChangeKey) {
-      setLastChangeKey(summary.changeKey)
-      setActiveTab('all')
-      const dismissed = isDismissedStored(activeChatId, summary.changeKey)
-      if (!dismissed || Boolean(streaming)) {
-        setIsDismissed(false)
-        setIsExpanded(true)
-      } else {
-        setIsDismissed(true)
-      }
-    }
-  }, [summary.changeKey, lastChangeKey, streaming, activeChatId])
 
   // Filter to files that are still pending review
   const pendingFiles = summary.files.filter((f) => f.reviewStatus === 'pending')
@@ -112,10 +102,9 @@ export function AgentFileChangesPopup({
 
   const pendingAdded = displayedFiles.reduce((acc, f) => acc + f.addedLines, 0)
   const pendingRemoved = displayedFiles.reduce((acc, f) => acc + f.removedLines, 0)
-  const createdCount = displayedFiles.filter((f) => f.isCreated).length
-  const deletedCount = displayedFiles.filter((f) => f.isDeleted).length
 
   const handleOpenFile = (change: AgentFileChange): void => {
+    setIsExpanded(false)
     setIdeSelectedFile(
       {
         path: change.path,
@@ -157,101 +146,33 @@ export function AgentFileChangesPopup({
     }
   }
 
-  const handleDismiss = (): void => {
-    setIsDismissed(true)
-    if (activeChatId && summary.changeKey) {
-      try {
-        localStorage.setItem(`${DISMISSED_KEY_PREFIX}${activeChatId}`, summary.changeKey)
-      } catch {}
-    }
-  }
-
-  // When dismissed, provide a minimal pill so the user can re-open it
-  if (isDismissed) {
-    return (
-      <div
+  return (
+    <div ref={popupRef} className="relative shrink-0 px-4 py-1.5">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((value) => !value)}
+        title={t('chat.toggleFileChanges')}
+        aria-haspopup="dialog"
+        aria-expanded={isExpanded}
         className={cn(
-          'shrink-0 border-b border-border/70 px-4 py-1 text-xs',
-          wallpaper ? 'agent-file-changes-panel' : 'bg-surface/50'
+          'inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          wallpaper ? 'agent-file-changes-panel' : 'bg-surface'
         )}
       >
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setIsDismissed(false)
-              if (activeChatId) {
-                try {
-                  localStorage.removeItem(`${DISMISSED_KEY_PREFIX}${activeChatId}`)
-                } catch {}
-              }
-            }}
-            title={t('chat.toggleFileChanges')}
-            className="flex items-center gap-2 rounded px-2 py-0.5 text-text-muted hover:bg-surface-2 hover:text-text transition-colors"
-          >
-            <FileCode className="h-3.5 w-3.5 text-accent" />
-            <span className="font-medium text-[11px]">
-              {t('chat.fileChanges', { count: displayedFiles.length })}
-            </span>
-            <span className="flex items-center gap-1 font-mono text-[10px]">
-              {pendingAdded > 0 && <span className="text-emerald-400">+{pendingAdded}</span>}
-              {pendingRemoved > 0 && <span className="text-rose-400">-{pendingRemoved}</span>}
-            </span>
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      role="region"
-      aria-label={t('chat.fileChanges', { count: displayedFiles.length })}
-      className={cn(
-        'shrink-0 border-b border-border px-4 py-2 text-xs shadow-sm transition-all',
-        wallpaper ? 'agent-file-changes-panel' : 'bg-surface/90 backdrop-blur-sm'
-      )}
-    >
-      <div className="flex flex-col gap-2">
-        {/* Header summary bar */}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent">
-              <FileCode className="h-3.5 w-3.5" />
-            </div>
-
-            <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
-              <span className="font-semibold text-text text-xs">
-                {t('chat.fileChanges', { count: displayedFiles.length })}
-              </span>
-
-              <div className="flex items-center gap-1 font-mono text-[11px] tabular-nums">
-                {pendingAdded > 0 && (
-                  <span className="rounded bg-emerald-500/15 px-1.5 py-0.2 text-emerald-400 font-medium">
-                    +{pendingAdded}
-                  </span>
-                )}
-                {pendingRemoved > 0 && (
-                  <span className="rounded bg-rose-500/15 px-1.5 py-0.2 text-rose-400 font-medium">
-                    -{pendingRemoved}
-                  </span>
-                )}
-              </div>
-
-              {createdCount > 0 && (
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.2 text-[10px] font-medium text-emerald-400">
-                  {t('chat.filesCreated', { count: createdCount })}
-                </span>
-              )}
-              {deletedCount > 0 && (
-                <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.2 text-[10px] font-medium text-rose-400">
-                  {t('chat.filesDeleted', { count: deletedCount })}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-1">
+        <FileCode className="h-3.5 w-3.5 text-accent" />
+        <span className="font-medium">
+          {t('chat.fileChanges', { count: displayedFiles.length })}
+        </span>
+        <span className="font-mono tabular-nums text-emerald-400">+{pendingAdded}</span>
+        <span className="font-mono tabular-nums text-rose-400">-{pendingRemoved}</span>
+      </button>
+      {isExpanded && (
+        <div
+          role="dialog"
+          aria-label={t('chat.fileChanges', { count: displayedFiles.length })}
+          className="absolute inset-x-4 top-full z-40 rounded-xl border border-border bg-surface p-2 text-xs shadow-xl"
+        >
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {/* Filter tabs if multiple turns exist */}
             {latestPendingFiles.length > 0 && latestPendingFiles.length !== pendingFiles.length && (
               <div className="flex items-center rounded-md border border-border bg-surface-2 p-0.5 text-[10px]">
@@ -282,63 +203,18 @@ export function AgentFileChangesPopup({
               </div>
             )}
 
-            {displayedFiles.length > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  disabled={isRevertingAll || Boolean(revertingPath)}
-                  onClick={handleKeepAll}
-                  title={t('chat.keepAllChanges')}
-                  className="press-scale flex h-6 items-center gap-1 rounded bg-emerald-500/15 px-2 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
-                >
-                  <Check className="h-3 w-3" />
-                  <span>{t('chat.keepAll')}</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={isRevertingAll || Boolean(revertingPath)}
-                  onClick={() => void handleRevertAll()}
-                  title={t('chat.revertAllChanges')}
-                  className="press-scale flex h-6 items-center gap-1 rounded bg-rose-500/15 px-2 text-[11px] font-medium text-rose-400 hover:bg-rose-500/25 transition-colors disabled:opacity-50"
-                >
-                  {isRevertingAll ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-3 w-3" />
-                  )}
-                  <span>{t('chat.revertAll')}</span>
-                </button>
-              </div>
-            )}
-
             <button
               type="button"
-              onClick={() => setIsExpanded((v) => !v)}
-              title={t('chat.toggleFileChanges')}
-              aria-expanded={isExpanded}
-              className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-subtle hover:bg-surface-2 hover:text-text transition-colors"
-            >
-              {isExpanded ? (
-                <ChevronUp className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDismiss}
-              title={t('chat.dismissFileChanges')}
-              aria-label={t('chat.dismissFileChanges')}
-              className="press-scale flex h-6 w-6 items-center justify-center rounded text-text-subtle hover:bg-surface-2 hover:text-text transition-colors"
+              onClick={() => setIsExpanded(false)}
+              title={t('common.close')}
+              aria-label={t('common.close')}
+              className="flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-surface-2 hover:text-text"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-        </div>
 
-        {/* Popup List of Files */}
-        {isExpanded && (
+          {/* Popup List of Files */}
           <div className="mt-1 overflow-hidden rounded-lg border border-border/70 bg-surface/70">
             <div className="max-h-48 overflow-y-auto divide-y divide-border/40">
               {displayedFiles.map((file) => {
@@ -472,8 +348,8 @@ export function AgentFileChangesPopup({
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

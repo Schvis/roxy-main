@@ -1383,8 +1383,6 @@
       "setupInstalling": "Installing packages…",
       "setupSuccess": "All dependencies installed and ready!",
       "setupTitle": "Server packages & dependencies",
-      "showEmotionsDescription": "Display emotion tags (such as [happy], [curious]) in the chat transcript alongside voice responses.",
-      "showEmotionsTitle": "Show emotion tags",
       "speedDescription": "Pace of generated voice responses. Default is +15%.",
       "speedTitle": "Speech speed",
       "startServer": "Start server",

@@ -205,6 +205,8 @@ export interface Chat {
   description: string | null
   /** Agent-maintained task checklist for this session. */
   tasks: SessionTask[]
+  /** A persisted plan (including an empty reset) supersedes legacy transcript inference. */
+  tasksInitialized?: boolean
   /** User-defined sort key within its project (higher = higher in the list). */
   sortOrder: number
   createdAt: number
@@ -270,6 +272,8 @@ export type MessagePart =
       image?: string
       /** Before/after file contents for write/edit, shown as a diff on expand. */
       diff?: ToolDiff
+      /** Multiple observed file changes, retained in persisted transcripts. */
+      diffs?: ToolDiff[]
       /**
        * A `task` card's subagent transcript — the delegate's own reasoning, prose,
        * and tool calls, streamed live and nested INSIDE this card rather than
@@ -353,6 +357,8 @@ export interface ToolResult {
   image?: string
   /** Before/after file contents (write/edit) so the UI can render a diff. */
   diff?: ToolDiff
+  /** Multiple observed file changes, e.g. from a shell command. */
+  diffs?: ToolDiff[]
 }
 
 /** A before/after snapshot of a single file, produced by the write/edit tools. */
@@ -363,6 +369,9 @@ export interface ToolDiff {
   before: string
   /** File contents after the change. */
   after: string
+  /** Distinguish empty files from absent files; omitted in legacy transcripts. */
+  beforeExists?: boolean
+  afterExists?: boolean
 }
 
 /** An image attached to a queued message (mirrors a user message's image part). */
@@ -379,6 +388,8 @@ export interface QueueImage {
  * Plain `queue.add(chatId, text)` stays an ordinary user prompt to the session owner.
  */
 export interface QueueAddOptions {
+  /** Delivery context, not a semantic guess. Explicit new overrides interruption preservation. */
+  requestKind?: 'interruption' | 'new'
   sourceChatId?: string
   asBotId?: string
   recipientId?: string
@@ -391,6 +402,7 @@ export interface QueueAddOptions {
 
 /** A pending prompt queued on a chat (FIFO). Generic across sessions/bots/subagents. */
 export interface QueueItem {
+  requestKind?: 'interruption' | 'new'
   id: string
   chatId: string
   content: string
@@ -586,8 +598,6 @@ export interface AppSettings {
   fishAudioVoice: string
   /** Skip Fish Audio TTS if text exceeds this many words (0 for unlimited). Default 0. */
   fishAudioMaxWords: number
-  /** Whether to display emotion tags in chat replies (e.g. [happy], [curious]). Default false. */
-  ttsShowEmotions: boolean
   /** Whether Vixevia Live2D VTuber avatar is active. */
   vtuberEnabled: boolean
   /** Live2D model URL or local path. */

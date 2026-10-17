@@ -1064,8 +1064,6 @@
       "langDe": "German (Deutsch)",
       "translateTitle": "Translate responses",
       "translateDescription": "Translate chat replies to the selected language. Disable to speak original responses directly without translating.",
-      "showEmotionsTitle": "Show emotion tags",
-      "showEmotionsDescription": "Display emotion tags (such as [happy], [curious]) in the chat transcript alongside voice responses.",
       "speedTitle": "Speech speed",
       "speedDescription": "Pace of generated voice responses. Default is +15%.",
       "resetSpeed": "Reset (+15%)",

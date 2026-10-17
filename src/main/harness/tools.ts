@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { glob } from 'tinyglobby'
-import type { ToolDiff, ToolResult, SessionTask } from '../../shared/types'
+import type { ToolResult, SessionTask } from '../../shared/types'
 import { MAX_IMAGE_BYTES } from '../../shared/attachments'
 import type { WebFetchFormat } from '../../shared/web'
 import {
@@ -51,6 +51,9 @@ import {
   installSkillFromSource
 } from '../services/skills'
 import { renameWorkstreamBranch, syncBranchToTitle } from '../services/worktree'
+import { parsePlan } from '../../shared/interaction-tools'
+import { askUser } from './interaction'
+import { observeToolFiles, toolDiff } from './file-changes'
 
 export interface ToolContext {
   cwd: string
@@ -142,7 +145,6 @@ async function untilAborted<T>(
 }
 
 const MAX_OUTPUT = 100_000
-const MAX_DIFF_SIDE = 100_000
 const MAX_BG_OUTPUT = 200_000
 const FG_TIMEOUT_MAX = 600_000
 /**
@@ -195,8 +197,24 @@ export async function runTool(
   input: Record<string, unknown>,
   ctx: ToolContext
 ): Promise<ToolResult> {
+  if (name === 'bash' && !bool(input.background)) {
+    const { result, diffs } = await observeToolFiles(ctx.cwd, () => executeTool(name, input, ctx))
+    return { ...result, diffs }
+  }
+  return executeTool(name, input, ctx)
+}
+
+async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult> {
   try {
     switch (name) {
+      case 'ask_user':
+        return await askUser(input, ctx)
+      case 'update_plan':
+        return await runSetSessionMetadata({ tasks: parsePlan(input.plan) }, ctx.sessionId)
       case 'bash':
         return await runBash(str(input.command), ctx.cwd, ctx.onChunk, {
           timeout: num(input.timeout),
@@ -361,13 +379,6 @@ function bool(v: unknown): boolean {
 
 function cap(text: string): string {
   return text.length > MAX_OUTPUT ? text.slice(0, MAX_OUTPUT) + '\n…(truncated)' : text
-}
-
-/** Build a before/after diff for the UI, skipping no-ops and oversized files. */
-function toolDiff(path: string, before: string, after: string): ToolDiff | undefined {
-  if (before === after) return undefined
-  if (before.length > MAX_DIFF_SIDE || after.length > MAX_DIFF_SIDE) return undefined
-  return { path, before, after }
 }
 
 /** Image file extensions we render inline instead of dumping raw bytes as text. */
@@ -893,14 +904,18 @@ async function runRead(p: string, cwd: string): Promise<ToolResult> {
 async function runWrite(p: string, content: string, cwd: string): Promise<ToolResult> {
   if (!p) return { ok: false, output: 'write: missing "path"' }
   const abs = resolveInCwd(cwd, p)
-  const before = await fs.readFile(abs, 'utf8').catch(() => '')
+  const previous = await fs.readFile(abs, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null
+    throw error
+  })
+  const before = previous ?? ''
   await fs.mkdir(path.dirname(abs), { recursive: true })
   await fs.writeFile(abs, content, 'utf8')
   return withDiagnostics(
     {
       ok: true,
       output: `Wrote ${Buffer.byteLength(content)} bytes to ${p}`,
-      diff: toolDiff(p, before, content)
+      diff: toolDiff(p, before, content, previous !== null)
     },
     abs,
     cwd

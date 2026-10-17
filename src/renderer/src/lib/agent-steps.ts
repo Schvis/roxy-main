@@ -1,4 +1,5 @@
 import type { Chat, Message, MessagePart, SessionTask } from '@shared/types'
+import { parsePlan } from '@shared/interaction-tools'
 
 export interface AgentStepsSummary {
   tasks: SessionTask[]
@@ -37,9 +38,6 @@ const SUMMARY_INTRO_RE =
 
 const PAST_TENSE_VERB_RE =
   /^\s*(?:dropped|rewrote|replaced|removed|deleted|added|fixed|updated|created|migrated|refactored|cleaned|configured|installed|checked|switched|optimized|improved|resolved|modified|built|reworked|adjusted)\b/i
-
-const ACTION_VERB_RE =
-  /^(?:fix|check|do|add|create|update|remove|delete|refactor|inspect|investigate|test|verify|run|build|review|implement|modify|read|write|setup|configure|ensure|extract|clean|compile|install|search|find|change|replace|handle|support|enable|disable|move|rename|migrate|optimize|resolve|start|prepare|make|look|see|examine|reproduce|debug|analyze|assess|patch|wire|connect|render|display|show|hide|validate|document|upgrade|bump)\b/i
 
 /** Parse string or object arrays into typed SessionTask items. */
 export function parseTasksInput(raw: unknown): SessionTask[] {
@@ -191,10 +189,9 @@ export function stripPlanSteps(text: string): string {
 /** Extract plain bullet points or numbered lists that represent action plans / steps. */
 export function extractPlainBulletPlan(
   text: string,
-  options: { isStreaming?: boolean } = {}
+  _options: { isStreaming?: boolean } = {}
 ): SessionTask[] {
   if (!text) return []
-  const isStreaming = options.isStreaming ?? false
   const lines = text.split(/\r?\n/)
 
   interface BulletBlock {
@@ -303,31 +300,6 @@ export function extractPlainBulletPlan(
 
         return { title: cleanTitle, status }
       })
-    }
-  }
-
-  // 2. Second priority: during LIVE streaming turn ONLY (before agent finishes),
-  // if an early block near the start of the message is clearly action-oriented future tasks
-  if (isStreaming) {
-    for (const block of blocks) {
-      if (block.lines.length < 2) continue
-      if (block.precededBySummary) continue
-
-      const pastTenseCount = block.lines.filter(
-        (l) => PAST_TENSE_VERB_RE.test(l) || /\b(?:->|→)\b/.test(l)
-      ).length
-      if (pastTenseCount > 0) continue
-
-      const actionVerbCount = block.lines.filter((item) => ACTION_VERB_RE.test(item)).length
-      const isActionOriented = actionVerbCount >= Math.min(2, Math.ceil(block.lines.length * 0.5))
-
-      // Only accept if near start of response (first 20 lines)
-      if (isActionOriented && block.startIndex <= 20) {
-        return block.lines.map((rawTitle) => {
-          const cleanTitle = rawTitle.replace(/^[*_`~]+|[*_`~]+$/g, '').trim()
-          return { title: cleanTitle, status: 'pending' }
-        })
-      }
     }
   }
 
@@ -678,14 +650,6 @@ function computePlanFromMessage(msg: Message): PlanInfo | null {
     isChecklist = false
     extracted = extractPlainBulletPlan(prose, { isStreaming: false })
   }
-  if (extracted.length === 0) {
-    isChecklist = true
-    extracted = extractMarkdownChecklist(reasoning)
-  }
-  if (extracted.length === 0) {
-    isChecklist = false
-    extracted = extractPlainBulletPlan(reasoning, { isStreaming: false })
-  }
 
   if (extracted.length === 0) return null
 
@@ -731,13 +695,25 @@ export function extractAgentSteps(
   streaming: MessagePart[] | null,
   options: { isStopped?: boolean } = {}
 ): AgentStepsSummary {
+  // Structured plans are authoritative: never infer completion from prose/tools.
+  const structuredParts = streaming ?? []
+  for (let i = structuredParts.length - 1; i >= 0; i--) {
+    const part = structuredParts[i]
+    if (part.type === 'tool' && part.tool === 'update_plan' && part.state === 'done') {
+      try {
+        return buildSummary(parsePlan(part.input?.plan), 'streaming_tool')
+      } catch {
+        /* legacy fallback */
+      }
+    }
+  }
   // 1. Live change_session_metadata in streaming parts
   if (streaming && streaming.length > 0) {
     for (let i = streaming.length - 1; i >= 0; i--) {
       const part = streaming[i]
       if (part.type === 'tool' && part.tool === 'change_session_metadata' && part.input?.tasks) {
         const liveTasks = parseTasksInput(part.input.tasks)
-        if (liveTasks.length > 0) {
+        if (Array.isArray(part.input.tasks)) {
           const finalTasks = options.isStopped ? stopTasks(liveTasks) : liveTasks
           return buildSummary(finalTasks, 'streaming_tool')
         }
@@ -746,9 +722,25 @@ export function extractAgentSteps(
   }
 
   // 2. Chat's canonical tasks (maintained by change_session_metadata in SQLite)
-  if (chat?.tasks && chat.tasks.length > 0) {
-    const finalTasks = options.isStopped ? stopTasks(chat.tasks) : chat.tasks
+  if (chat?.tasksInitialized || (chat?.tasks && chat.tasks.length > 0)) {
+    const tasks = chat?.tasks ?? []
+    const finalTasks = options.isStopped ? stopTasks(tasks) : tasks
     return buildSummary(finalTasks, 'session_tasks')
+  }
+
+  // Persisted tool cards also retain explicit empty resets; do not resurrect an old prose plan.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const parts = messages[i].parts ?? []
+    for (let j = parts.length - 1; j >= 0; j--) {
+      const part = parts[j]
+      if (part.type === 'tool' && part.tool === 'update_plan' && part.state === 'done') {
+        try {
+          return buildSummary(parsePlan(part.input?.plan), 'session_tasks')
+        } catch {
+          /* legacy fallback */
+        }
+      }
+    }
   }
 
   // Find previous plan tasks across message history for merging/resuming
@@ -761,7 +753,7 @@ export function extractAgentSteps(
     }
   }
 
-  // 3. Check streaming turn (both prose and reasoning)
+  // 3. Legacy plans must be explicit in visible prose, never private reasoning.
   if (streaming && streaming.length > 0) {
     const prose = streaming
       .filter((p) => p.type === 'text')
@@ -780,14 +772,6 @@ export function extractAgentSteps(
     if (extracted.length === 0) {
       isChecklist = false
       extracted = extractPlainBulletPlan(prose, { isStreaming: true })
-    }
-    if (extracted.length === 0) {
-      isChecklist = true
-      extracted = extractMarkdownChecklist(reasoning)
-    }
-    if (extracted.length === 0) {
-      isChecklist = false
-      extracted = extractPlainBulletPlan(reasoning, { isStreaming: true })
     }
 
     // If streaming has no new plan, but previous turn had a plan, continue that plan

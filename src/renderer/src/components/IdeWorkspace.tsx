@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCheck,
@@ -8,7 +9,6 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
-  GitBranch,
   Loader2,
   Pencil,
   Replace,
@@ -49,12 +49,6 @@ import { FileDiffView } from './diff/FileDiffView'
 
 const control =
   'rounded p-1.5 text-text-muted hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
-
-const MIN_PANEL_WIDTH = 180
-const MAX_PANEL_WIDTH = 800
-const DEFAULT_PANEL_WIDTH = 260
-const PANEL_WIDTH_KEY = 'roxy:ide-panel-width'
-const PANEL_COLLAPSED_KEY = 'roxy:ide-panel-collapsed'
 
 function normalizePathKey(p: string): string {
   if (!p) return ''
@@ -950,11 +944,12 @@ function Preview({
 
 function WorkspaceContents({
   sessionId,
-  root
-}: {
-  sessionId: string | null
-  root: string | null
-}): JSX.Element {
+  root,
+  sidebarTarget,
+  sidebarTab,
+  onChangedFileCount,
+  ideMode
+}: WorkspaceProps): JSX.Element {
   const { t } = useTranslation()
   const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
   const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
@@ -1002,8 +997,7 @@ function WorkspaceContents({
   const [renaming, setRenaming] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null)
 
-  const ideTab = useRoxyStore((s) => s.ideTab)
-  const setIdeTab = useRoxyStore((s) => s.setIdeTab)
+  const ideTab = sidebarTab
 
   // Search & replace state
   const [searchQuery, setSearchQuery] = useState('')
@@ -1032,26 +1026,9 @@ function WorkspaceContents({
   const [terminalHeight, setTerminalHeight] = useState(260)
   const isDragging = useRef(false)
 
-  const asideRef = useRef<HTMLElement | null>(null)
-  const isPanelDragging = useRef(false)
-  const [panelDragging, setPanelDragging] = useState(false)
-  const [panelWidth, setPanelWidth] = useState<number>(() => {
-    const v = Number(localStorage.getItem(PANEL_WIDTH_KEY))
-    return Number.isFinite(v) && v >= MIN_PANEL_WIDTH && v <= MAX_PANEL_WIDTH
-      ? v
-      : DEFAULT_PANEL_WIDTH
-  })
-  const [panelCollapsed, setPanelCollapsed] = useState(
-    () => localStorage.getItem(PANEL_COLLAPSED_KEY) === 'true'
-  )
-
   useEffect(() => {
-    localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth))
-  }, [panelWidth])
-
-  useEffect(() => {
-    localStorage.setItem(PANEL_COLLAPSED_KEY, String(panelCollapsed))
-  }, [panelCollapsed])
+    if (sidebarTab === 'search') searchInputRef.current?.focus()
+  }, [sidebarTab])
 
   // Auto-refresh when files change in workspace
   useEffect(() => {
@@ -1129,6 +1106,12 @@ function WorkspaceContents({
       active = false
     }
   }, [root, refreshNonce])
+
+  useEffect(() => {
+    onChangedFileCount?.(gitChangedFiles.size)
+  }, [gitChangedFiles, onChangedFileCount])
+
+  useEffect(() => () => onChangedFileCount?.(0), [onChangedFileCount])
 
   const getGitStatus = useCallback(
     (itemPath: string, isDirectory: boolean): GitChangedFile['status'] | null => {
@@ -1243,7 +1226,7 @@ function WorkspaceContents({
 
   // On initial mount, replace stale cross-workspace selection with restored local state.
   useEffect(() => {
-    if (selected) {
+    if (selected && ideMode) {
       setIdeSelectedFile(selected, selectedLine, root)
     }
   }, [])
@@ -1476,516 +1459,385 @@ function WorkspaceContents({
 
   return (
     <>
-      <aside
-        ref={asideRef}
-        aria-label={
-          ideTab === 'files'
-            ? t('ide.explorer')
-            : ideTab === 'search'
-              ? t('ide.searchTab')
-              : t('ide.gitTab')
-        }
-        className="relative flex h-full shrink-0 border-r border-border bg-surface"
-      >
-        {/* Activity bar / tab switcher on the side */}
-        <div
-          role="tablist"
-          aria-orientation="vertical"
-          className="flex w-11 shrink-0 flex-col items-center border-r border-border bg-surface-2/40 py-2.5 gap-1.5"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={!panelCollapsed && ideTab === 'files'}
-            onClick={() => {
-              if (ideTab === 'files' && !panelCollapsed) {
-                setPanelCollapsed(true)
-                return
-              }
-              setIdeTab('files')
-              setPanelCollapsed(false)
-            }}
-            title={t('ide.filesTab')}
-            aria-label={t('ide.filesTab')}
-            className={cn(
-              'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              !panelCollapsed && ideTab === 'files'
-                ? 'bg-elevated text-accent shadow-xs'
-                : 'text-text-muted hover:bg-white/5 hover:text-text'
-            )}
-          >
-            {!panelCollapsed && ideTab === 'files' && (
-              <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
-            )}
-            <Folder className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={!panelCollapsed && ideTab === 'search'}
-            onClick={() => {
-              if (ideTab === 'search' && !panelCollapsed) {
-                setPanelCollapsed(true)
-                return
-              }
-              setIdeTab('search')
-              setPanelCollapsed(false)
-              setTimeout(() => searchInputRef.current?.focus(), 50)
-            }}
-            title={t('ide.searchTab')}
-            aria-label={t('ide.searchTab')}
-            className={cn(
-              'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              !panelCollapsed && ideTab === 'search'
-                ? 'bg-elevated text-accent shadow-xs'
-                : 'text-text-muted hover:bg-white/5 hover:text-text'
-            )}
-          >
-            {!panelCollapsed && ideTab === 'search' && (
-              <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
-            )}
-            <Search className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={!panelCollapsed && ideTab === 'git'}
-            onClick={() => {
-              if (ideTab === 'git' && !panelCollapsed) {
-                setPanelCollapsed(true)
-                return
-              }
-              setIdeTab('git')
-              setPanelCollapsed(false)
-            }}
-            title={
-              isGitRepo && gitChangedFiles.size > 0
-                ? `${t('ide.gitTab')} (${gitChangedFiles.size})`
-                : t('ide.gitTab')
-            }
-            aria-label={t('ide.gitTab')}
-            className={cn(
-              'press-scale relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              !panelCollapsed && ideTab === 'git'
-                ? 'bg-elevated text-accent shadow-xs'
-                : 'text-text-muted hover:bg-white/5 hover:text-text'
-            )}
-          >
-            {!panelCollapsed && ideTab === 'git' && (
-              <span className="absolute -left-1.5 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent" />
-            )}
-            <GitBranch className="h-4 w-4" />
-            {isGitRepo && gitChangedFiles.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-white shadow-xs leading-none">
-                {gitChangedFiles.size > 99 ? '99+' : gitChangedFiles.size}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Panel content (Files, Search, or Git) */}
-        <div
-          style={{ width: panelCollapsed ? 0 : panelWidth }}
-          aria-hidden={panelCollapsed}
-          className={cn(
-            'flex h-full flex-col overflow-hidden shrink-0',
-            !panelDragging && 'transition-[width] duration-150'
-          )}
-        >
-          {sessionId && root ? (
-            ideTab === 'files' ? (
-              <ExplorerContext.Provider value={explorerContextValue}>
-                <div className="border-b border-border px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <div
-                      className="truncate text-xs font-semibold uppercase tracking-wider text-text"
-                      title={root}
-                    >
-                      {root.split(/[\\/]/).filter(Boolean).pop() || root}
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        className={control}
-                        title={t('ide.newFile')}
-                        aria-label={t('ide.newFile')}
-                        onClick={() => setCreating({ parentPath: '', isDirectory: false })}
+      {sidebarTarget &&
+        createPortal(
+          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+            {sessionId && root ? (
+              ideTab === 'files' ? (
+                <ExplorerContext.Provider value={explorerContextValue}>
+                  <div className="border-b border-border px-3 py-2">
+                    <div className="flex items-center justify-between">
+                      <div
+                        className="truncate text-xs font-semibold uppercase tracking-wider text-text"
+                        title={root}
                       >
-                        <FilePlus aria-hidden className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className={control}
-                        title={t('ide.newFolder')}
-                        aria-label={t('ide.newFolder')}
-                        onClick={() => setCreating({ parentPath: '', isDirectory: true })}
-                      >
-                        <FolderPlus aria-hidden className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void copyPath(root)}
-                    title={root}
-                    className="press-scale relative mt-0.5 flex w-full min-w-0 items-center text-left text-[11px] text-text-subtle hover:text-text-muted focus-visible:outline-none"
-                  >
-                    <span
-                      className={cn(
-                        'truncate font-mono transition-opacity duration-150',
-                        copied && 'opacity-0'
-                      )}
-                    >
-                      {root}
-                    </span>
-                    <span
-                      className={cn(
-                        'pointer-events-none absolute inset-0 flex items-center text-[10px] font-medium text-accent transition-opacity duration-150',
-                        copied ? 'opacity-100' : 'opacity-0'
-                      )}
-                    >
-                      {t('chat.copied')}
-                    </span>
-                  </button>
-                </div>
-                <div
-                  className="min-h-0 flex-1 overflow-auto p-1.5"
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setContextMenu({
-                      x: e.clientX,
-                      y: e.clientY,
-                      targetDir: ''
-                    })
-                  }}
-                >
-                  <Directory path="" />
-                </div>
-              </ExplorerContext.Provider>
-            ) : ideTab === 'search' ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="border-b border-border p-2 space-y-1.5">
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowReplace((v) => !v)
-                        if (!showReplace) {
-                          setTimeout(() => replaceInputRef.current?.focus(), 50)
-                        }
-                      }}
-                      title={t('ide.toggleReplace')}
-                      aria-label={t('ide.toggleReplace')}
-                      className="flex h-6 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                    >
-                      <ChevronRight
-                        className={cn(
-                          'h-3.5 w-3.5 transition-transform duration-150',
-                          showReplace && 'rotate-90'
-                        )}
-                      />
-                    </button>
-
-                    <div className="flex flex-1 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-1 min-w-0">
-                      <Search className="h-3.5 w-3.5 text-text-subtle shrink-0" />
-                      <input
-                        ref={searchInputRef}
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={t('ide.searchPlaceholder')}
-                        className="w-full bg-transparent text-xs text-text placeholder:text-text-subtle focus:outline-none"
-                        spellCheck={false}
-                      />
-                      {searchQuery && (
+                        {root.split(/[\\/]/).filter(Boolean).pop() || root}
+                      </div>
+                      <div className="flex items-center gap-0.5">
                         <button
                           type="button"
-                          onClick={() => setSearchQuery('')}
-                          title={t('ide.clearSearch')}
-                          className="text-text-subtle hover:text-text"
+                          className={control}
+                          title={t('ide.newFile')}
+                          aria-label={t('ide.newFile')}
+                          onClick={() => setCreating({ parentPath: '', isDirectory: false })}
                         >
-                          <X className="h-3 w-3" />
+                          <FilePlus aria-hidden className="h-3.5 w-3.5" />
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          className={control}
+                          title={t('ide.newFolder')}
+                          aria-label={t('ide.newFolder')}
+                          onClick={() => setCreating({ parentPath: '', isDirectory: true })}
+                        >
+                          <FolderPlus aria-hidden className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => void copyPath(root)}
+                      title={root}
+                      className="press-scale relative mt-0.5 flex w-full min-w-0 items-center text-left text-[11px] text-text-subtle hover:text-text-muted focus-visible:outline-none"
+                    >
+                      <span
+                        className={cn(
+                          'truncate font-mono transition-opacity duration-150',
+                          copied && 'opacity-0'
+                        )}
+                      >
+                        {root}
+                      </span>
+                      <span
+                        className={cn(
+                          'pointer-events-none absolute inset-0 flex items-center text-[10px] font-medium text-accent transition-opacity duration-150',
+                          copied ? 'opacity-100' : 'opacity-0'
+                        )}
+                      >
+                        {t('chat.copied')}
+                      </span>
+                    </button>
                   </div>
+                  <div
+                    className="min-h-0 flex-1 overflow-auto p-1.5"
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        targetDir: ''
+                      })
+                    }}
+                  >
+                    <Directory path="" />
+                  </div>
+                </ExplorerContext.Provider>
+              ) : ideTab === 'search' ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <div className="border-b border-border p-2 space-y-1.5">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowReplace((v) => !v)
+                          if (!showReplace) {
+                            setTimeout(() => replaceInputRef.current?.focus(), 50)
+                          }
+                        }}
+                        title={t('ide.toggleReplace')}
+                        aria-label={t('ide.toggleReplace')}
+                        className="flex h-6 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                      >
+                        <ChevronRight
+                          className={cn(
+                            'h-3.5 w-3.5 transition-transform duration-150',
+                            showReplace && 'rotate-90'
+                          )}
+                        />
+                      </button>
 
-                  {showReplace && (
-                    <div className="flex items-center gap-1 pl-6">
                       <div className="flex flex-1 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-1 min-w-0">
-                        <Replace className="h-3.5 w-3.5 text-text-subtle shrink-0" />
+                        <Search className="h-3.5 w-3.5 text-text-subtle shrink-0" />
                         <input
-                          ref={replaceInputRef}
+                          ref={searchInputRef}
                           type="text"
-                          value={replaceQuery}
-                          onChange={(e) => setReplaceQuery(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              void executeReplace()
-                            }
-                          }}
-                          placeholder={t('ide.replacePlaceholder')}
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder={t('ide.searchPlaceholder')}
                           className="w-full bg-transparent text-xs text-text placeholder:text-text-subtle focus:outline-none"
                           spellCheck={false}
                         />
-                        {replaceQuery && (
+                        {searchQuery && (
                           <button
                             type="button"
-                            onClick={() => setReplaceQuery('')}
-                            title={t('ide.clearReplace')}
+                            onClick={() => setSearchQuery('')}
+                            title={t('ide.clearSearch')}
                             className="text-text-subtle hover:text-text"
                           >
                             <X className="h-3 w-3" />
                           </button>
                         )}
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => void executeReplace()}
-                        disabled={!searchQuery.trim() || searchResults.length === 0 || replacing}
-                        title={t('ide.replaceAll')}
-                        aria-label={t('ide.replaceAll')}
-                        className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border bg-surface-2 text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30 transition-colors"
-                      >
-                        {replacing ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-                        ) : (
-                          <CheckCheck className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setCaseSensitive((v) => !v)}
-                        title={t('ide.caseSensitive')}
-                        className={cn(
-                          'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
-                          caseSensitive
-                            ? 'bg-accent/20 text-accent font-bold'
-                            : 'text-text-subtle hover:bg-surface-2 hover:text-text'
-                        )}
-                      >
-                        Aa
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setWholeWord((v) => !v)}
-                        title={t('ide.wholeWord')}
-                        className={cn(
-                          'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
-                          wholeWord
-                            ? 'bg-accent/20 text-accent font-bold'
-                            : 'text-text-subtle hover:bg-surface-2 hover:text-text'
-                        )}
-                      >
-                        \b
-                      </button>
                     </div>
 
-                    <span
-                      className="text-[11px] text-text-subtle truncate max-w-[145px]"
-                      title={replaceStatus ?? undefined}
-                    >
-                      {replacing
-                        ? t('ide.replacing')
-                        : replaceStatus
-                          ? replaceStatus
-                          : searching
-                            ? t('ide.searching')
-                            : searchQuery.trim()
-                              ? searchResults.length > 0
-                                ? t('ide.searchMatches', {
-                                    count: searchResults.length,
-                                    files: groupedResults.size
-                                  })
-                                : t('ide.noMatches')
-                              : ''}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-auto p-1.5 space-y-1">
-                  {Array.from(groupedResults.entries()).map(([filePath, matches]) => {
-                    const isCollapsed = collapsedFiles.has(filePath)
-                    const fileName = filePath.split('/').pop() || filePath
-                    const dirPath = filePath.includes('/')
-                      ? filePath.slice(0, filePath.lastIndexOf('/'))
-                      : ''
-
-                    return (
-                      <div key={filePath} className="rounded overflow-hidden">
-                        <div className="group flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-surface-2 transition-colors">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCollapsedFiles((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(filePath)) next.delete(filePath)
-                                else next.add(filePath)
-                                return next
-                              })
-                            }
-                            className="flex items-center gap-1.5 min-w-0 flex-1 text-left text-xs text-text"
-                          >
-                            <ChevronRight
-                              className={cn(
-                                'h-3 w-3 shrink-0 transition-transform text-text-subtle',
-                                !isCollapsed && 'rotate-90'
-                              )}
-                            />
-                            {(() => {
-                              const { Icon: SearchFileIcon, color } =
-                                getFileIconDescriptor(filePath)
-                              return (
-                                <SearchFileIcon className={cn('h-3.5 w-3.5 shrink-0', color)} />
-                              )
-                            })()}
-                            <span className="truncate font-medium" title={filePath}>
-                              {fileName}
-                              {dirPath && (
-                                <span className="ml-1 text-[10px] text-text-subtle font-normal">
-                                  {dirPath}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-
-                          {showReplace && (
+                    {showReplace && (
+                      <div className="flex items-center gap-1 pl-6">
+                        <div className="flex flex-1 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-1 min-w-0">
+                          <Replace className="h-3.5 w-3.5 text-text-subtle shrink-0" />
+                          <input
+                            ref={replaceInputRef}
+                            type="text"
+                            value={replaceQuery}
+                            onChange={(e) => setReplaceQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                void executeReplace()
+                              }
+                            }}
+                            placeholder={t('ide.replacePlaceholder')}
+                            className="w-full bg-transparent text-xs text-text placeholder:text-text-subtle focus:outline-none"
+                            spellCheck={false}
+                          />
+                          {replaceQuery && (
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void executeReplace([filePath])
-                              }}
-                              disabled={replacing}
-                              title={t('ide.replaceInFile')}
-                              aria-label={t('ide.replaceInFile')}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-subtle hover:text-text hover:bg-white/10 transition-all"
+                              onClick={() => setReplaceQuery('')}
+                              title={t('ide.clearReplace')}
+                              className="text-text-subtle hover:text-text"
                             >
-                              <CheckCheck className="h-3.5 w-3.5" />
+                              <X className="h-3 w-3" />
                             </button>
                           )}
-
-                          <span className="rounded-full bg-white/10 px-1.5 py-0.2 text-[10px] tabular-nums text-text-subtle shrink-0">
-                            {matches.length}
-                          </span>
                         </div>
 
-                        {!isCollapsed && (
-                          <div className="ml-4 border-l border-border pl-1 space-y-0.5 mt-0.5">
-                            {matches.map((m, idx) => (
-                              <button
-                                key={`${m.line}-${m.column}-${idx}`}
-                                type="button"
-                                onClick={() => openSearchResult(m)}
-                                className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-[11px] font-mono hover:bg-surface-2 transition-colors group"
-                              >
-                                <span className="shrink-0 text-accent/80 font-medium">
-                                  {m.line}
-                                </span>
-                                <span className="truncate text-text-muted group-hover:text-text">
-                                  {m.lineText}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => void executeReplace()}
+                          disabled={!searchQuery.trim() || searchResults.length === 0 || replacing}
+                          title={t('ide.replaceAll')}
+                          aria-label={t('ide.replaceAll')}
+                          className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border bg-surface-2 text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30 transition-colors"
+                        >
+                          {replacing ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                          ) : (
+                            <CheckCheck className="h-3.5 w-3.5" />
+                          )}
+                        </button>
                       </div>
-                    )
-                  })}
+                    )}
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setCaseSensitive((v) => !v)}
+                          title={t('ide.caseSensitive')}
+                          className={cn(
+                            'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
+                            caseSensitive
+                              ? 'bg-accent/20 text-accent font-bold'
+                              : 'text-text-subtle hover:bg-surface-2 hover:text-text'
+                          )}
+                        >
+                          Aa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWholeWord((v) => !v)}
+                          title={t('ide.wholeWord')}
+                          className={cn(
+                            'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
+                            wholeWord
+                              ? 'bg-accent/20 text-accent font-bold'
+                              : 'text-text-subtle hover:bg-surface-2 hover:text-text'
+                          )}
+                        >
+                          \b
+                        </button>
+                      </div>
+
+                      <span
+                        className="text-[11px] text-text-subtle truncate max-w-[145px]"
+                        title={replaceStatus ?? undefined}
+                      >
+                        {replacing
+                          ? t('ide.replacing')
+                          : replaceStatus
+                            ? replaceStatus
+                            : searching
+                              ? t('ide.searching')
+                              : searchQuery.trim()
+                                ? searchResults.length > 0
+                                  ? t('ide.searchMatches', {
+                                      count: searchResults.length,
+                                      files: groupedResults.size
+                                    })
+                                  : t('ide.noMatches')
+                                : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-auto p-1.5 space-y-1">
+                    {Array.from(groupedResults.entries()).map(([filePath, matches]) => {
+                      const isCollapsed = collapsedFiles.has(filePath)
+                      const fileName = filePath.split('/').pop() || filePath
+                      const dirPath = filePath.includes('/')
+                        ? filePath.slice(0, filePath.lastIndexOf('/'))
+                        : ''
+
+                      return (
+                        <div key={filePath} className="rounded overflow-hidden">
+                          <div className="group flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-surface-2 transition-colors">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCollapsedFiles((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(filePath)) next.delete(filePath)
+                                  else next.add(filePath)
+                                  return next
+                                })
+                              }
+                              className="flex items-center gap-1.5 min-w-0 flex-1 text-left text-xs text-text"
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  'h-3 w-3 shrink-0 transition-transform text-text-subtle',
+                                  !isCollapsed && 'rotate-90'
+                                )}
+                              />
+                              {(() => {
+                                const { Icon: SearchFileIcon, color } =
+                                  getFileIconDescriptor(filePath)
+                                return (
+                                  <SearchFileIcon className={cn('h-3.5 w-3.5 shrink-0', color)} />
+                                )
+                              })()}
+                              <span className="truncate font-medium" title={filePath}>
+                                {fileName}
+                                {dirPath && (
+                                  <span className="ml-1 text-[10px] text-text-subtle font-normal">
+                                    {dirPath}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+
+                            {showReplace && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void executeReplace([filePath])
+                                }}
+                                disabled={replacing}
+                                title={t('ide.replaceInFile')}
+                                aria-label={t('ide.replaceInFile')}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-subtle hover:text-text hover:bg-white/10 transition-all"
+                              >
+                                <CheckCheck className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+
+                            <span className="rounded-full bg-white/10 px-1.5 py-0.2 text-[10px] tabular-nums text-text-subtle shrink-0">
+                              {matches.length}
+                            </span>
+                          </div>
+
+                          {!isCollapsed && (
+                            <div className="ml-4 border-l border-border pl-1 space-y-0.5 mt-0.5">
+                              {matches.map((m, idx) => (
+                                <button
+                                  key={`${m.line}-${m.column}-${idx}`}
+                                  type="button"
+                                  onClick={() => openSearchResult(m)}
+                                  className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-[11px] font-mono hover:bg-surface-2 transition-colors group"
+                                >
+                                  <span className="shrink-0 text-accent/80 font-medium">
+                                    {m.line}
+                                  </span>
+                                  <span className="truncate text-text-muted group-hover:text-text">
+                                    {m.lineText}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <GitRepositoriesView
+                  root={root}
+                  sessionId={sessionId}
+                  onOpenCommandOutput={(repositoryRoot) => {
+                    setGitOutputRoot(repositoryRoot)
+                    setCommandsInitialTab('git')
+                    setCommandsOpen(true)
+                  }}
+                  onOpenChanges={(files, repositoryRoot) => {
+                    setDiffTarget(null)
+                    setChangesTarget({ files, root: repositoryRoot })
+                    const firstFile = files[0]
+                    if (firstFile) {
+                      setIdeSelectedFile(
+                        {
+                          path: root
+                            ? repositoryFilePath(root, repositoryRoot, firstFile.path)
+                            : firstFile.path,
+                          name: firstFile.path.split('/').pop() || firstFile.path,
+                          directory: false
+                        },
+                        undefined,
+                        root
+                      )
+                    }
+                  }}
+                  onOpenFile={(filePath, commitSha, repositoryRoot) => {
+                    const fileName = filePath.split('/').pop() || filePath
+                    const entry: WorkspaceFileEntry = {
+                      path: root ? repositoryFilePath(root, repositoryRoot, filePath) : filePath,
+                      name: fileName,
+                      directory: false
+                    }
+                    setSelected(entry)
+                    setSelectedLine(undefined)
+                    setIdeSelectedFile(entry, undefined, root)
+                    setChangesTarget(null)
+                    setDiffTarget({ path: filePath, commitSha, root: repositoryRoot })
+                  }}
+                />
+              )
             ) : (
-              <GitRepositoriesView
-                root={root}
-                sessionId={sessionId}
-                onOpenCommandOutput={(repositoryRoot) => {
-                  setGitOutputRoot(repositoryRoot)
-                  setCommandsInitialTab('git')
-                  setCommandsOpen(true)
-                }}
-                onOpenChanges={(files, repositoryRoot) => {
-                  setDiffTarget(null)
-                  setChangesTarget({ files, root: repositoryRoot })
-                }}
-                onOpenFile={(filePath, commitSha, repositoryRoot) => {
-                  const fileName = filePath.split('/').pop() || filePath
-                  const entry: WorkspaceFileEntry = {
-                    path: root ? repositoryFilePath(root, repositoryRoot, filePath) : filePath,
-                    name: fileName,
-                    directory: false
-                  }
-                  setSelected(entry)
-                  setSelectedLine(undefined)
-                  setIdeSelectedFile(entry, undefined, root)
-                  setChangesTarget(null)
-                  setDiffTarget({ path: filePath, commitSha, root: repositoryRoot })
-                }}
-              />
-            )
-          ) : (
-            <p className="p-4 text-xs text-text-muted">{t('ide.noWorkspace')}</p>
-          )}
-        </div>
+              <p className="p-4 text-xs text-text-muted">{t('ide.noWorkspace')}</p>
+            )}
+          </div>,
 
-        {/* Horizontal drag handle to resize the sidebar panel width */}
-        {!panelCollapsed && (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t('ide.resizePanel')}
-            aria-valuenow={panelWidth}
-            onPointerDown={(e) => {
-              if (e.button !== 0) return
-              isPanelDragging.current = true
-              setPanelDragging(true)
-              e.currentTarget.setPointerCapture(e.pointerId)
-            }}
-            onPointerMove={(e) => {
-              if (!isPanelDragging.current) return
-              const aside = asideRef.current
-              if (!aside) return
-              const rect = aside.getBoundingClientRect()
-              const newW = e.clientX - rect.left - 44
-              setPanelWidth(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, newW)))
-            }}
-            onPointerUp={(e) => {
-              isPanelDragging.current = false
-              setPanelDragging(false)
-              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId)
-              }
-            }}
-            onPointerCancel={() => {
-              isPanelDragging.current = false
-              setPanelDragging(false)
-            }}
-            onLostPointerCapture={() => {
-              isPanelDragging.current = false
-              setPanelDragging(false)
-            }}
-            onDoubleClick={() => {
-              setPanelWidth(DEFAULT_PANEL_WIDTH)
-            }}
-            className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize touch-none z-20 hover:bg-accent/40 focus-visible:bg-accent transition-colors"
-            title={t('ide.resizePanel')}
-          />
+          sidebarTarget
         )}
-      </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={cn(
+          'min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+          ideMode || diffTarget || changesTarget ? 'flex' : 'hidden'
+        )}
+      >
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {sessionId && root ? (
             changesTarget ? (
               <GitChangesViewer
                 root={changesTarget.root}
                 files={changesTarget.files}
-                onClose={() => setChangesTarget(null)}
+                onClose={() => {
+                  setChangesTarget(null)
+                  setSelected(null)
+                  setSelectedLine(undefined)
+                  setIdeSelectedFile(null, undefined, root)
+                }}
               />
             ) : diffTarget ? (
               <GitDiffViewer
@@ -2028,7 +1880,7 @@ function WorkspaceContents({
           )}
         </div>
 
-        {commandsOpen && activeChat && (
+        {ideMode && commandsOpen && activeChat && (
           <div
             style={{ height: terminalHeight }}
             className="relative flex min-h-[140px] max-h-[70vh] shrink-0 flex-col border-t border-border bg-bg"
@@ -2098,16 +1950,15 @@ function WorkspaceContents({
   )
 }
 
-export function IdeWorkspace({
-  sessionId,
-  root
-}: {
+interface WorkspaceProps {
+  onChangedFileCount?: (count: number) => void
   sessionId: string | null
   root: string | null
-}): JSX.Element {
-  return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
-      <WorkspaceContents sessionId={sessionId} root={root} />
-    </div>
-  )
+  sidebarTarget: HTMLDivElement | null
+  sidebarTab: 'files' | 'search' | 'git' | null
+  ideMode: boolean
+}
+
+export function IdeWorkspace(props: WorkspaceProps): JSX.Element {
+  return <WorkspaceContents {...props} />
 }

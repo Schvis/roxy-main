@@ -50,9 +50,10 @@ function getLineStats(
   before: string,
   after: string
 ): { added: number; removed: number; isCreated: boolean; isDeleted: boolean; isModified: boolean } {
-  const cacheKey = `${path}:${before.length}:${after.length}:${before.slice(0, 40)}:${after.slice(0, 40)}`
+  const cacheKey = JSON.stringify([path, before, after])
   const cached = statsCache.get(cacheKey)
   if (cached) return cached
+  if (statsCache.size >= 32) statsCache.clear()
 
   const isCreated = !before && Boolean(after)
   const isDeleted = Boolean(before) && !after
@@ -184,11 +185,12 @@ function extractDiffsFromParts(
 
   for (const part of parts) {
     if (part.type === 'tool') {
-      if (part.diff && part.diff.path) {
-        const cleaned = stripWorkspaceRoot(part.diff.path, workspaceRoot)
+      for (const diff of part.diffs ?? (part.diff ? [part.diff] : [])) {
+        if (!diff.path) continue
+        const cleaned = stripWorkspaceRoot(diff.path, workspaceRoot)
         result.push({
           path: normalizeFilePath(cleaned),
-          diff: part.diff,
+          diff,
           tool: part.tool,
           isLatestTurn
         })
@@ -344,13 +346,19 @@ export async function undoFileChange(
 ): Promise<boolean> {
   try {
     if (change.isCreated) {
-      await api.files.delete(sessionId, change.path)
+      if (!(await api.files.delete(sessionId, change.path))) return false
       revertEditorDraft(sessionId, change.path)
     } else {
-      const readResult = await api.files.read(sessionId, change.path)
-      if (readResult && readResult.revision !== null) {
-        await api.files.write(sessionId, change.path, change.initialBefore, readResult.revision)
+      if (change.isDeleted) {
+        const created = await api.files.create(sessionId, change.path)
+        if (!created.success) return false
       }
+      const readResult = await api.files.read(sessionId, change.path)
+      if (!readResult || readResult.revision === null) return false
+      const written = await api.files.write(
+        sessionId, change.path, change.initialBefore, readResult.revision
+      )
+      if (written.status !== 'saved') return false
       revertEditorDraft(sessionId, change.path)
     }
     setFileReviewStatus(sessionId, change.path, 'undone', change.latestAfter)
@@ -395,12 +403,8 @@ export function extractAgentFileChanges(
 ): AgentFileChangesSummary {
   const rawDiffs: RawDiffEntry[] = []
 
-  // Check if streaming currently has tool diffs
-  const streamingHasDiff = streaming?.some(
-    (p) =>
-      p.type === 'tool' &&
-      (Boolean(p.diff) || p.children?.some((c) => c.type === 'tool' && Boolean(c.diff)))
-  )
+  // Use the same recursive traversal for latest-turn attribution and extraction.
+  const streamingHasDiff = extractDiffsFromParts(streaming, true, workspaceRoot).length > 0
 
   // Check which message index represents the latest assistant response with diffs
   let latestTurnIndex = -1
@@ -408,11 +412,7 @@ export function extractAgentFileChanges(
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
       if (msg.role === 'assistant' && msg.parts) {
-        const hasDiff = msg.parts.some(
-          (p) =>
-            p.type === 'tool' &&
-            (Boolean(p.diff) || p.children?.some((c) => c.type === 'tool' && Boolean(c.diff)))
-        )
+        const hasDiff = extractDiffsFromParts(msg.parts, false, workspaceRoot).length > 0
         if (hasDiff) {
           latestTurnIndex = i
           break
@@ -551,21 +551,21 @@ export function extractAgentFileChanges(
       }
     }
 
-    const stats = getLineStats(group.path, initialBefore, latestAfter)
+    const firstDiff = items[0].diff
+    const lastDiff = items[items.length - 1].diff
+    const beforeExists = initialBefore !== firstDiff.before || review?.status === 'kept'
+      ? true
+      : (firstDiff.beforeExists ?? Boolean(initialBefore))
+    const afterExists = lastDiff.afterExists ?? Boolean(latestAfter)
+    const stats = {
+      ...getLineStats(group.path, initialBefore, latestAfter),
+      isCreated: !beforeExists && afterExists,
+      isDeleted: beforeExists && !afterExists,
+      isModified: beforeExists && afterExists
+    }
     const changedLines = stats.added + stats.removed
 
-    if (initialBefore === latestAfter) continue
-
-    // If previously kept and net change since kept is zero, retain kept status
-    if (
-      reviewStatus === 'pending' &&
-      review?.status === 'kept' &&
-      changedLines === 0 &&
-      !stats.isCreated &&
-      !stats.isDeleted
-    ) {
-      reviewStatus = 'kept'
-    }
+    if (initialBefore === latestAfter && beforeExists === afterExists) continue
 
     if (reviewStatus === 'pending') {
       totalAdded += stats.added

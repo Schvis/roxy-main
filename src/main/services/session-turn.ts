@@ -20,6 +20,8 @@ import { beginTurn, finishTurn } from './turn-metrics'
 import { modelFamily, reportableAgent } from '../../shared/telemetry'
 import path from 'node:path'
 import { watchAgentNotifications } from './agent-notifications'
+import { startsNewRequest } from '../../shared/interaction-tools'
+import { emitSessionsUpdated } from './session-events'
 
 /**
  * Resolve a session's working directory, degrading to '' rather than throwing.
@@ -51,6 +53,10 @@ export async function runSessionTurn(
   emit: (event: LlmEvent) => void,
   signal: AbortSignal
 ): Promise<LlmResult> {
+  if (startsNewRequest(input)) {
+    repo.setChatMetadata(input.sessionId, { tasks: [] })
+    emitSessionsUpdated({ reason: 'metadata', sessionIds: [input.sessionId] })
+  }
   const notifications = watchAgentNotifications(input.sessionId)
   let ok = false
   try {

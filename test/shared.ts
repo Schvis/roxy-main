@@ -132,8 +132,7 @@ import {
   buildEnvironment,
   assembleSystemPrompt,
   ROXY_COAUTHOR_TRAILER,
-  GIT_COMMIT_TRAILER_PROMPT,
-  AGENT_PLAN_PROMPT
+  GIT_COMMIT_TRAILER_PROMPT
 } from '../src/shared/prompt'
 import {
   reconstructAssistant,
@@ -2969,19 +2968,11 @@ check(
   assembleSystemPrompt({ base: 'ONLY BASE' }).includes(ROXY_COAUTHOR_TRAILER)
 )
 
-// Agent planning prompt checks
+// Interactive tools carry their own instructions, not standing prompt blocks.
+check('structured tools: no standing plan prompt', !asmFull.includes('# Planning & Task Tracking'))
 check(
-  'plan prompt: assembled prompt includes planning instructions',
-  asmFull.includes('# Planning & Task Tracking')
-)
-check('plan prompt: instructs checklist for multi-step tasks', asmFull.includes('- [ ] <step>'))
-check(
-  'plan prompt: advises skipping checklist for simple tasks',
-  /simple, trivial/i.test(AGENT_PLAN_PROMPT)
-)
-check(
-  'plan prompt: confirms before lots of changes',
-  /lot of changes|allow or cancel/i.test(AGENT_PLAN_PROMPT)
+  'structured tools: no standing questionnaire prompt',
+  !asmFull.includes('# Asking User Questions & Options')
 )
 
 // selectPromptName sanity — the trailer rides on top of whichever family is picked.
@@ -6750,6 +6741,43 @@ async function main(): Promise<void> {
       bucketsForModel(aq, 'roxy-abc/gemini-3-pro-high')
         .map((b) => b.id)
         .join() === 'gemini-3-pro-high'
+    )
+
+    const tiered = {
+      connectionId: 'tiered',
+      upstream: 'antigravity' as const,
+      fetchedAt: now,
+      ...parseAntigravityModels({
+        models: {
+          'gemini-3.8-flash-tiered': { quotaInfo: { remainingFraction: 0.65 } },
+          'gemini-3.8-pro-tiered': { quotaInfo: { remainingFraction: 0.25 } }
+        }
+      })
+    }
+    for (const model of [
+      'gemini-3.8-flash',
+      'roxy-abc/gemini-3.8-flash',
+      'google/gemini-3.8-flash-high',
+      'gemini-3.8-flash-low',
+      'gemini-3.8-flash-tiered'
+    ]) {
+      const limits = bucketsForModel(tiered, model)
+      check(
+        `quota: ${model} uses its tiered allowance directly`,
+        limits.length === 1 &&
+          limits[0].id === 'gemini-3.8-flash-tiered' &&
+          limits[0].remaining === 65
+      )
+    }
+    for (const model of ['gemini-3.5-flash', 'gemini-3.8-flash-lite', 'claude-flash']) {
+      check(
+        `quota: tiered allowance excludes ${model}`,
+        bucketsForModel(tiered, model).length === 0
+      )
+    }
+    check(
+      'quota: Gemini Pro uses its own tiered allowance',
+      bucketsForModel(tiered, 'gemini-3.8-pro')[0]?.id === 'gemini-3.8-pro-tiered'
     )
 
     check(

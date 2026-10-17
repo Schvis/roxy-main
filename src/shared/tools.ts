@@ -46,6 +46,22 @@ export interface ToolDef {
 }
 
 export const TOOLS: ToolDef[] = [
+  {
+    id: 'ask_user',
+    name: 'ask_user',
+    description: 'Ask questions and wait for user answers.',
+    category: 'Agents',
+    mutates: false,
+    interruptible: true
+  },
+  {
+    id: 'update_plan',
+    name: 'update_plan',
+    description: 'Create or update the local session plan.',
+    category: 'Agents',
+    mutates: false,
+    interruptible: false
+  },
   // ---- Files & search ----
   {
     id: 'read',

@@ -84,6 +84,7 @@ function botSchema(db: Database): void {
   addColumnIfMissing(db, 'queue', 'error', 'TEXT')
   addColumnIfMissing(db, 'queue', 'message_id', 'TEXT')
   addColumnIfMissing(db, 'queue', 'continue_reply', 'INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing(db, 'queue', 'request_kind', 'TEXT')
   addColumnIfMissing(db, 'queue', 'schedule_id', 'TEXT')
   addColumnIfMissing(db, 'queue', 'bot_id', 'TEXT')
   addColumnIfMissing(db, 'queue', 'bot_username', 'TEXT')

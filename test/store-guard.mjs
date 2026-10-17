@@ -30,6 +30,60 @@ const check = (name, ok, detail = '') => {
   }
 }
 
+console.log('store: force-send delivery context')
+const submitAction = src.match(/^  submit: async \([^)]*\) => \{[\s\S]*?^  \},/m)?.[0]
+const forceSends = []
+let forceState = {
+  activeChatId: 'original',
+  pendingContextAttachments: {},
+  queue: [],
+  sendingChats: { original: true },
+  stopChats: {}
+}
+const forceActions = {
+  stop(id) {
+    delete forceState.sendingChats[id]
+    forceState.activeChatId = 'other'
+  },
+  async sendMessage(...args) {
+    forceSends.push(args)
+  }
+}
+const forceSubmit = new Function(
+  'get',
+  'set',
+  'formatMessageWithContext',
+  'lastSubmittedPrompt',
+  'remoteTurns',
+  'subagentTurns',
+  'inFlightTurns',
+  'delay',
+  'isBotChat',
+  'enqueuePrompt',
+  transformSync(`const actions = {${submitAction}}; return actions.submit`, { loader: 'ts' }).code
+)(
+  () => ({ ...forceState, ...forceActions }),
+  (fn) => {
+    forceState = { ...forceState, ...fn(forceState) }
+  },
+  (text) => text,
+  {},
+  new Set(),
+  new Set(),
+  new Map(),
+  async () => {},
+  () => false,
+  async (...args) => forceSends.push(args)
+)
+await forceSubmit('Continúa', undefined, true)
+check(
+  'busy force-send carries interruption context to the original chat after Stop',
+  forceSends[0]?.[1] === 'original' && forceSends[0]?.[3] === 'interruption'
+)
+forceSends.length = 0
+await forceSubmit('Ordinary next request', undefined, true)
+check('force-send while idle is still an ordinary new request', forceSends[0]?.[3] === undefined)
+
 console.log('store: event-as-argument guards')
 
 // 1. The guard exists and rejects non-strings.

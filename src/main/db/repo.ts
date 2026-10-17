@@ -211,7 +211,6 @@ export function getSettings(): AppSettings {
     fishAudioMaxWords: map.has('fish_audio_max_words')
       ? Math.max(0, parseInt(map.get('fish_audio_max_words')!, 10) || 0)
       : 0,
-    ttsShowEmotions: map.get('tts_show_emotions') === '1',
     vtuberEnabled: map.get('vtuber_enabled') === '1',
     vtuberModelPath:
       map.get('vtuber_model_path') && !map.get('vtuber_model_path')?.includes('roxy')
@@ -605,11 +604,6 @@ export function setFishAudioVoice(voice: string): AppSettings {
 export function setFishAudioMaxWords(maxWords: number): AppSettings {
   const clean = Math.max(0, Math.floor(Number(maxWords) || 0))
   setSetting('fish_audio_max_words', String(clean))
-  return getSettings()
-}
-
-export function setTtsShowEmotions(show: boolean): AppSettings {
-  setSetting('tts_show_emotions', show ? '1' : '0')
   return getSettings()
 }
 
@@ -1212,6 +1206,7 @@ function rowToChat(row: ChatRow): Chat {
     contextSummaryAt: row.context_summary_at,
     description: row.description,
     tasks: parseTasks(row.tasks),
+    tasksInitialized: row.tasks !== null,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -1913,6 +1908,7 @@ interface QueueRow {
   as_bot_id: string | null
   schedule_id: string | null
   from_user: number
+  request_kind: 'interruption' | 'new' | null
 }
 
 export function listQueue(chatId: string): QueueItem[] {
@@ -1935,6 +1931,7 @@ export function listQueue(chatId: string): QueueItem[] {
     botUsername: r.bot_username ?? undefined,
     asBotId: r.source_chat_id ? (r.as_bot_id ?? undefined) : undefined,
     fromUser: !!r.from_user,
+    requestKind: r.request_kind ?? undefined,
     scheduleId: r.schedule_id ?? undefined
   }))
 }

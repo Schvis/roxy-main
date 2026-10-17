@@ -142,7 +142,6 @@ const roxy: RoxyApi = {
     setFishAudioVoice: (voice) => ipcRenderer.invoke(CHANNELS.settingsSetFishAudioVoice, voice),
     setFishAudioMaxWords: (maxWords) =>
       ipcRenderer.invoke(CHANNELS.settingsSetFishAudioMaxWords, maxWords),
-    setTtsShowEmotions: (show) => ipcRenderer.invoke(CHANNELS.settingsSetTtsShowEmotions, show),
     setVtuberEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberEnabled, enabled),
     setVtuberModelPath: (path) => ipcRenderer.invoke(CHANNELS.settingsSetVtuberModelPath, path),
     setVtuberVisionEnabled: (enabled) =>

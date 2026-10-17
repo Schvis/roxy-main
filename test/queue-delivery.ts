@@ -22,7 +22,10 @@ import {
 import { isVisibleQueueItem, nextQueueItem } from '../src/shared/queue'
 import { messageImages } from '../src/shared/attachments'
 
-app.setPath('userData', mkdtempSync(path.join(tmpdir(), 'roxy-delivery-')))
+app.setPath(
+  'userData',
+  mkdtempSync(path.join(process.env.DELIVERY_DATA_ROOT ?? tmpdir(), 'roxy-delivery-'))
+)
 process.env.ROXY_TRACK_DISABLE = '1'
 process.env.ROXY_SKILLS = '0'
 process.env.ROXY_MCP = '0'
@@ -127,7 +130,12 @@ async function main(): Promise<void> {
   for (const id of [bot.chatId, project.id]) {
     hold = true
     const before = requests.length
+    const oldTasks = [{ title: 'Previous request', status: 'completed' as const }]
+    repo.setChatMetadata(id, { tasks: oldTasks })
     const first = enqueuePrompt(id, 'First prompt', images)
+    assert.deepEqual(repo.getChat(id)?.tasks, [], 'request start persists an empty canonical plan')
+    assert.equal(repo.getChat(id)?.tasksInitialized, true)
+    repo.setChatMetadata(id, { tasks: oldTasks })
     assert.equal(first.state, 'starting')
     assert.ok(!isVisibleQueueItem(first))
     assert.equal(automationSnapshot().filter((r) => r.sessionId === id).length, 1)
@@ -143,6 +151,11 @@ async function main(): Promise<void> {
     assert.throws(() => repo.updateQueueItem(first.id, 'wrong'), /running/)
     const second = enqueuePrompt(id, 'Second prompt', images)
     assert.equal(second.state, 'pending')
+    assert.deepEqual(
+      repo.getChat(id)?.tasks,
+      oldTasks,
+      'enqueue does not clear an active request plan'
+    )
     assert.equal(deliveryQueue(id).find((q) => q.id === second.id)?.waitReason, 'busy')
     await until(() => requests.length === before + 1 && replies.length > 0, 'first request starts')
     assert.equal(
@@ -157,9 +170,45 @@ async function main(): Promise<void> {
     replies.shift()!()
     await idle(id)
     assert.equal(requests.length, before + 2)
+    assert.deepEqual(
+      repo.getChat(id)?.tasks,
+      [],
+      'next no-plan request remains cleared after finish'
+    )
+    assert.equal(repo.getChat(id)?.tasksInitialized, true)
     assert.equal(repo.listMessages(id).filter((m) => m.content === 'First prompt').length, 1)
     assert.equal(repo.listMessages(id).filter((m) => m.content === 'Second prompt').length, 1)
   }
+
+  const continuingTasks = [{ title: 'Still working', status: 'in_progress' as const }]
+  repo.setChatMetadata(project.id, { tasks: continuingTasks })
+  enqueuePrompt(project.id, 'Internal continuation fixture', undefined, {
+    sourceChatId: project.id,
+    recipientId: 'roxy'
+  })
+  await idle(project.id)
+  assert.deepEqual(
+    repo.getChat(project.id)?.tasks,
+    continuingTasks,
+    'internal continuation keeps plan'
+  )
+
+  // Force-send stops the active turn, then admits a durable interruption delivery.
+  const interrupted = claimTurn(project.id, new AbortController())!
+  assert.ok(interrupted)
+  stopTurn(project.id)
+  interrupted()
+  enqueuePrompt(project.id, 'Continúa con la misma tarea', undefined, {
+    requestKind: 'interruption'
+  })
+  assert.deepEqual(repo.getChat(project.id)?.tasks, continuingTasks)
+  await idle(project.id)
+  assert.deepEqual(repo.getChat(project.id)?.tasks, continuingTasks)
+  assert.ok(JSON.stringify(requests.at(-1)).includes('Still working'), 'model sees canonical plan')
+  assert.ok(JSON.stringify(requests.at(-1)).includes('If they switch tasks'))
+  enqueuePrompt(project.id, 'Explicit task switch', undefined, { requestKind: 'new' })
+  assert.deepEqual(repo.getChat(project.id)?.tasks, [], 'explicit new task clears immediately')
+  await idle(project.id)
 
   const imageProvider = repo.connectProvider({
     id: 'openai-compatible',
@@ -568,6 +617,22 @@ async function main(): Promise<void> {
     console.log('DELIVERY UI OK (real IPC, database, harness; deterministic provider)')
   }
   stopAutomation()
+  repo.setChatMetadata(project.id, { tasks: continuingTasks })
+  const durableInterrupt = enqueuePrompt(project.id, 'Continue after reload', undefined, {
+    requestKind: 'interruption'
+  })
+  closeDb()
+  assert.deepEqual(repo.getChat(project.id)?.tasks, continuingTasks, 'active plan survives reload')
+  assert.equal(
+    repo.listQueue(project.id).find((q) => q.id === durableInterrupt.id)?.requestKind,
+    'interruption',
+    'interruption delivery context survives reload'
+  )
+  repo.removeQueueItem(durableInterrupt.id)
+  repo.setChatMetadata(project.id, { tasks: [] })
+  closeDb()
+  assert.deepEqual(repo.getChat(project.id)?.tasks, [], 'empty reset survives database reload')
+  assert.equal(repo.getChat(project.id)?.tasksInitialized, true)
   closeDb()
   console.log('DELIVERY RUNTIME OK')
 }

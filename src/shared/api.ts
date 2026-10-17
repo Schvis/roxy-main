@@ -451,6 +451,10 @@ export interface LlmStartInput {
   /** Bot speaking this turn, when it is not the session's own bot — a guest in a
    *  shared session. Drives the identity + role in the system prompt. */
   asBotId?: string
+  /** Internal continuation, or a queue turn whose request boundary was already handled. */
+  continueRequest?: boolean
+  /** Preserve an interrupted task until the model interprets the user's intent. */
+  requestKind?: 'interruption' | 'new'
   /** Roxy explicitly answering inside a bot's private chat. */
   asHost?: boolean
 }
@@ -518,6 +522,7 @@ export type LlmEvent =
       ok: boolean
       image?: string
       diff?: ToolDiff
+      diffs?: ToolDiff[]
     }
   /**
    * One step of a SUBAGENT's turn, addressed to the `task` card that spawned it.
@@ -847,6 +852,8 @@ export type RemoteDelta =
       kind: 'turn'
       state: 'running' | 'idle'
       phase?: 'starting' | 'running'
+      /** Canonical plan was cleared before this new request started. */
+      resetPlan?: boolean
       /** Persisted before the terminal event, so swapping out live parts is lossless. */
       message?: Message
       botId?: string
@@ -1105,7 +1112,6 @@ export interface RoxyApi {
     setFishAudioModel(model: string): Promise<AppSettings>
     setFishAudioVoice(voice: string): Promise<AppSettings>
     setFishAudioMaxWords(maxWords: number): Promise<AppSettings>
-    setTtsShowEmotions(show: boolean): Promise<AppSettings>
     setVtuberEnabled(enabled: boolean): Promise<AppSettings>
     setVtuberModelPath(path: string): Promise<AppSettings>
     setVtuberVisionEnabled(enabled: boolean): Promise<AppSettings>

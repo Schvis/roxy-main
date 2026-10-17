@@ -331,6 +331,8 @@ function queueAddOptions(value: unknown): QueueAddOptions | undefined {
   if (typeof raw.asBotId === 'string') options.asBotId = raw.asBotId
   if (typeof raw.recipientId === 'string') options.recipientId = raw.recipientId
   if (raw.fromUser === true) options.fromUser = true
+  if (raw.requestKind === 'interruption' || raw.requestKind === 'new')
+    options.requestKind = raw.requestKind
   return options
 }
 
@@ -551,9 +553,6 @@ export function registerIpc(): void {
   )
   ipcMain.handle(CHANNELS.settingsSetFishAudioMaxWords, (_e, maxWords: number) =>
     repo.setFishAudioMaxWords(maxWords)
-  )
-  ipcMain.handle(CHANNELS.settingsSetTtsShowEmotions, (_e, show: boolean) =>
-    repo.setTtsShowEmotions(show)
   )
   function broadcastSettings(settings: AppSettings): void {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -1611,7 +1610,7 @@ export function registerIpc(): void {
     if (callId) {
       ok = writeToolInput(callId, data)
     }
-    if (!ok && sessionId) {
+    if (!callId && sessionId) {
       ok = writeActiveSessionToolInput(sessionId, data)
     }
     return ok

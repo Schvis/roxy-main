@@ -67,7 +67,6 @@ export const CHANNELS = {
   settingsSetFishAudioModel: 'settings:setFishAudioModel',
   settingsSetFishAudioVoice: 'settings:setFishAudioVoice',
   settingsSetFishAudioMaxWords: 'settings:setFishAudioMaxWords',
-  settingsSetTtsShowEmotions: 'settings:setTtsShowEmotions',
   settingsSetVtuberEnabled: 'settings:setVtuberEnabled',
   settingsSetVtuberModelPath: 'settings:setVtuberModelPath',
   settingsSetVtuberVisionEnabled: 'settings:setVtuberVisionEnabled',

@@ -372,6 +372,8 @@ const REPORTABLE_TOOLS = new Set<string>([
   'session_manage',
   'queue_manage',
   'change_session_metadata',
+  'ask_user',
+  'update_plan',
   // Agents
   'task',
   'lsp',

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { QueueImage, QueueItem, Message, MessagePart } from '../../shared/types'
 import type { ChatMessage, LlmResult, RemoteDelta } from '../../shared/api'
 import { CHANNELS } from '../../shared/ipc'
+import { startsNewQueuedRequest } from '../../shared/interaction-tools'
 import { PartsFold, partsToContent } from '../../shared/parts'
 import { reconstructTurn } from '../../shared/tool-history'
 import { pruneToolMessages, KEEP_RECENT_TOKENS } from '../../shared/context'
@@ -125,6 +126,7 @@ export function enqueuePrompt(
   content: string,
   images?: QueueImage[],
   options: {
+    requestKind?: 'interruption' | 'new'
     sourceChatId?: string
     replyToChatId?: string
     notBefore?: number
@@ -213,7 +215,10 @@ export function enqueuePrompt(
         messageId,
         item.id
       )
-    return item
+    getDb()
+      .prepare('UPDATE queue SET request_kind = ? WHERE id = ?')
+      .run(options.requestKind ?? null, item.id)
+    return { ...item, requestKind: options.requestKind }
   })()
   if (!options.sourceChatId || options.fromUser || options.resume) resumeQueue(chatId)
   // Claim eligible sends before observers see a waiting row. Same-chat
@@ -491,7 +496,18 @@ async function deliver(item: QueueItem): Promise<void> {
         : undefined
     if (speaker) speakers.set(item.chatId, speaker)
     returnAuthor = speaker ?? {}
-    emit({ sessionId: item.chatId, kind: 'turn', state: 'running', phase: 'starting', ...speaker })
+    // Clear only when admitted work starts, not when it is queued behind an active request.
+    // Handoffs, background results, and tool replies continue the current request.
+    const resetPlan = startsNewQueuedRequest(item)
+    if (resetPlan) repo.setChatMetadata(item.chatId, { tasks: [] })
+    emit({
+      sessionId: item.chatId,
+      kind: 'turn',
+      state: 'running',
+      phase: 'starting',
+      resetPlan,
+      ...speaker
+    })
     let requestMessageId = previous.message_id
     if (!requestMessageId)
       getDb().transaction(() => {
@@ -629,6 +645,7 @@ async function deliver(item: QueueItem): Promise<void> {
         {
           requestId: randomUUID(),
           sessionId: item.chatId,
+          continueRequest: true,
           providerId: provider.id,
           model,
           messages,

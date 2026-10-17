@@ -5,6 +5,8 @@ import { useRoxyStore } from '../lib/store'
 import { extractAgentQuestionOptions } from '../lib/agent-input-options'
 import { Button } from './ui'
 import { cn } from '../lib/cn'
+import { api } from '../lib/api'
+import { parseQuestions } from '@shared/interaction-tools'
 
 export function AgentQuestionPopup({
   wallpaper
@@ -19,10 +21,20 @@ export function AgentQuestionPopup({
   const submit = useRoxyStore((s) => s.submit)
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
 
-  const summary = useMemo(
-    () => extractAgentQuestionOptions(messages, Boolean(streaming)),
-    [messages, streaming]
+  const pendingQuestion = streaming?.findLast(
+    (part) => part.type === 'tool' && part.tool === 'ask_user' && part.state === 'running'
   )
+  const summary = useMemo(() => {
+    if (pendingQuestion?.type === 'tool') {
+      try {
+        const questions = parseQuestions(pendingQuestion.input?.questions)
+        return { hasQuestion: true, questions, changeKey: pendingQuestion.callId ?? '' }
+      } catch {
+        return null
+      }
+    }
+    return extractAgentQuestionOptions(messages, Boolean(streaming))
+  }, [messages, streaming, pendingQuestion])
 
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<number, string>>({})
@@ -54,6 +66,13 @@ export function AgentQuestionPopup({
   const currentQuestion = questions[currentIndex] ?? questions[0]
 
   const submitAnswers = (finalAnswers: Record<number, string>): void => {
+    if (pendingQuestion?.type === 'tool' && pendingQuestion.callId) {
+      void api.tools.input(
+        pendingQuestion.callId,
+        JSON.stringify(questions.map((_, index) => finalAnswers[index] ?? ''))
+      )
+      return
+    }
     if (total === 1) {
       void submit(finalAnswers[0] || '')
       return
@@ -84,6 +103,8 @@ export function AgentQuestionPopup({
   }
 
   const handleDismiss = (): void => {
+    if (pendingQuestion?.type === 'tool' && pendingQuestion.callId)
+      void api.tools.cancel(pendingQuestion.callId)
     setDismissedKey(summary.changeKey)
   }
 

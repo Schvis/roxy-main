@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MessageSquare } from 'lucide-react'
-import { Sidebar } from '../components/Sidebar'
+import { MessageSquare, X } from 'lucide-react'
+import { Sidebar, type SidebarTool } from '../components/Sidebar'
 import { ChatView } from '../components/ChatView'
 import { IdeWorkspace } from '../components/IdeWorkspace'
 import { TopNavbar } from '../components/TopNavbar'
@@ -152,7 +152,11 @@ function Chat(): JSX.Element {
     }
     setSizes((current) => ({ ...current, [dock]: Math.round(clamped * 10) / 10 }))
   }
+  const [changedFileCount, setChangedFileCount] = useState(0)
+  const [sidebarTool, setSidebarTool] = useState<SidebarTool | null>(null)
+  const [toolTarget, setToolTarget] = useState<HTMLDivElement | null>(null)
   const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
+  const visibleSidebarTool = ideMode || sidebarTool === 'git' ? sidebarTool : null
   const activeChatId = useRoxyStore((s) => s.activeChatId)
   const chats = useRoxyStore((s) => s.chats)
   const activeChat = chats.find((chat) => chat.id === activeChatId)
@@ -167,7 +171,45 @@ function Chat(): JSX.Element {
     <div className="flex h-full w-full flex-col min-w-0 overflow-hidden">
       <TopNavbar />
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <Sidebar />
+        <Sidebar
+          changedFileCount={changedFileCount}
+          tool={visibleSidebarTool}
+          onToolChange={setSidebarTool}
+        />
+        {visibleSidebarTool && (
+          <aside
+            aria-label={t(
+              visibleSidebarTool === 'files'
+                ? 'ide.filesTab'
+                : visibleSidebarTool === 'search'
+                  ? 'ide.searchTab'
+                  : 'ide.gitTab'
+            )}
+            className="flex h-full min-h-0 w-80 max-w-[45vw] shrink-0 flex-col border-r border-border bg-surface"
+          >
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-xs font-semibold text-text">
+                {t(
+                  visibleSidebarTool === 'files'
+                    ? 'ide.filesTab'
+                    : visibleSidebarTool === 'search'
+                      ? 'ide.searchTab'
+                      : 'ide.gitTab'
+                )}
+              </span>
+              <button
+                type="button"
+                aria-label={t('common.close')}
+                title={t('common.close')}
+                onClick={() => setSidebarTool(null)}
+                className="rounded p-1 text-text-muted hover:bg-surface-2 hover:text-text"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div ref={setToolTarget} className="min-h-0 flex-1 overflow-hidden" />
+          </aside>
+        )}
         <div
           ref={pane}
           className={`relative flex min-h-0 min-w-0 flex-1 overflow-auto ${ideMode && bottom ? 'flex-col' : ''}`}
@@ -206,18 +248,24 @@ function Chat(): JSX.Element {
               <MessageSquare className="h-4 w-4" />
             </button>
           )}
-          {ideMode ? (
-            <div
-              className={`flex min-h-0 min-w-0 flex-1 ${bottom ? 'w-full min-h-[220px]' : 'min-w-[380px]'}`}
-              style={{ order: dock === 'left' ? 2 : 0 }}
-            >
-              <IdeWorkspace
-                key={JSON.stringify([activeChatId, root])}
-                sessionId={activeChatId}
-                root={root}
-              />
-            </div>
-          ) : null}
+          <div
+            className={
+              ideMode
+                ? `flex min-h-0 min-w-0 flex-1 ${bottom ? 'w-full min-h-[220px]' : 'min-w-[380px]'}`
+                : 'contents'
+            }
+            style={ideMode ? { order: dock === 'left' ? 2 : 0 } : undefined}
+          >
+            <IdeWorkspace
+              key={JSON.stringify([activeChatId, root])}
+              onChangedFileCount={setChangedFileCount}
+              sessionId={activeChatId}
+              root={root}
+              sidebarTarget={visibleSidebarTool ? toolTarget : null}
+              sidebarTab={visibleSidebarTool}
+              ideMode={ideMode}
+            />
+          </div>
           {ideMode && !chatCollapsed ? (
             <div
               role="separator"

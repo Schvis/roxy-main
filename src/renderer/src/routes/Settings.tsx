@@ -73,10 +73,6 @@ export default function Settings(): JSX.Element {
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
   const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
-  const setIdeMode = useRoxyStore((s) => s.setIdeMode)
-  const [ideSaving, setIdeSaving] = useState(false)
-  const idePending = useRef(false)
-  const [ideError, setIdeError] = useState(false)
   const setOverlayKeybind = useRoxyStore((s) => s.setOverlayKeybind)
   const setVoiceKeybind = useRoxyStore((s) => s.setVoiceKeybind)
   const setUserProfile = useRoxyStore((s) => s.setUserProfile)
@@ -102,7 +98,6 @@ export default function Settings(): JSX.Element {
   const setTtsApiKey = useRoxyStore((s) => s.setTtsApiKey)
   const setTtsProvider = useRoxyStore((s) => s.setTtsProvider)
   const setTtsOpenaiConfig = useRoxyStore((s) => s.setTtsOpenaiConfig)
-  const setTtsShowEmotions = useRoxyStore((s) => s.setTtsShowEmotions)
   const setFishAudioApiKey = useRoxyStore((s) => s.setFishAudioApiKey)
   const setFishAudioModel = useRoxyStore((s) => s.setFishAudioModel)
   const setFishAudioVoice = useRoxyStore((s) => s.setFishAudioVoice)
@@ -812,7 +807,6 @@ export default function Settings(): JSX.Element {
   const ttsLang = settings?.ttsLang ?? 'ja'
   const ttsSpeed = settings?.ttsSpeed ?? 15
   const ttsProvider = settings?.ttsProvider ?? 'local'
-  const ttsShowEmotions = settings?.ttsShowEmotions ?? false
   const fishAudioModel = settings?.fishAudioModel ?? 's2.1-pro'
 
   const renderGeneral = (): JSX.Element => (
@@ -943,45 +937,6 @@ export default function Settings(): JSX.Element {
         </span>
         <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-text-subtle" />
       </button>
-
-      <section className="mb-8">
-        <h2 className={SECTION_HEADING}>{t('ide.settingsTitle')}</h2>
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-text">{t('ide.settingsTitle')}</div>
-            <p className="mt-0.5 text-xs text-text-muted">{t('ide.settingsDescription')}</p>
-            {ideSaving && (
-              <p role="status" className="mt-2 text-xs text-text-muted">
-                {t('ide.saving')}
-              </p>
-            )}
-            {ideError && (
-              <p role="alert" className="mt-2 text-xs text-danger">
-                {t('ide.saveError')}
-              </p>
-            )}
-          </div>
-          <Switch
-            aria-label={t('ide.settingsTitle')}
-            checked={settings?.ideMode ?? false}
-            disabled={!settings || ideSaving}
-            onChange={async (enabled) => {
-              if (idePending.current) return
-              idePending.current = true
-              setIdeSaving(true)
-              setIdeError(false)
-              try {
-                await setIdeMode(enabled)
-              } catch {
-                setIdeError(true)
-              } finally {
-                idePending.current = false
-                setIdeSaving(false)
-              }
-            }}
-          />
-        </div>
-      </section>
 
       <section className="mb-8">
         <h2 className={SECTION_HEADING}>{t('settings.privacy.heading')}</h2>
@@ -2509,18 +2464,6 @@ export default function Settings(): JSX.Element {
                     <option value="all">{t('settings.tts.modeAll')}</option>
                     <option value="sentence">{t('settings.tts.modeSentence')}</option>
                   </select>
-                </div>
-
-                <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-text">
-                      {t('settings.tts.showEmotionsTitle')}
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.tts.showEmotionsDescription')}
-                    </p>
-                  </div>
-                  <Switch checked={ttsShowEmotions} onChange={(v) => void setTtsShowEmotions(v)} />
                 </div>
 
                 <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
