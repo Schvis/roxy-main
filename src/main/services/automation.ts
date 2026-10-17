@@ -548,7 +548,11 @@ async function deliver(item: QueueItem): Promise<void> {
           `Images were retained but not sent: ${model} ${info?.imageInput === false ? 'does not support image input' : 'has no verified image-input capability in the provider catalog'}. Choose a vision-capable model and retry, or edit the prompt to remove its images. No model was switched.`
         )
     }
-    const budget = contextBudgetFor(config.contextLimit, info?.contextLimit ?? 128000)
+    const budget = contextBudgetFor(
+      config.contextLimit,
+      info?.contextLimit ?? 128000,
+      info?.defaultContextLimit
+    )
     const chat = repo.getChat(item.chatId)
     const estimated = repo
       .listMessages(item.chatId)
