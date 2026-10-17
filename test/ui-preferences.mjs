@@ -87,6 +87,12 @@ function load(path, extra = '', overrides = {}) {
     react: hooks,
     'react-i18next': { useTranslation: () => ({ t: (key) => key }) },
     '@shared/quota': quotasModule.exports,
+    '@shared/background': { backgroundOpacity: () => 0.3 },
+    '../lib/background': {
+      useBackground: () => ({ rendered: null, settings: { sidebarStyle: 'default' } })
+    },
+    './BackgroundFrame': { BackgroundFrame: () => null },
+    './ChatBackground': { ChatBackground: () => null },
     '@shared/cliproxy': {
       upstreamFor: (seed) => {
         const upstream = {
@@ -121,7 +127,7 @@ function load(path, extra = '', overrides = {}) {
         settings: { sidebarStyle: 'default', sidebarOpacity: 66 }
       })
     },
-    '../components/BackgroundMedia': { BackgroundMedia: () => null },
+    '../components/BackgroundFrame': { BackgroundFrame: () => null },
     '../lib/chat-dock': { chatDockAtPoint: () => null },
     './ui': { Button: () => null },
     '../lib/cn': { cn: (...parts) => parts.filter(Boolean).join(' ') }

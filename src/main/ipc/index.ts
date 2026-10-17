@@ -1981,8 +1981,8 @@ export function registerIpc(): void {
       defaultBranch: null
     }
     if (!cwd || !(await git.isGitAvailable())) return empty
-    const root = await git.repoRoot(cwd)
-    if (!root) return empty
+    const { root, unavailable } = await git.probeRepoRoot(cwd)
+    if (!root) return { ...empty, unavailable }
     const [st, def, sync] = await Promise.all([
       git.status(cwd),
       git.defaultBranch(cwd),
@@ -1990,6 +1990,7 @@ export function registerIpc(): void {
     ])
     return {
       isRepo: true,
+      unavailable: !st,
       root,
       branch: st?.branch ?? null,
       dirty: st?.dirty ?? false,
@@ -2091,8 +2092,8 @@ export function registerIpc(): void {
             sync: null
           }
           try {
-            const root = await git.repoRoot(link.worktreePath)
-            if (!root) return { ...base, isRepo: false }
+            const { root, unavailable } = await git.probeRepoRoot(link.worktreePath)
+            if (!root) return { ...base, isRepo: false, unavailable }
             const [st, def, fg, sync] = await Promise.all([
               git.status(link.worktreePath),
               git.defaultBranch(link.worktreePath),
@@ -2106,6 +2107,7 @@ export function registerIpc(): void {
             return {
               ...base,
               isRepo: true,
+              unavailable: !st,
               branch: st?.branch ?? link.branch,
               dirty: st?.dirty ?? false,
               changed: st?.changed ?? 0,
@@ -2118,7 +2120,7 @@ export function registerIpc(): void {
             }
           } catch {
             // This repo alone is unreadable; the rest of the workstream stands.
-            return { ...base, isRepo: false }
+            return { ...base, isRepo: false, unavailable: true }
           }
         })
       )

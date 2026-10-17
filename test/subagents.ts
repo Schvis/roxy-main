@@ -22,7 +22,13 @@ app.on('window-all-closed', () => undefined)
 interface Request {
   model: string
   messages: ChatMessage[]
-  tools?: { function: { name: string } }[]
+  tools?: {
+    function: {
+      name: string
+      description?: string
+      parameters?: { properties?: { tasks?: { minItems?: number; maxItems?: number } } }
+    }
+  }[]
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -117,7 +123,38 @@ async function main(): Promise<void> {
             })
           return children[child].promise
         }
-        if (++parentCalls === 1)
+        if (++parentCalls === 1) {
+          const task = body.tools?.find((tool) => tool.function.name === 'task')?.function
+          assert.equal(
+            task?.parameters?.properties?.tasks?.minItems,
+            2,
+            'task schema requires at least two subtasks'
+          )
+          assert.equal(
+            task?.parameters?.properties?.tasks?.maxItems,
+            undefined,
+            'task schema does not cap batch size'
+          )
+          const systemPrompt = body.messages
+            .filter((message) => message.role === 'system')
+            .map((message) => String(message.content))
+            .join('\n')
+          for (const guidance of [systemPrompt, task?.description ?? '']) {
+            assert.ok(
+              guidance.includes(
+                'Handle simple requests, a single code path, or one focused investigation directly in the main agent'
+              ),
+              'prompt and tool keep simple work in the main agent'
+            )
+            assert.ok(
+              guidance.includes('Choose as many subtasks as are useful: 2, 3, 4, 5, or more'),
+              'prompt and tool allow the model to choose a useful batch size'
+            )
+            assert.ok(
+              guidance.includes('Two is only the minimum batch size, not a default or target'),
+              'prompt and tool do not encourage a two-subagent quota'
+            )
+          }
           return response({
             tool_calls: [
               {
@@ -136,6 +173,7 @@ async function main(): Promise<void> {
               }
             ]
           })
+        }
         assert.ok(
           body.messages.some(
             (message) =>

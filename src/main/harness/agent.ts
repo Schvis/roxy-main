@@ -642,6 +642,11 @@ function buildSystemMessage(
   const agentPrompt = agent?.promptFile ? agentPromptText[agent.promptFile] : undefined
   const extra = [
     ...instructions,
+    ...(agent && !isReadOnlyAgent(agent)
+      ? [
+          'Choose whether to delegate based on the work, not a subagent quota. Handle simple requests, a single code path, or one focused investigation directly in the main agent. When multiple genuinely independent investigations or tasks would benefit from parallel work, use the task tool without asking permission. Choose as many subtasks as are useful: 2, 3, 4, 5, or more, with no fixed maximum. Two is only the minimum batch size, not a default or target; do not invent or split work just to launch subagents. Wait for prerequisites before delegating dependent work, and give each child a self-contained assignment that avoids overlapping edits.'
+        ]
+      : []),
     ...(skillInfo ? [skillInfo] : []),
     ...(mcpInfo ? [mcpInfo] : []),
     ...(agentPrompt ? [agentPrompt] : [])
@@ -1206,11 +1211,11 @@ type ToolSchema = ReturnType<typeof fn>
 /** The delegation tool — lets a primary agent spawn a focused subagent. */
 const TASK_SCHEMA = fn(
   'task',
-  'Run independent investigations or side quests in parallel. Supply complete context in each prompt: Explore subagents do not inherit this conversation. They have full tools but share this workspace, so coordinated edits are not recommended. There is no task-count or concurrency limit. This call waits until every subtask completes, fails, or is cancelled, then returns every result in input order. No other parent tools run while the batch is active. This is not a persistent bot handoff.',
+  'Run a parallel batch when multiple genuinely independent investigations or tasks would benefit from delegation. Handle simple requests, a single code path, or one focused investigation directly in the main agent instead. Choose as many subtasks as are useful: 2, 3, 4, 5, or more. Two is only the minimum batch size, not a default or target; do not invent or split work just to launch subagents. There is no maximum task count or concurrency limit. Wait for prerequisites before delegating dependent work. Supply complete context in each prompt: Explore subagents do not inherit this conversation. They have full tools but share this workspace, so avoid overlapping edits. This call waits until every subtask completes, fails, or is cancelled, then returns every result in input order. No other parent tools run while the batch is active. This is not a persistent bot handoff.',
   {
     tasks: {
       type: 'array',
-      minItems: 1,
+      minItems: 2,
       items: {
         type: 'object',
         properties: {

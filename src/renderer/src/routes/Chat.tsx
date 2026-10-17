@@ -1,6 +1,5 @@
-import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { useBackground } from '../lib/background'
-import { BackgroundMedia } from '../components/BackgroundMedia'
+import { memo, useEffect, useRef, useState } from 'react'
+import { BackgroundFrame } from '../components/BackgroundFrame'
 import { useTranslation } from 'react-i18next'
 import { MessageSquare, X } from 'lucide-react'
 import { Sidebar, type SidebarTool } from '../components/Sidebar'
@@ -43,8 +42,6 @@ function loadChatSizes(): typeof DEFAULT_IDE_CHAT_SIZES {
 
 function Chat(): JSX.Element {
   const { t } = useTranslation()
-  const background = useBackground()
-  const shared = !!background.rendered && background.settings.sidebarStyle !== 'default'
   const dock = useRoxyStore((s) => s.settings?.ideChatDock ?? 'right')
   const [sizes, setSizes] = useState(loadChatSizes)
   const [chatCollapsed, setChatCollapsed] = useState(
@@ -172,17 +169,7 @@ function Chat(): JSX.Element {
     parentChat?.workspacePath ??
     null
   return (
-    <div
-      className="relative isolate flex h-full w-full flex-col min-w-0 overflow-hidden"
-      data-sidebar-style={shared ? background.settings.sidebarStyle : undefined}
-      style={{ '--sidebar-opacity': `${background.settings.sidebarOpacity}%` } as CSSProperties}
-    >
-      {shared && (
-        <div className="chat-wallpaper-shared">
-          <BackgroundMedia effect={background.settings.effect} />
-          {background.settings.effect === 'haze' && <div className="chat-wallpaper-haze" />}
-        </div>
-      )}
+    <BackgroundFrame className="min-w-0 flex-col overflow-hidden">
       <TopNavbar />
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <Sidebar
@@ -368,7 +355,7 @@ function Chat(): JSX.Element {
           </div>
         </div>
       </div>
-    </div>
+    </BackgroundFrame>
   )
 }
 

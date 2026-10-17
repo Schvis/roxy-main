@@ -1,6 +1,6 @@
 {
   "name": "roxy",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Roxy — an open-source AI coding agent for engineers.",
   "main": "./out/main/index.js",
   "author": "Roxy (https://github.com/roxy-gg/roxy)",
@@ -52,7 +52,7 @@
     "smoke:bundle-cliproxy": "node --test test/bundle-cliproxy.cjs",
     "worktree:setup": "npm ci --prefer-offline --no-audit --no-fund && electron-builder install-app-deps",
     "smoke:interactions": "esbuild test/interaction-tools.ts --bundle --platform=node --format=cjs --packages=external --alias:@shared=./src/shared --outfile=test/.out/interaction-tools.cjs && node test/.out/interaction-tools.cjs",
-    "smoke:store": "node test/store-guard.mjs && esbuild test/optimistic-messages.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/optimistic-messages.cjs && node test/.out/optimistic-messages.cjs",
+    "smoke:store": "node test/store-guard.mjs && esbuild test/optimistic-messages.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/optimistic-messages.cjs && node test/.out/optimistic-messages.cjs && esbuild test/repo-status.ts --bundle --platform=node --format=cjs --tsconfig=tsconfig.web.json --outfile=test/.out/repo-status.cjs && node test/.out/repo-status.cjs",
     "smoke:file-diagnostics": "esbuild test/file-diagnostics.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/file-diagnostics.cjs && node test/.out/file-diagnostics.cjs && esbuild src/main/services/file-diagnostics-worker.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/file-diagnostics-worker.cjs && esbuild test/diagnostics-worker.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/diagnostics-worker.cjs && node test/.out/diagnostics-worker.cjs",
     "smoke:agent-file-changes": "esbuild test/agent-file-changes.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/agent-file-changes.cjs && node test/.out/agent-file-changes.cjs",
     "smoke:ui-preferences": "node test/ui-preferences.mjs",
