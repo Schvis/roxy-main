@@ -1,10 +1,10 @@
 {
   "voice": {
-    "heading": "Voice input",
-    "description": "Turn speech into text in your chat input as you speak. Off by default. Recognition runs locally; audio is never uploaded.",
+    "heading": "Voice Translation",
+    "description": "Turn speech into text in your chat input as you speak. Off by default. Recognition runs locally; audio is never uploaded. This transcribes your words, it does not translate between languages.",
     "loading": "Loading voice settings...",
     "microphone": "Microphone",
-    "microphoneBody": "Capture starts when you press the mic, a shortcut or hold-to-talk, and closes when recording ends. With the wake word or VTuber conversation on, the microphone stays open to listen. Refresh devices to request access and choose an input.",
+    "microphoneBody": "Capture starts only when you press the mic or a shortcut, and closes when recording ends. Refresh devices to request access and choose an input.",
     "systemDefault": "System default microphone",
     "deviceDuplicate": "{{name}} ({{number}})",
     "refreshDevices": "Refresh devices",
@@ -19,9 +19,9 @@
     "openPrivacy": "Open microphone privacy settings",
     "bluetooth": "Bluetooth headsets can reduce playback quality while their microphone is active. Use a built-in or USB microphone to avoid this. If a selected device is unavailable, Roxy uses the system default. After changing denied permissions, you may need to restart Roxy. On Windows, allow desktop apps to access your microphone.",
     "hotkeys": "Keyboard shortcuts",
-    "hotkeysBody": "Optionally set two global shortcuts. Either one starts or stops dictation into the visible chat composer. No clipboard access or typing into other apps. Shortcuts do nothing while Settings or a dialog is open.",
+    "hotkeysBody": "Optionally set two global shortcuts. Either one starts or stops dictation into the visible chat composer. No automatic sending, clipboard access, or typing into other apps. Shortcuts do nothing while Settings or a dialog is open.",
     "hotkeyNumber": "Shortcut {{number}}",
-    "hotkeyHint": "Use Electron shortcut names such as CommandOrControl+Shift+Space. Leave blank to disable. Editing the draft stops dictation and preserves the text already shown.",
+    "hotkeyHint": "Use Electron shortcut names such as CommandOrControl+Shift+Space. Leave blank to disable. Toggle shortcuts only; hold-to-talk and modifier-only keys are not supported. Editing the draft stops dictation and preserves the text already shown.",
     "models": "Transcription Models",
     "modelsBody": "Download a model, then select Use model. Only genuine streaming models are listed. Downloads require internet; transcription works offline. Review each model's license before downloading. Sizes show installed model data, not memory usage.",
     "search": "Search models by name...",
@@ -52,9 +52,9 @@
       "stopping": "Finishing transcription..."
     },
     "errors": {
-      "disabled": "Turn on Voice input in Settings > Voice & Audio first.",
+      "disabled": "Enable Voice Translation in Settings first.",
       "unsupported": "Local voice recognition is not available for this operating system or architecture. Windows requires x64; macOS supports Apple Silicon and Intel.",
-      "modelRequired": "Download and select a streaming model in Settings > Voice & Audio.",
+      "modelRequired": "Download and select a streaming model in Settings > General > Voice Translation.",
       "permissionDenied": "Microphone access was denied. Allow Roxy in your system microphone privacy settings, then restart Roxy if needed.",
       "deviceUnavailable": "No microphone is available. Reconnect your microphone and refresh the device list.",
       "captureFailed": "Microphone capture was interrupted. Check your device and permissions, then try again. Text already shown is preserved.",
@@ -1785,7 +1785,7 @@
     "followCursorDisable": "Disable follow cursor",
     "followCursorLabel": "Follow",
     "resize": "Drag to resize",
-    "vadUnavailable": "Voice conversation needs Voice input on and a model selected in Settings > Voice & Audio."
+    "vadUnavailable": "Voice conversation needs Voice Translation on and a model selected in Settings > Voice Translation."
   },
   "git": {
     "title": "Git & GitHub Actions",

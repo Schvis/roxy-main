@@ -15,6 +15,7 @@ import {
   Languages,
   Lightbulb,
   Mic,
+  Volume2,
   MonitorSmartphone,
   Palette,
   Plug,
@@ -82,13 +83,14 @@ const SETTINGS_GROUPS = [
     label: 'settings.navigation.general',
     items: [
       { id: 'profile', label: 'settings.profile.heading', icon: UserRound },
-      { id: 'voice', label: 'settings.tabs.voice', icon: Mic },
+      { id: 'tts', label: 'settings.tts.heading', icon: Volume2 },
       { id: 'vtuber', label: 'settings.tabs.vtuber', icon: Sparkles },
       { id: 'overlay', label: 'settings.overlay.heading', icon: MonitorSmartphone },
       { id: 'discord', label: 'settings.discord.heading', icon: Activity },
       { id: 'accounts', label: 'settings.navigation.accounts', icon: UserRound },
       { id: 'browser', label: 'settings.browser.heading', icon: Globe },
       { id: 'language', label: 'settings.language.heading', icon: Languages },
+      { id: 'voice', label: 'voice.heading', icon: Mic },
       { id: 'worktrees', label: 'settings.navigation.worktrees', icon: GitBranch },
       { id: 'notifications', label: 'settings.notifications.heading', icon: Bell },
       { id: 'remote', label: 'sidebar.remoteWorkspace', icon: MonitorSmartphone },
@@ -896,6 +898,14 @@ export default function Settings(): JSX.Element {
         </Button>
       </section>
       {remoteOpen && <RemoteWorkspaceDialog onClose={() => setRemoteOpen(false)} />}
+      <section
+        id="settings-voice-panel"
+        role="region"
+        aria-labelledby="settings-voice"
+        hidden={panel !== 'voice'}
+      >
+        {(visited.has('voice') || panel === 'voice') && <VoiceSettings />}
+      </section>
 
       <div
         id="settings-accounts-panel"
@@ -1358,16 +1368,12 @@ export default function Settings(): JSX.Element {
       </div>
 
       <div
-        id="settings-voice-panel"
+        id="settings-tts-panel"
         role="region"
-        aria-labelledby="settings-voice"
-        hidden={panel !== 'voice'}
+        aria-labelledby="settings-tts"
+        hidden={panel !== 'tts'}
       >
         <>
-          <section className="mb-8">
-            {(visited.has('voice') || panel === 'voice') && <VoiceSettings />}
-          </section>
-
           <section className="mb-8">
             <h2 className={SECTION_HEADING}>{t('settings.tts.heading')}</h2>
             <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
