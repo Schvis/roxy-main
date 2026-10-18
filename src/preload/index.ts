@@ -299,6 +299,7 @@ const roxy: RoxyApi = {
     remove: (id) => ipcRenderer.invoke(CHANNELS.promptsRemove, id)
   },
   background: {
+    thumbnail: (id, sha256) => ipcRenderer.invoke(CHANNELS.backgroundThumbnail, id, sha256),
     search: (input) => ipcRenderer.invoke(CHANNELS.backgroundSearch, input),
     applyCatalog: (id) => ipcRenderer.invoke(CHANNELS.backgroundApplyCatalog, id),
     submit: (input) => ipcRenderer.invoke(CHANNELS.backgroundSubmit, input),
