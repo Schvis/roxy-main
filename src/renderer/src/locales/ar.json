@@ -1421,7 +1421,10 @@
       "search": "البحث عن المزودين",
       "signedInLocally": "تم تسجيل الدخول محليًا",
       "sortByName": "Sort by name",
-      "updateKey": "تحديث مفتاح API"
+      "updateKey": "تحديث مفتاح API",
+      "usageLine": "{{used}} tokens used · {{cached}} cached ({{percent}}%) · last 30 days",
+      "usageNone": "No tokens used in the last 30 days",
+      "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
     "tabs": {
       "general": "General",
@@ -1785,6 +1788,8 @@
   },
   "usage": {
     "allProviders": "جميع المزودين، آخر 30 يومًا",
+    "cached7d": "7d cached",
+    "cachedShare7d": "7d cache rate",
     "calls7d": "استدعاءات 7 أيام",
     "cost30d": "تكلفة 30 يومًا",
     "cost7d": "تكلفة 7 أيام",
@@ -1797,6 +1802,7 @@
     "noteUnpriced": "بعض النماذج ليس لها سعر عام، لذا فإن التكلفة هي الحد الأدنى",
     "noteWith": "تم التسعير من models.dev؛ {{parts}}.",
     "overview": "نظرة عامة",
+    "percent": "{{percent}}%",
     "pillTitle": "إنفاق API لدى {{provider}}، آخر 7 أيام - انقر للتفاصيل",
     "spend": "الإنفاق",
     "today": "اليوم",

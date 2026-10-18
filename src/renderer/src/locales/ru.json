@@ -1421,7 +1421,10 @@
       "search": "Поиск поставщиков",
       "signedInLocally": "выполнен вход локально",
       "sortByName": "Sort by name",
-      "updateKey": "Обновить ключ API"
+      "updateKey": "Обновить ключ API",
+      "usageLine": "{{used}} tokens used · {{cached}} cached ({{percent}}%) · last 30 days",
+      "usageNone": "No tokens used in the last 30 days",
+      "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
     "tabs": {
       "general": "General",
@@ -1785,6 +1788,8 @@
   },
   "usage": {
     "allProviders": "Все провайдеры, последние 30 дней",
+    "cached7d": "7d cached",
+    "cachedShare7d": "7d cache rate",
     "calls7d": "Вызовы за 7 дн.",
     "cost30d": "Стоимость за 30 дн.",
     "cost7d": "Стоимость за 7 дн.",
@@ -1797,6 +1802,7 @@
     "noteUnpriced": "некоторые модели не имеют публичной цены, поэтому стоимость является минимальной",
     "noteWith": "Цены взяты с models.dev; {{parts}}.",
     "overview": "Обзор",
+    "percent": "{{percent}}%",
     "pillTitle": "Расходы на API {{provider}} за последние 7 дней — нажмите для подробностей",
     "spend": "Расходы",
     "today": "Сегодня",

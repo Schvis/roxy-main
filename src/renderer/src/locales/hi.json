@@ -1421,7 +1421,10 @@
       "search": "प्रदाताओं को खोजें",
       "signedInLocally": "स्थानीय रूप से साइन इन किया गया",
       "sortByName": "Sort by name",
-      "updateKey": "API कुंजी अपडेट करें"
+      "updateKey": "API कुंजी अपडेट करें",
+      "usageLine": "{{used}} tokens used · {{cached}} cached ({{percent}}%) · last 30 days",
+      "usageNone": "No tokens used in the last 30 days",
+      "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
     "tabs": {
       "general": "General",
@@ -1785,6 +1788,8 @@
   },
   "usage": {
     "allProviders": "सभी प्रदाता, पिछले 30 दिन",
+    "cached7d": "7d cached",
+    "cachedShare7d": "7d cache rate",
     "calls7d": "7 दिन की कॉल",
     "cost30d": "30 दिन की लागत",
     "cost7d": "7 दिन की लागत",
@@ -1797,6 +1802,7 @@
     "noteUnpriced": "कुछ मॉडलों की कोई सार्वजनिक कीमत नहीं है, इसलिए लागत एक निचली सीमा है",
     "noteWith": "models.dev से मूल्यित; {{parts}}।",
     "overview": "अवलोकन",
+    "percent": "{{percent}}%",
     "pillTitle": "{{provider}} API खर्च, पिछले 7 दिन - विवरण के लिए क्लिक करें",
     "spend": "खर्च",
     "today": "आज",

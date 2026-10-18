@@ -33,6 +33,50 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   }
 }
 
+/**
+ * The `usage` object an OpenAI-compatible endpoint sends. Providers agree on
+ * `prompt_tokens` but each reports its prompt cache under a different field.
+ */
+export interface OpenAiCompatUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
+  completion_tokens_details?: { reasoning_tokens?: number }
+  /** DeepSeek. */
+  prompt_cache_hit_tokens?: number
+  /** Moonshot / Kimi. */
+  cached_tokens?: number
+  /** Anthropic-shaped fields some gateways (LiteLLM) pass through. */
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+}
+
+const count = (n: unknown): number => (typeof n === 'number' && n > 0 ? n : 0)
+
+/**
+ * Normalise an OpenAI-compatible `usage` into `TokenUsage`. Every variant counts
+ * cached tokens inside `prompt_tokens`, so they are subtracted back out to keep
+ * `input` fresh-only, matching the other paths.
+ */
+export function openAiCompatUsage(u: OpenAiCompatUsage): TokenUsage {
+  const cacheRead =
+    count(u.prompt_tokens_details?.cached_tokens) ||
+    count(u.prompt_cache_hit_tokens) ||
+    count(u.cached_tokens) ||
+    count(u.cache_read_input_tokens)
+  const cacheWrite =
+    count(u.prompt_tokens_details?.cache_write_tokens) || count(u.cache_creation_input_tokens)
+  return {
+    input: Math.max(0, count(u.prompt_tokens) - cacheRead - cacheWrite),
+    output: count(u.completion_tokens),
+    cacheRead,
+    cacheWrite,
+    reasoning: count(u.completion_tokens_details?.reasoning_tokens),
+    estimated: false
+  }
+}
+
 /** Total billable tokens for a call (fresh input + cache + output; reasoning is part of output). */
 export function totalTokens(u: TokenUsage): number {
   return u.input + u.output + u.cacheRead + u.cacheWrite
@@ -109,12 +153,14 @@ function dailySeries(records: UsageRecord[], now: number): UsageDay[] {
 /** Sum a bucket over a record set. */
 function bucket(records: UsageRecord[]): UsageBucket {
   let tokens = 0
+  let cached = 0
   let cost = 0
   for (const r of records) {
     tokens += recordTokens(r)
+    cached += r.cacheRead
     cost += r.cost
   }
-  return { tokens, cost, calls: records.length }
+  return { tokens, cached, cost, calls: records.length }
 }
 
 /** Most-used model (by token volume) across a record set, or null. */

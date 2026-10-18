@@ -230,7 +230,8 @@ import {
   usageCost,
   isPriced,
   localDay,
-  aggregateUsage
+  aggregateUsage,
+  openAiCompatUsage
 } from '../src/shared/cost'
 import type { TokenUsage, UsageRecord } from '../src/shared/types'
 import { aggregateActivity, activityLevel, aggregateActivityDays } from '../src/shared/activity'
@@ -4529,6 +4530,60 @@ async function main(): Promise<void> {
     'agg: empty records → empty overview',
     aggregateUsage([], {}, now, todayStart).overview.last30d.tokens === 0
   )
+  {
+    const cachedStats = aggregateUsage(
+      [
+        rec({ input: 100, cacheRead: 900, output: 10 }),
+        rec({ providerId: 'deepseek', input: 50, cacheRead: 25 })
+      ],
+      {},
+      now,
+      todayStart
+    )
+    check(
+      'agg: cached sums cache reads within tokens',
+      cachedStats.overview.last30d.cached === 925 &&
+        cachedStats.overview.last30d.tokens === 1085 &&
+        cachedStats.providers.find((p) => p.providerId === 'openai')?.last7d.cached === 900
+    )
+  }
+  {
+    const openai = openAiCompatUsage({
+      prompt_tokens: 1000,
+      completion_tokens: 40,
+      prompt_tokens_details: { cached_tokens: 800 },
+      completion_tokens_details: { reasoning_tokens: 5 }
+    })
+    check(
+      'compat usage: OpenAI cached_tokens split out of prompt',
+      openai.input === 200 &&
+        openai.cacheRead === 800 &&
+        openai.output === 40 &&
+        openai.reasoning === 5
+    )
+    check(
+      'compat usage: DeepSeek prompt_cache_hit_tokens',
+      openAiCompatUsage({ prompt_tokens: 500, prompt_cache_hit_tokens: 300 }).cacheRead === 300
+    )
+    check(
+      'compat usage: Kimi top-level cached_tokens',
+      openAiCompatUsage({ prompt_tokens: 500, cached_tokens: 120 }).input === 380
+    )
+    const gateway = openAiCompatUsage({
+      prompt_tokens: 1000,
+      cache_read_input_tokens: 600,
+      cache_creation_input_tokens: 300
+    })
+    check(
+      'compat usage: gateway cache read + write',
+      gateway.cacheRead === 600 && gateway.cacheWrite === 300 && gateway.input === 100
+    )
+    const bare = openAiCompatUsage({ prompt_tokens: 10, completion_tokens: 2 })
+    check(
+      'compat usage: no cache fields → all fresh',
+      bare.input === 10 && bare.cacheRead === 0 && bare.cacheWrite === 0 && !bare.estimated
+    )
+  }
 
   // ---- activity (contribution graph) ----------------------------------------
   const aNow = new Date(2026, 0, 15, 12, 0, 0).getTime() // fixed local noon

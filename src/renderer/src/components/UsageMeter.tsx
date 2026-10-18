@@ -46,12 +46,17 @@ function usePopover(): {
 }
 
 /** Compact token count: 1.2M, 34K, 999. */
-function formatTokens(n: number): string {
+export function formatTokens(n: number): string {
   if (n >= 1_000_000_000)
     return `${Number((n / 1_000_000_000).toFixed(n % 1_000_000_000 ? 1 : 0))}B`
   if (n >= 1_000_000) return `${Number((n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0))}M`
   if (n >= 1000) return `${Math.round(n / 1000)}K`
   return String(Math.round(n))
+}
+
+/** The cache-read share of a bucket's tokens, as a whole percent (0 when idle). */
+export function cachedPercent(u: { tokens: number; cached: number }): number {
+  return u.tokens > 0 ? Math.round((u.cached / u.tokens) * 100) : 0
 }
 
 /** USD, with cents under $100 and whole dollars above (keeps the pill tidy). */
@@ -176,7 +181,7 @@ export function UsageMeter({
 
 /** An all-zero summary for a paid provider with no recorded calls yet. */
 function idleUsage(provider: Pick<ConnectedProvider, 'id' | 'name'>): ProviderUsage {
-  const zero = { tokens: 0, cost: 0, calls: 0 }
+  const zero = { tokens: 0, cached: 0, cost: 0, calls: 0 }
   const now = Date.now()
   const daily: UsageDay[] = []
   for (let i = 29; i >= 0; i--) daily.push({ date: localDay(now - i * DAY_MS), tokens: 0, cost: 0 })
@@ -234,11 +239,16 @@ function SpendPill({
               <div className="text-sm font-semibold text-text">{p.name}</div>
               <div className="mt-0.5 text-xs text-text-subtle">{t('usage.last7Days')}</div>
             </div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <div className="grid grid-cols-2 items-end gap-x-6 gap-y-3">
               <Figure label={t('usage.today')} value={formatUsd(p.today.cost)} />
               <Figure label={t('usage.cost7d')} value={formatUsd(p.last7d.cost)} />
               <Figure label={t('usage.tokens7d')} value={formatTokens(p.last7d.tokens)} />
               <Figure label={t('usage.calls7d')} value={p.last7d.calls.toLocaleString()} />
+              <Figure label={t('usage.cached7d')} value={formatTokens(p.last7d.cached)} />
+              <Figure
+                label={t('usage.cachedShare7d')}
+                value={t('usage.percent', { percent: cachedPercent(p.last7d) })}
+              />
             </div>
             <div className="mt-4">
               <SpendGraph daily={week} />

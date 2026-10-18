@@ -1421,7 +1421,10 @@
       "search": "プロバイダーを検索",
       "signedInLocally": "ローカルでサインイン済み",
       "sortByName": "Sort by name",
-      "updateKey": "APIキーを更新"
+      "updateKey": "APIキーを更新",
+      "usageLine": "{{used}} tokens used · {{cached}} cached ({{percent}}%) · last 30 days",
+      "usageNone": "No tokens used in the last 30 days",
+      "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
     "tabs": {
       "general": "General",
@@ -1785,6 +1788,8 @@
   },
   "usage": {
     "allProviders": "すべてのプロバイダー、過去30日間",
+    "cached7d": "7d cached",
+    "cachedShare7d": "7d cache rate",
     "calls7d": "7日間の呼び出し",
     "cost30d": "30日間のコスト",
     "cost7d": "7日間のコスト",
@@ -1797,6 +1802,7 @@
     "noteUnpriced": "一部のモデルには公開価格がないため、コストは最低限です",
     "noteWith": "models.devから価格設定済み; {{parts}}。",
     "overview": "概要",
+    "percent": "{{percent}}%",
     "pillTitle": "{{provider}} の API 支出（過去7日間）- クリックで詳細",
     "spend": "支出",
     "today": "今日",

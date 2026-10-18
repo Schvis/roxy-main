@@ -134,6 +134,11 @@ export default function Settings(): JSX.Element {
   const providers = useRoxyStore((s) => s.providers)
   const settings = useRoxyStore((s) => s.settings)
   const refreshProviders = useRoxyStore((s) => s.refreshProviders)
+  const refreshUsage = useRoxyStore((s) => s.refreshUsage)
+  // Each account card shows its token use, so fetch fresh figures on open.
+  useEffect(() => {
+    if (panel === 'accounts') void refreshUsage()
+  }, [panel, refreshUsage])
   const reorderProviders = useRoxyStore((s) => s.reorderProviders)
   const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)

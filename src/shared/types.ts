@@ -669,7 +669,10 @@ export interface UsageRecord extends TokenUsage {
 
 /** Rolled-up totals for one provider (or model), over a window. */
 export interface UsageBucket {
+  /** Every billable token: fresh input + cache read/write + output. */
   tokens: number
+  /** The cache-read share of `tokens` (input served from the provider's prompt cache). */
+  cached: number
   cost: number
   calls: number
 }

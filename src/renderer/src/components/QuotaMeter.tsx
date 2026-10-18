@@ -45,6 +45,7 @@ import { api } from '../lib/api'
 import { useRoxyStore } from '../lib/store'
 import { cn } from '../lib/cn'
 import { ContextMenuRow, ContextMenuSurface } from './ContextMenu'
+import { cachedPercent, formatTokens } from './UsageMeter'
 
 /** Background refresh. The main process caches for a minute, so this is cheap. */
 const POLL_MS = 5 * 60_000
@@ -480,6 +481,7 @@ export function QuotaMeter({
   const selectModel = useRoxyStore((s) => s.selectModel)
   const catalog = useRoxyStore((s) => s.modelCatalog)
   const usageStats = useRoxyStore((s) => s.usageStats)
+  const refreshUsage = useRoxyStore((s) => s.refreshUsage)
   const activeId = provider && provider.enabled && plan(provider.seedId) ? provider.id : null
 
   /** Every usable subscription account, grouped by provider, active one's group first. */
@@ -541,6 +543,9 @@ export function QuotaMeter({
   useEffect(() => {
     if (open && viewId) void load(viewId)
   }, [open, viewId, load])
+  useEffect(() => {
+    if (open) void refreshUsage()
+  }, [open, refreshUsage])
 
   useEffect(() => {
     if (!open) return
@@ -624,7 +629,8 @@ export function QuotaMeter({
   const viewedTokenCost = scopeModel
     ? catalog[viewed.id]?.find((x) => x.id === scopeModel)?.cost
     : undefined
-  const viewedSpend7d = usageStats?.providers.find((x) => x.providerId === viewed.id)?.last7d.cost
+  const viewedUsage7d = usageStats?.providers.find((x) => x.providerId === viewed.id)?.last7d
+  const viewedSpend7d = viewedUsage7d?.cost
   const canSwitch = !isActive && viewed.seedId === provider.seedId && !!model
   const now = Date.now()
 
@@ -770,6 +776,16 @@ export function QuotaMeter({
               </>
             )}
           </div>
+          {!!viewedUsage7d?.tokens && (
+            <div className="grid grid-cols-3 items-end gap-x-4 border-t border-border px-3.5 py-2.5">
+              <Stat label={t('usage.tokens7d')} value={formatTokens(viewedUsage7d.tokens)} />
+              <Stat label={t('usage.cached7d')} value={formatTokens(viewedUsage7d.cached)} />
+              <Stat
+                label={t('usage.cachedShare7d')}
+                value={t('usage.percent', { percent: cachedPercent(viewedUsage7d) })}
+              />
+            </div>
+          )}
           {canSwitch && (
             <div className="border-t border-border p-2">
               <button

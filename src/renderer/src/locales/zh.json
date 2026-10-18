@@ -1421,7 +1421,10 @@
       "search": "搜索提供商",
       "signedInLocally": "本地登录",
       "sortByName": "Sort by name",
-      "updateKey": "更新 API 密钥"
+      "updateKey": "更新 API 密钥",
+      "usageLine": "{{used}} tokens used · {{cached}} cached ({{percent}}%) · last 30 days",
+      "usageNone": "No tokens used in the last 30 days",
+      "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
     "tabs": {
       "general": "General",
@@ -1785,6 +1788,8 @@
   },
   "usage": {
     "allProviders": "所有提供商，最近 30 天",
+    "cached7d": "7d cached",
+    "cachedShare7d": "7d cache rate",
     "calls7d": "7 天调用",
     "cost30d": "30 天成本",
     "cost7d": "7 天成本",
@@ -1797,6 +1802,7 @@
     "noteUnpriced": "某些模型没有公开价格，因此成本是最低的",
     "noteWith": "根据 models.dev 定价；{{parts}}。",
     "overview": "概览",
+    "percent": "{{percent}}%",
     "pillTitle": "{{provider}} API 支出，最近 7 天 - 点击查看详情",
     "spend": "支出",
     "today": "今天",

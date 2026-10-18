@@ -1421,7 +1421,10 @@
       "search": "Pesquisar provedores",
       "signedInLocally": "sessão iniciada localmente",
       "sortByName": "Sort by name",
-      "updateKey": "Atualizar chave de API"
+      "updateKey": "Atualizar chave de API",
+      "usageLine": "{{used}} tokens used · {{cached}} cached ({{percent}}%) · last 30 days",
+      "usageNone": "No tokens used in the last 30 days",
+      "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
     "tabs": {
       "general": "General",
@@ -1785,6 +1788,8 @@
   },
   "usage": {
     "allProviders": "Todos os provedores, últimos 30 dias",
+    "cached7d": "7d cached",
+    "cachedShare7d": "7d cache rate",
     "calls7d": "Chamadas 7d",
     "cost30d": "Custo 30d",
     "cost7d": "Custo 7d",
@@ -1797,6 +1802,7 @@
     "noteUnpriced": "alguns modelos não têm preço público, então o custo é um piso",
     "noteWith": "Preço de models.dev; {{parts}}.",
     "overview": "Visão geral",
+    "percent": "{{percent}}%",
     "pillTitle": "Gasto de API do {{provider}}, últimos 7 dias – clique para ver detalhes",
     "spend": "Gasto",
     "today": "Hoje",
