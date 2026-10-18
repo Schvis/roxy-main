@@ -162,9 +162,15 @@ function nodes(tree) {
   return [tree, ...nodes(tree.props?.children)]
 }
 const find = (tree, type) => nodes(tree).find((node) => node.type === type)
+const usageUI = load('src/renderer/src/components/UsageMeter.tsx', '', {
+  '@shared/cost': { localDay: () => '2026-01-01' },
+  './dither-kit/bar-chart': { BarChart: () => null },
+  './dither-kit/bar': { Bar: () => null }
+})
 const quotaUI = load(
   'src/renderer/src/components/QuotaMeter.tsx',
-  '\nexport { BucketList, Meter, applyOrder, loadOrder }'
+  '\nexport { BucketList, Meter, applyOrder, loadOrder }',
+  { './UsageMeter': usageUI }
 )
 const pageUI = load('src/renderer/src/components/PageShell.tsx')
 const botsUI = load('src/renderer/src/components/BotsSection.tsx')

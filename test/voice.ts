@@ -2,7 +2,17 @@ import assert from 'node:assert/strict'
 import { DEFAULT_VOICE, VOICE_MODELS, mergeVoiceDraft, normalizeVoice } from '../src/shared/voice'
 import { DEFAULT_WAKE_WORDS, matchWakeWord } from '../src/shared/voice-handsfree'
 
-for (const value of [undefined, null, false, '', {}, { enabled: 'true' }, { enabled: 1 }]) {
+for (const value of [
+  undefined,
+  null,
+  false,
+  '',
+  {},
+  { enabled: 'true' },
+  { enabled: 1 },
+  { enabled: true },
+  { enabled: true, modelId: '../../model' }
+]) {
   assert.equal(normalizeVoice(value).enabled, false)
 }
 assert.deepEqual(normalizeVoice(null), DEFAULT_VOICE)
@@ -21,6 +31,10 @@ assert.equal(
 )
 assert.equal(normalizeVoice({ enabled: true, modelId: VOICE_MODELS[0].id }).enabled, true)
 assert.equal(VOICE_MODELS.length, 2)
+assert.deepEqual(
+  VOICE_MODELS.map((model) => model.id),
+  ['nemotron-streaming-3.5', 'parakeet-unified-en-streaming']
+)
 for (const model of VOICE_MODELS) {
   assert.match(model.id, /streaming/)
   assert.match(model.revision, /^[a-f0-9]{40}$/)
