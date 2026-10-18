@@ -23,8 +23,7 @@ import {
   Shield,
   Sparkles,
   Trash2,
-  UserRound,
-  X
+  UserRound
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useRoxyStore } from '../lib/store'
@@ -52,8 +51,6 @@ import { ActivitySection } from '../components/ActivitySection'
 import { NotificationSettings } from '../components/NotificationSettings'
 import { MotionSettings } from '../components/MotionSettings'
 import { ProfileImageCropper } from '../components/ProfileImageCropper'
-import { recordKeybindFromEvent } from '../lib/keybind'
-import { AudioRecorder } from '../lib/audio-recorder'
 import { cameraManager } from '../lib/vision'
 
 import { BackgroundSettings } from '../components/BackgroundSettings'
@@ -92,7 +89,6 @@ const SETTINGS_GROUPS = [
       { id: 'accounts', label: 'settings.navigation.accounts', icon: UserRound },
       { id: 'browser', label: 'settings.browser.heading', icon: Globe },
       { id: 'language', label: 'settings.language.heading', icon: Languages },
-      { id: 'voiceTranslation', label: 'voice.heading', icon: Mic },
       { id: 'worktrees', label: 'settings.navigation.worktrees', icon: GitBranch },
       { id: 'notifications', label: 'settings.notifications.heading', icon: Bell },
       { id: 'remote', label: 'sidebar.remoteWorkspace', icon: MonitorSmartphone },
@@ -140,15 +136,7 @@ export default function Settings(): JSX.Element {
   const setAutoWorkstream = useRoxyStore((s) => s.setAutoWorkstream)
   const setOverlayMode = useRoxyStore((s) => s.setOverlayMode)
   const setOverlayKeybind = useRoxyStore((s) => s.setOverlayKeybind)
-  const setVoiceKeybind = useRoxyStore((s) => s.setVoiceKeybind)
   const setUserProfile = useRoxyStore((s) => s.setUserProfile)
-  const setVoiceAutoSend = useRoxyStore((s) => s.setVoiceAutoSend)
-  const setVoiceLang = useRoxyStore((s) => s.setVoiceLang)
-  const setVoiceModel = useRoxyStore((s) => s.setVoiceModel)
-  const setVoiceSttConfig = useRoxyStore((s) => s.setVoiceSttConfig)
-  const setVoiceInputDevice = useRoxyStore((s) => s.setVoiceInputDevice)
-  const setVoiceWakeWord = useRoxyStore((s) => s.setVoiceWakeWord)
-  const setVoiceWakeWords = useRoxyStore((s) => s.setVoiceWakeWords)
   const setTelemetryEnabled = useRoxyStore((s) => s.setTelemetryEnabled)
   const telemetryEnabled = useRoxyStore((s) => s.telemetryEnabled)
   const setBranchPrefix = useRoxyStore((s) => s.setBranchPrefix)
@@ -181,18 +169,6 @@ export default function Settings(): JSX.Element {
   const [resetPositionSuccess, setResetPositionSuccess] = useState(false)
   const [prefix, setPrefix] = useState('')
   const [keybind, setKeybind] = useState(settings?.overlayKeybind ?? 'CommandOrControl+Shift+Space')
-  const [voiceKeybind, setVoiceKeybindState] = useState(settings?.voiceKeybind ?? 'Alt+V')
-  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([])
-  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>(
-    'unknown'
-  )
-  const [isSampling, setIsSampling] = useState(false)
-  const [sampleStatus, setSampleStatus] = useState<string | null>(null)
-  const [newWakeWord, setNewWakeWord] = useState('')
-  const [sttUrl, setSttUrl] = useState('')
-  const [sttModel, setSttModel] = useState('')
-  const [sttApiKey, setSttApiKey] = useState('')
-  const [sttConfigError, setSttConfigError] = useState('')
   const [profileName, setProfileName] = useState(settings?.userProfileName ?? '')
   const [profileAvatar, setProfileAvatar] = useState(settings?.userProfileAvatar ?? '')
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null)
@@ -285,10 +261,6 @@ export default function Settings(): JSX.Element {
   }, [settings?.overlayKeybind])
 
   useEffect(() => {
-    setVoiceKeybindState(settings?.voiceKeybind ?? 'Alt+V')
-  }, [settings?.voiceKeybind])
-
-  useEffect(() => {
     setProfileName(settings?.userProfileName ?? '')
     setProfileAvatar(settings?.userProfileAvatar ?? '')
   }, [settings?.userProfileName, settings?.userProfileAvatar])
@@ -316,11 +288,6 @@ export default function Settings(): JSX.Element {
   }
 
   useEffect(() => {
-    setSttUrl(settings?.voiceSttUrl ?? '')
-    setSttModel(settings?.voiceSttModel ?? '')
-  }, [settings?.voiceSttUrl, settings?.voiceSttModel])
-
-  useEffect(() => {
     setTtsOpenaiUrl(settings?.ttsOpenaiUrl ?? '')
     setTtsOpenaiModel(settings?.ttsOpenaiModel ?? '')
   }, [settings?.ttsOpenaiUrl, settings?.ttsOpenaiModel])
@@ -340,94 +307,13 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  const saveSttConfig = async (
-    provider: 'local' | 'openai',
-    clearApiKey = false
-  ): Promise<void> => {
-    setSttConfigError('')
-    try {
-      await setVoiceSttConfig({
-        provider,
-        url: sttUrl,
-        model: sttModel,
-        apiKey: sttApiKey,
-        clearApiKey
-      })
-      setSttApiKey('')
-    } catch (error) {
-      setSttConfigError(error instanceof Error ? error.message : String(error))
-    }
-  }
-
   useEffect(() => {
     let mounted = true
-
-    const checkPermission = async (): Promise<void> => {
-      try {
-        if (navigator.permissions?.query) {
-          const perm = await navigator.permissions.query({
-            name: 'microphone' as PermissionName
-          })
-          if (mounted) setMicPermission(perm.state)
-          perm.onchange = () => {
-            if (mounted) setMicPermission(perm.state)
-          }
-          return
-        }
-      } catch {
-        // Fallback to label presence check
-      }
-      if (navigator.mediaDevices?.enumerateDevices) {
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const hasLabels = devices.filter((d) => d.kind === 'audioinput').some((d) => d.label)
-        if (mounted) setMicPermission(hasLabels ? 'granted' : 'prompt')
-      }
-    }
-
-    const updateDevices = async (): Promise<void> => {
-      try {
-        if (!navigator.mediaDevices?.enumerateDevices) return
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const inputs = devices.filter((d) => d.kind === 'audioinput')
-        if (mounted) {
-          setAudioDevices(inputs)
-          if (inputs.some((d) => d.label)) {
-            setMicPermission('granted')
-          }
-        }
-      } catch (err) {
-        console.warn('[Settings] Failed to enumerate audio devices:', err)
-      }
-    }
-
-    void checkPermission()
-    void updateDevices()
     void cameraManager.listDevices().then((devs) => mounted && setCameraList(devs))
-    navigator.mediaDevices?.addEventListener('devicechange', updateDevices)
     return () => {
       mounted = false
-      navigator.mediaDevices?.removeEventListener('devicechange', updateDevices)
     }
   }, [])
-
-  const requestMicPermission = async (): Promise<void> => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach((t) => t.stop())
-      setMicPermission('granted')
-      if (navigator.mediaDevices?.enumerateDevices) {
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        setAudioDevices(devices.filter((d) => d.kind === 'audioinput'))
-      }
-    } catch (err: unknown) {
-      const name = (err as { name?: string })?.name
-      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setMicPermission('denied')
-      } else {
-        setMicPermission('prompt')
-      }
-    }
-  }
 
   useEffect(() => {
     refreshProviders()
@@ -509,205 +395,10 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  const handleVoiceKeybindDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    e.preventDefault()
-    e.stopPropagation()
-    const recorded = recordKeybindFromEvent(e)
-    setVoiceKeybindState(recorded.keybind)
-    if (recorded.finished) {
-      void setVoiceKeybind(recorded.keybind)
-      e.currentTarget.blur()
-    }
-  }
-
-  const handleVoiceKeybindUp = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    e.preventDefault()
-    e.stopPropagation()
-    const key = e.key
-    if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) {
-      setVoiceKeybindState(settings?.voiceKeybind ?? 'Alt+V')
-    }
-  }
-
-  const handleRecordSample = async (): Promise<void> => {
-    if (isSampling) return
-    setIsSampling(true)
-    setSampleStatus(t('settings.voiceInput.samplingListening'))
-    const recorder = new AudioRecorder()
-    try {
-      await recorder.start()
-      await new Promise((resolve) => setTimeout(resolve, 2500))
-      const audioBuffer = await recorder.stop()
-      if (!audioBuffer) {
-        setSampleStatus(t('settings.voiceInput.samplingNoSpeech'))
-        setIsSampling(false)
-        return
-      }
-
-      setSampleStatus(t('settings.voiceInput.samplingAnalyzing'))
-      const effectiveLang =
-        settings?.voiceLang && settings.voiceLang !== 'auto' ? settings.voiceLang : undefined
-      const res = await api.stt.transcribe(audioBuffer, {
-        model: 'base',
-        language: effectiveLang,
-        task: 'transcribe'
-      })
-
-      const text = res?.text
-        ?.trim()
-        .toLowerCase()
-        .replace(/[.,/#!$%^&*;:{}=\\-_`~()]/g, '')
-      if (text) {
-        const currentList = settings?.voiceWakeWords ?? ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
-        if (!currentList.includes(text)) {
-          const updated = [...currentList, text]
-          await setVoiceWakeWords(updated)
-        }
-        setSampleStatus(t('settings.voiceInput.samplingSuccess', { text }))
-      } else {
-        setSampleStatus(t('settings.voiceInput.samplingNoSpeech'))
-      }
-    } catch (err: unknown) {
-      console.error('[Settings] Sampling error:', err)
-      const msg = err instanceof Error ? err.message : String(err)
-      setSampleStatus(`${t('settings.voiceInput.samplingFailed')} (${msg})`)
-    } finally {
-      setIsSampling(false)
-    }
-  }
-
-  const handleRemoveWakeWord = async (word: string): Promise<void> => {
-    const currentList = settings?.voiceWakeWords ?? ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
-    const updated = currentList.filter((w) => w !== word)
-    await setVoiceWakeWords(updated)
-  }
-
-  const handleAddCustomWakeWord = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault()
-    const clean = newWakeWord
-      .trim()
-      .toLowerCase()
-      .replace(/[.,/#!$%^&*;:{}=\\-_`~()]/g, '')
-    if (!clean) return
-    const currentList = settings?.voiceWakeWords ?? ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
-    if (!currentList.includes(clean)) {
-      await setVoiceWakeWords([...currentList, clean])
-    }
-    setNewWakeWord('')
-  }
-
-  const handleResetWakeWords = async (): Promise<void> => {
-    await setVoiceWakeWords(['hey roxy', 'roxy', 'hi roxy', 'ok roxy'])
-    setSampleStatus(null)
-  }
-
   const handleResetVtuberPosition = async (): Promise<void> => {
     await resetVtuberPosition()
     setResetPositionSuccess(true)
     setTimeout(() => setResetPositionSuccess(false), 2000)
-  }
-
-  const [sttStatus, setSttStatus] = useState<{ installed: boolean; pythonPath?: string } | null>(
-    null
-  )
-  const [installingStt, setInstallingStt] = useState(false)
-  const [sttFeedback, setSttFeedback] = useState<string | null>(null)
-  const [sttLogs, setSttLogs] = useState('')
-  const sttConsoleEndRef = useRef<HTMLPreElement | null>(null)
-
-  const [installedModels, setInstalledModels] = useState<string[]>([])
-  const [downloadingModel, setDownloadingModel] = useState<string | null>(null)
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
-  const [downloadError, setDownloadError] = useState<string | null>(null)
-
-  const refreshInstalledModels = async (): Promise<void> => {
-    try {
-      const list = await api.stt.getInstalledModels()
-      setInstalledModels(list)
-    } catch {
-      // ignore
-    }
-  }
-
-  useEffect(() => {
-    void refreshInstalledModels()
-  }, [])
-
-  useEffect(() => {
-    return api.stt.onDownloadProgress((prog) => {
-      setDownloadingModel(prog.model)
-      setDownloadProgress(prog.percent)
-    })
-  }, [])
-
-  const handleSelectAndDownloadModel = async (modelName: string): Promise<void> => {
-    await setVoiceModel(modelName)
-    if (!installedModels.includes(modelName)) {
-      setDownloadingModel(modelName)
-      setDownloadProgress(0)
-      setDownloadError(null)
-      try {
-        const res = await api.stt.downloadModel(modelName)
-        if (res.ok) {
-          setInstalledModels((prev) => Array.from(new Set([...prev, modelName])))
-          setDownloadError(null)
-        } else {
-          setDownloadError(res.error || 'Download failed')
-        }
-      } catch (err: unknown) {
-        setDownloadError(err instanceof Error ? err.message : String(err))
-      } finally {
-        setDownloadingModel(null)
-        setDownloadProgress(null)
-      }
-    }
-  }
-
-  const refreshSttStatus = async (): Promise<void> => {
-    try {
-      const status = await api.stt.getStatus()
-      setSttStatus(status)
-    } catch {
-      setSttStatus(null)
-    }
-  }
-
-  useEffect(() => {
-    void refreshSttStatus()
-  }, [])
-
-  useEffect(() => {
-    return api.stt.onInstallProgress((chunk) => {
-      setSttLogs((prev) => (prev + chunk).slice(-100_000))
-    })
-  }, [])
-
-  useEffect(() => {
-    if (sttConsoleEndRef.current) {
-      sttConsoleEndRef.current.scrollTop = sttConsoleEndRef.current.scrollHeight
-    }
-  }, [sttLogs])
-
-  const handleInstallSttDependencies = async (): Promise<void> => {
-    setInstallingStt(true)
-    setSttFeedback(null)
-    setSttLogs('')
-    try {
-      const res = await api.stt.installDependencies()
-      if (res.ok) {
-        setSttFeedback(t('settings.voiceInput.engineInstalled'))
-      } else {
-        setSttFeedback(t('settings.voiceInput.engineNotInstalled'))
-      }
-      if (res.log && !sttLogs) {
-        setSttLogs(res.log)
-      }
-      await refreshSttStatus()
-    } catch (err: unknown) {
-      setSttFeedback(String(err))
-    } finally {
-      setInstallingStt(false)
-    }
   }
 
   const [ttsStatus, setTtsStatus] = useState<{ installed: boolean; running: boolean } | null>(null)
@@ -1205,14 +896,6 @@ export default function Settings(): JSX.Element {
         </Button>
       </section>
       {remoteOpen && <RemoteWorkspaceDialog onClose={() => setRemoteOpen(false)} />}
-      <section
-        id="settings-voiceTranslation-panel"
-        role="region"
-        aria-labelledby="settings-voiceTranslation"
-        hidden={panel !== 'voiceTranslation'}
-      >
-        {(visited.has('voiceTranslation') || panel === 'voiceTranslation') && <VoiceSettings />}
-      </section>
 
       <div
         id="settings-accounts-panel"
@@ -1682,501 +1365,7 @@ export default function Settings(): JSX.Element {
       >
         <>
           <section className="mb-8">
-            <h2 className={SECTION_HEADING}>{t('settings.voiceInput.heading')}</h2>
-            <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-text">
-                    {t('settings.voiceInput.deviceTitle')}
-                  </span>
-                  {micPermission === 'granted' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      {t('settings.voiceInput.permissionGranted')}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t('settings.voiceInput.deviceDescription')}
-                </p>
-                {micPermission === 'prompt' && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => void requestMicPermission()}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-text hover:bg-surface-3 transition-colors"
-                    >
-                      <Mic className="h-3 w-3" />
-                      {t('settings.voiceInput.permissionPrompt')}
-                    </button>
-                  </div>
-                )}
-                {micPermission === 'denied' && (
-                  <div className="mt-2 flex items-center gap-2 text-xs text-red-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                    <span>{t('settings.voiceInput.permissionDenied')}</span>
-                    <button
-                      type="button"
-                      onClick={() => void api.system.openMicrophoneSettings()}
-                      className="underline font-medium text-accent hover:text-accent-hover"
-                    >
-                      {t('settings.voiceInput.openSettings')}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <select
-                value={settings?.voiceInputDevice ?? 'default'}
-                onChange={(e) => void setVoiceInputDevice(e.target.value)}
-                className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70 max-w-[260px] truncate"
-              >
-                <option value="default">{t('settings.voiceInput.deviceDefault')}</option>
-                {audioDevices.map((d, index) => (
-                  <option key={d.deviceId || index} value={d.deviceId}>
-                    {d.label || `Microphone ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-              <label className="block text-sm font-medium text-text" htmlFor="stt-provider">
-                {t('settings.voiceInput.providerTitle')}
-              </label>
-              <select
-                id="stt-provider"
-                value={settings?.voiceSttProvider ?? 'local'}
-                onChange={(e) => void saveSttConfig(e.target.value as 'local' | 'openai')}
-                className="mt-2 h-9 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-              >
-                <option value="local">{t('settings.voiceInput.providerLocal')}</option>
-                <option value="openai">{t('settings.voiceInput.providerOpenai')}</option>
-              </select>
-              <p className="mt-1 text-xs text-text-muted">
-                {t('settings.voiceInput.providerDescription')}
-              </p>
-              {settings?.voiceSttProvider === 'openai' && (
-                <form
-                  className="mt-3 grid gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    void saveSttConfig('openai')
-                  }}
-                >
-                  <label className="grid gap-1 text-xs text-text-muted">
-                    {t('settings.voiceInput.endpointTitle')}
-                    <input
-                      type="url"
-                      required
-                      value={sttUrl}
-                      onChange={(e) => setSttUrl(e.target.value)}
-                      placeholder="https://example.com/v1/audio/transcriptions"
-                      className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs text-text-muted">
-                    {t('settings.voiceInput.remoteModelTitle')}
-                    <input
-                      required
-                      value={sttModel}
-                      onChange={(e) => setSttModel(e.target.value)}
-                      placeholder="hf/openai/whisper-large-v3"
-                      className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs text-text-muted">
-                    {t('settings.voiceInput.apiKeyTitle')}
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={sttApiKey}
-                      onChange={(e) => setSttApiKey(e.target.value)}
-                      placeholder={
-                        settings?.voiceSttHasApiKey ? t('settings.voiceInput.apiKeySaved') : 'sk-…'
-                      }
-                      className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
-                    />
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <Button type="submit" size="sm">
-                      {t('settings.voiceInput.saveEndpoint')}
-                    </Button>
-                    {settings?.voiceSttHasApiKey && (
-                      <button
-                        type="button"
-                        onClick={() => void saveSttConfig(settings.voiceSttProvider, true)}
-                        className="text-xs text-text-muted hover:text-text"
-                      >
-                        {t('settings.voiceInput.clearApiKey')}
-                      </button>
-                    )}
-                  </div>
-                </form>
-              )}
-              {sttConfigError && (
-                <p role="alert" className="mt-2 text-xs text-red-400">
-                  {sttConfigError}
-                </p>
-              )}
-            </div>
-
-            {settings?.voiceSttProvider !== 'openai' && (
-              <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-text">
-                        {t('settings.voiceInput.engineTitle')}
-                      </span>
-                      <span
-                        className={cn(
-                          'h-2 w-2 rounded-full',
-                          sttStatus?.installed
-                            ? 'bg-success shadow-[0_0_8px_var(--color-success)]'
-                            : 'bg-amber-400'
-                        )}
-                      />
-                      <span className="text-xs font-medium text-text-subtle">
-                        {sttStatus?.installed
-                          ? t('settings.voiceInput.engineInstalled')
-                          : t('settings.voiceInput.engineNotInstalled')}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.voiceInput.engineDescription')}
-                    </p>
-                    {sttFeedback && (
-                      <p className="mt-2 text-xs font-medium text-accent">{sttFeedback}</p>
-                    )}
-                  </div>
-                  <Button
-                    variant={sttStatus?.installed ? 'ghost' : 'secondary'}
-                    onClick={() => void handleInstallSttDependencies()}
-                    disabled={installingStt}
-                    className="shrink-0"
-                  >
-                    {installingStt
-                      ? t('settings.voiceInput.installingEngine')
-                      : sttStatus?.installed
-                        ? t('settings.voiceInput.reinstallEngine')
-                        : t('settings.voiceInput.installEngine')}
-                  </Button>
-                </div>
-
-                {(installingStt || sttLogs) && (
-                  <div className="mt-3 overflow-hidden rounded-lg border border-border bg-black/90">
-                    <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 font-mono text-xs text-text-subtle">
-                      <span>{t('settings.tts.consoleTitle')}</span>
-                      {sttLogs && !installingStt && (
-                        <button
-                          type="button"
-                          onClick={() => setSttLogs('')}
-                          className="text-xs text-text-subtle hover:text-text transition-colors"
-                        >
-                          {t('settings.tts.clearConsole')}
-                        </button>
-                      )}
-                    </div>
-                    <pre
-                      ref={sttConsoleEndRef}
-                      className="max-h-60 overflow-y-auto p-3 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap select-text"
-                    >
-                      {sttLogs || t('settings.voiceInput.installingEngine')}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-text">
-                  {t('settings.voiceInput.wakeWordTitle')}
-                </div>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t('settings.voiceInput.wakeWordDescription')}
-                </p>
-              </div>
-              <Switch
-                checked={settings?.voiceWakeWord ?? false}
-                onChange={(v) => void setVoiceWakeWord(v)}
-              />
-            </div>
-
-            {settings?.voiceWakeWord && (
-              <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-text">
-                      {t('settings.voiceInput.samplingTitle')}
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.voiceInput.samplingDescription')}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isSampling}
-                    onClick={() => void handleRecordSample()}
-                    className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                      isSampling
-                        ? 'animate-pulse bg-red-500/20 text-red-400 border border-red-500/30'
-                        : 'bg-surface-2 hover:bg-surface-3 text-text border border-border'
-                    }`}
-                  >
-                    {isSampling ? (
-                      <>
-                        <span className="h-2 w-2 rounded-full bg-red-400 animate-ping" />
-                        {t('settings.voiceInput.samplingListening')}
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="h-3.5 w-3.5" />
-                        {t('settings.voiceInput.samplingButton')}
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {sampleStatus && (
-                  <div className="mt-3 rounded-lg border border-border bg-surface-2 p-2.5 text-xs text-text">
-                    {sampleStatus}
-                  </div>
-                )}
-
-                <div className="mt-4 border-t border-border pt-3">
-                  <div className="text-xs font-medium text-text-muted">
-                    {t('settings.voiceInput.phrasesTitle')}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(settings?.voiceWakeWords ?? ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']).map(
-                      (word) => (
-                        <span
-                          key={word}
-                          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-xs text-text"
-                        >
-                          <span>{word}</span>
-                          <button
-                            type="button"
-                            onClick={() => void handleRemoveWakeWord(word)}
-                            className="text-text-muted hover:text-text"
-                            title={t('settings.voiceInput.removePhrase')}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      )
-                    )}
-                  </div>
-
-                  <form onSubmit={handleAddCustomWakeWord} className="mt-3 flex items-center gap-2">
-                    <input
-                      value={newWakeWord}
-                      onChange={(e) => setNewWakeWord(e.target.value)}
-                      placeholder={t('settings.voiceInput.addPhrasePlaceholder')}
-                      className="flex-1 max-w-xs sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1 text-xs text-text outline-none placeholder:text-text-subtle focus:border-border-strong"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!newWakeWord.trim()}
-                      className="rounded-lg border border-border bg-surface-2 px-3 py-1 text-xs font-medium text-text hover:bg-surface-3 disabled:opacity-50"
-                    >
-                      {t('settings.voiceInput.addPhraseButton')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleResetWakeWords()}
-                      className="ml-auto text-xs text-text-muted hover:text-text underline decoration-dotted"
-                    >
-                      {t('settings.voiceInput.resetPhrases')}
-                    </button>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-text">
-                  {t('settings.voiceInput.autoSendTitle')}
-                </div>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t('settings.voiceInput.autoSendDescription')}
-                </p>
-              </div>
-              <Switch
-                checked={settings?.voiceAutoSend ?? false}
-                onChange={(v) => void setVoiceAutoSend(v)}
-              />
-            </div>
-
-            <div className="mt-3 flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-text">
-                  {t('settings.voiceInput.langTitle')}
-                </div>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t('settings.voiceInput.langDescription')}
-                </p>
-              </div>
-              <select
-                value={settings?.voiceLang ?? 'auto'}
-                onChange={(e) => void setVoiceLang(e.target.value)}
-                className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
-              >
-                <option value="auto">{t('settings.voiceInput.langAuto')}</option>
-                {LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.nativeName} ({l.name})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {settings?.voiceSttProvider !== 'openai' && (
-              <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-text">
-                        {t('settings.voiceInput.modelTitle')}
-                      </span>
-                      {installedModels.includes(settings?.voiceModel ?? 'base') && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                          {t('settings.voiceInput.modelInstalled')}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {t('settings.voiceInput.modelDescription')}
-                    </p>
-                  </div>
-                  <select
-                    value={settings?.voiceModel ?? 'base'}
-                    disabled={downloadingModel !== null}
-                    onChange={(e) => void handleSelectAndDownloadModel(e.target.value)}
-                    className="h-9 shrink-0 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none transition-colors focus:border-accent/70"
-                  >
-                    <option value="tiny">
-                      {t('settings.voiceInput.modelTiny')}{' '}
-                      {installedModels.includes('tiny')
-                        ? `(${t('settings.voiceInput.modelInstalled')})`
-                        : ''}
-                    </option>
-                    <option value="base">
-                      {t('settings.voiceInput.modelBase')}{' '}
-                      {installedModels.includes('base')
-                        ? `(${t('settings.voiceInput.modelInstalled')})`
-                        : ''}
-                    </option>
-                    <option value="small">
-                      {t('settings.voiceInput.modelSmall')}{' '}
-                      {installedModels.includes('small')
-                        ? `(${t('settings.voiceInput.modelInstalled')})`
-                        : ''}
-                    </option>
-                    <option value="medium">
-                      {t('settings.voiceInput.modelMedium')}{' '}
-                      {installedModels.includes('medium')
-                        ? `(${t('settings.voiceInput.modelInstalled')})`
-                        : ''}
-                    </option>
-                    <option value="distil-large-v3">
-                      {t('settings.voiceInput.modelDistilLarge')}{' '}
-                      {installedModels.includes('distil-large-v3')
-                        ? `(${t('settings.voiceInput.modelInstalled')})`
-                        : ''}
-                    </option>
-                    <option value="large-v3">
-                      {t('settings.voiceInput.modelLarge')}{' '}
-                      {installedModels.includes('large-v3')
-                        ? `(${t('settings.voiceInput.modelInstalled')})`
-                        : ''}
-                    </option>
-                  </select>
-                </div>
-
-                {downloadingModel && (
-                  <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-border bg-surface-2 p-3">
-                    <div className="flex items-center justify-between text-xs text-text">
-                      <span className="font-medium flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-accent animate-ping" />
-                        {t('settings.voiceInput.modelDownloading', { model: downloadingModel })}
-                      </span>
-                      <span className="font-mono text-text-muted">
-                        {downloadProgress !== null ? `${Math.round(downloadProgress)}%` : '0%'}
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3 border border-border/50">
-                      <div
-                        className="h-full bg-accent transition-all duration-200"
-                        style={{ width: `${Math.max(4, downloadProgress ?? 0)}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {!downloadingModel && downloadError && (
-                  <div className="mt-3 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-400">
-                    <span>{downloadError}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void handleSelectAndDownloadModel(settings?.voiceModel ?? 'base')
-                      }
-                      className="ml-2 underline font-medium text-text hover:text-text-muted"
-                    >
-                      {t('settings.voiceInput.downloadModelButton')}
-                    </button>
-                  </div>
-                )}
-
-                {!downloadingModel &&
-                  !downloadError &&
-                  !installedModels.includes(settings?.voiceModel ?? 'base') && (
-                    <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-surface-2 p-2.5 text-xs text-text">
-                      <span className="text-text-muted">
-                        {settings?.voiceModel ?? 'base'} is not yet downloaded.
-                      </span>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() =>
-                          void handleSelectAndDownloadModel(settings?.voiceModel ?? 'base')
-                        }
-                      >
-                        {t('settings.voiceInput.downloadModelButton')}
-                      </Button>
-                    </div>
-                  )}
-              </div>
-            )}
-
-            <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
-              <div className="text-sm font-medium text-text">
-                {t('settings.voiceInput.keybindTitle')}
-              </div>
-              <p className="mt-0.5 text-xs text-text-muted">
-                {t('settings.voiceInput.keybindDescription')}
-              </p>
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  value={voiceKeybind}
-                  onFocus={() => void api.stt.setShortcutPaused(true)}
-                  onKeyDown={handleVoiceKeybindDown}
-                  onKeyUp={handleVoiceKeybindUp}
-                  onBlur={() => {
-                    void api.stt.setShortcutPaused(false)
-                    setVoiceKeybindState(settings?.voiceKeybind ?? 'Alt+V')
-                  }}
-                  readOnly
-                  spellCheck={false}
-                  placeholder={t('settings.voiceInput.recordPlaceholder')}
-                  className="w-64 sq sq-lg sq-ring rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none placeholder:text-text-subtle focus:border-border-strong focus:[--sq-ring:var(--color-border-strong)] cursor-pointer"
-                />
-              </div>
-            </div>
+            {(visited.has('voice') || panel === 'voice') && <VoiceSettings />}
           </section>
 
           <section className="mb-8">

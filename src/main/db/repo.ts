@@ -147,34 +147,8 @@ export function getSettings(): AppSettings {
           ? 'bottom'
           : 'right',
     overlayKeybind: map.get('overlay_keybind') ?? 'CommandOrControl+Shift+Space',
-    voiceKeybind: map.get('voice_keybind') ?? 'Alt+V',
     userProfileName: map.get('user_profile_name') ?? '',
     userProfileAvatar: map.get('user_profile_avatar') ?? '',
-    voiceAutoSend: map.get('voice_auto_send') === '1',
-    voiceLang: map.get('voice_lang') ?? 'auto',
-    voiceModel: map.get('voice_model') ?? 'base',
-    voiceSttProvider: map.get('voice_stt_provider') === 'openai' ? 'openai' : 'local',
-    voiceSttUrl: map.get('voice_stt_url') ?? '',
-    voiceSttModel: map.get('voice_stt_model') ?? '',
-    voiceSttHasApiKey: Boolean(map.get('voice_stt_api_key')),
-    voiceInputDevice: map.get('voice_input_device') ?? 'default',
-    voiceWakeWord: map.get('voice_wake_word') === '1',
-    voiceWakeWords: (() => {
-      const raw = map.get('voice_wake_words')
-      if (!raw) return ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
-      try {
-        const parsed = JSON.parse(raw)
-        return Array.isArray(parsed) && parsed.length > 0
-          ? parsed
-          : ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
-      } catch {
-        const list = raw
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-        return list.length > 0 ? list : ['hey roxy', 'roxy', 'hi roxy', 'ok roxy']
-      }
-    })(),
     overlayIconPosition:
       map.has('overlay_icon_x') && map.has('overlay_icon_y')
         ? { x: Number(map.get('overlay_icon_x')), y: Number(map.get('overlay_icon_y')) }
@@ -280,9 +254,34 @@ export function getVoiceSettings(): VoiceSettings {
     | { value: string }
     | undefined
   try {
-    return normalizeVoice(row ? JSON.parse(row.value) : null)
+    return normalizeVoice(row ? JSON.parse(row.value) : legacyVoiceSettings())
   } catch {
     return normalizeVoice(null)
+  }
+}
+
+/**
+ * Carry hold-to-talk, auto-send and wake word over from the removed faster-whisper
+ * input until voice settings are first saved. Voice itself stays off: it needs a model.
+ */
+function legacyVoiceSettings(): Partial<VoiceSettings> {
+  const rows = getDb()
+    .prepare(
+      "SELECT key, value FROM settings WHERE key IN ('voice_keybind', 'voice_auto_send', 'voice_wake_word', 'voice_wake_words')"
+    )
+    .all() as { key: string; value: string }[]
+  const map = new Map(rows.map((r) => [r.key, r.value]))
+  let wakeWords: unknown
+  try {
+    wakeWords = JSON.parse(map.get('voice_wake_words') ?? 'null')
+  } catch {
+    wakeWords = null
+  }
+  return {
+    holdKey: map.get('voice_keybind') ?? undefined,
+    autoSend: map.get('voice_auto_send') === '1',
+    wakeWord: map.get('voice_wake_word') === '1',
+    wakeWords: Array.isArray(wakeWords) ? wakeWords : undefined
   }
 }
 
@@ -409,11 +408,6 @@ export function setOverlayKeybind(keybind: string): AppSettings {
   return getSettings()
 }
 
-export function setVoiceKeybind(keybind: string): AppSettings {
-  setSetting('voice_keybind', keybind)
-  return getSettings()
-}
-
 export function setUserProfile(profile: { name: string; avatar: string }): AppSettings {
   if (typeof profile?.name !== 'string' || typeof profile.avatar !== 'string') {
     throw new Error('Invalid profile')
@@ -430,71 +424,6 @@ export function setUserProfile(profile: { name: string; avatar: string }): AppSe
   }
   setSetting('user_profile_name', name)
   setSetting('user_profile_avatar', avatar)
-  return getSettings()
-}
-
-export function setVoiceAutoSend(enabled: boolean): AppSettings {
-  setSetting('voice_auto_send', enabled ? '1' : '0')
-  return getSettings()
-}
-
-export function setVoiceLang(lang: string): AppSettings {
-  setSetting('voice_lang', lang.trim() || 'auto')
-  return getSettings()
-}
-
-export function setVoiceModel(model: string): AppSettings {
-  setSetting('voice_model', model.trim() || 'base')
-  return getSettings()
-}
-
-export function setVoiceSttConfig(config: {
-  provider: 'local' | 'openai'
-  url: string
-  model: string
-  apiKey?: string
-  clearApiKey?: boolean
-}): AppSettings {
-  if (config.provider !== 'local' && config.provider !== 'openai') {
-    throw new Error('Invalid transcription provider')
-  }
-  const url = config.url.trim()
-  if (config.provider === 'openai' && url) {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
-      throw new Error('Transcription endpoint must be an HTTPS URL without credentials')
-    }
-  }
-  setSetting('voice_stt_url', url)
-  setSetting('voice_stt_model', config.model.trim())
-  if (config.clearApiKey) setSetting('voice_stt_api_key', null)
-  else if (config.apiKey?.trim()) {
-    setSetting('voice_stt_api_key', JSON.stringify(encryptSecret(config.apiKey.trim())))
-  }
-  setSetting('voice_stt_provider', config.provider)
-  return getSettings()
-}
-
-export function getVoiceSttApiKey(): string {
-  const row = getDb()
-    .prepare('SELECT value FROM settings WHERE key = ?')
-    .get('voice_stt_api_key') as { value: string } | undefined
-  return row ? decryptSecret(JSON.parse(row.value)) : ''
-}
-
-export function setVoiceInputDevice(deviceId: string): AppSettings {
-  setSetting('voice_input_device', deviceId.trim() || 'default')
-  return getSettings()
-}
-
-export function setVoiceWakeWord(enabled: boolean): AppSettings {
-  setSetting('voice_wake_word', enabled ? '1' : '0')
-  return getSettings()
-}
-
-export function setVoiceWakeWords(words: string[]): AppSettings {
-  const clean = Array.from(new Set(words.map((w) => w.trim().toLowerCase()).filter(Boolean)))
-  setSetting('voice_wake_words', JSON.stringify(clean))
   return getSettings()
 }
 

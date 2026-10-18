@@ -12,7 +12,7 @@ import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { getSettings, getTtsOpenaiApiKey } from '../db/repo'
-import { resolvePython } from './stt'
+import { resolvePython } from './python'
 import { isFloatingIconWindow } from './overlay'
 
 const TTS_URL = process.env.ROXY_TTS_URL ?? 'http://127.0.0.1:5050'

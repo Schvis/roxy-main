@@ -78,11 +78,6 @@ import { focusMainWindow } from '../services/main-window'
 import { getRandomHeadpatAudio } from '../services/headpat'
 import { getRandomChestAudio } from '../services/chest'
 import {
-  updateVoiceShortcut,
-  setRecordingStateFromRenderer,
-  setVoiceShortcutPaused
-} from '../services/voice-shortcut'
-import {
   emitMessagesUpdated,
   emitTurnState,
   getActiveChat,
@@ -126,13 +121,6 @@ import {
   handleAudioReady,
   handleAudioEnded
 } from '../services/tts'
-import {
-  transcribeAudio,
-  getSttStatus,
-  installSttDependencies,
-  getInstalledWhisperModels,
-  downloadWhisperModel
-} from '../services/stt'
 import { setDiscordRpcEnabledState, setDiscordRpcClientIdState } from '../services/discord-rpc'
 import { pickDefaultModel } from '../../shared/models'
 import { CLIPROXY_PROVIDER_IDS, isCliProxyProvider } from '../../shared/cliproxy'
@@ -481,38 +469,9 @@ export function registerIpc(): void {
     updateOverlayShortcut(settings)
     return settings
   })
-  ipcMain.handle(CHANNELS.settingsSetVoiceKeybind, (_e, keybind: string) => {
-    const settings = repo.setVoiceKeybind(keybind)
-    updateVoiceShortcut(settings)
-    return settings
-  })
   ipcMain.handle(CHANNELS.settingsSetUserProfile, (_e, profile: { name: string; avatar: string }) =>
     repo.setUserProfile(profile)
   )
-  ipcMain.handle(CHANNELS.settingsSetVoiceAutoSend, (_e, enabled: boolean) => {
-    return repo.setVoiceAutoSend(enabled)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceLang, (_e, lang: string) => {
-    return repo.setVoiceLang(lang)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceModel, (_e, model: string) => {
-    return repo.setVoiceModel(model)
-  })
-  ipcMain.handle(
-    CHANNELS.settingsSetVoiceSttConfig,
-    (_e, config: Parameters<typeof repo.setVoiceSttConfig>[0]) => {
-      return repo.setVoiceSttConfig(config)
-    }
-  )
-  ipcMain.handle(CHANNELS.settingsSetVoiceInputDevice, (_e, deviceId: string) => {
-    return repo.setVoiceInputDevice(deviceId)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceWakeWord, (_e, enabled: boolean) => {
-    return repo.setVoiceWakeWord(enabled)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceWakeWords, (_e, words: string[]) => {
-    return repo.setVoiceWakeWords(words)
-  })
   ipcMain.handle(CHANNELS.settingsSetActivePromptId, (_e, id: string | null) =>
     repo.setActivePromptId(id)
   )
@@ -681,45 +640,6 @@ export function registerIpc(): void {
     handleAudioEnded(id)
   })
 
-  ipcMain.handle(
-    CHANNELS.sttTranscribe,
-    async (
-      _e,
-      audioData: ArrayBuffer | Uint8Array,
-      options?: { language?: string; model?: string; task?: string }
-    ) => {
-      const buffer = Buffer.isBuffer(audioData)
-        ? audioData
-        : audioData instanceof ArrayBuffer
-          ? Buffer.from(audioData)
-          : Buffer.from(audioData.buffer, audioData.byteOffset, audioData.byteLength)
-      return transcribeAudio(buffer, options)
-    }
-  )
-
-  ipcMain.handle(CHANNELS.sttGetStatus, () => getSttStatus())
-  ipcMain.handle(CHANNELS.sttInstallDependencies, async (event) => {
-    return installSttDependencies((chunk) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(CHANNELS.sttInstallProgress, chunk)
-      }
-    })
-  })
-  ipcMain.handle(CHANNELS.sttGetInstalledModels, () => getInstalledWhisperModels())
-  ipcMain.handle(CHANNELS.sttDownloadModel, async (event, modelName: string) => {
-    return downloadWhisperModel(modelName, (progress) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(CHANNELS.sttDownloadProgress, { model: modelName, ...progress })
-      }
-    })
-  })
-  ipcMain.handle(CHANNELS.sttSetRecordingState, (_e, isRecording: boolean) => {
-    setRecordingStateFromRenderer(isRecording)
-  })
-  ipcMain.handle(CHANNELS.sttSetShortcutPaused, (_e, paused: boolean) => {
-    setVoiceShortcutPaused(paused)
-  })
-
   setTtsLogListener((chunk) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
@@ -780,7 +700,6 @@ export function registerIpc(): void {
     invalidateCopilotModels()
     invalidateCopilotToken()
     updateOverlayShortcut(repo.getSettings())
-    updateVoiceShortcut(repo.getSettings())
     for (const window of BrowserWindow.getAllWindows())
       if (!window.isDestroyed())
         window.webContents.send(CHANNELS.settingsMotionChanged, DEFAULT_MOTION)

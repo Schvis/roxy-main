@@ -80,11 +80,16 @@ const recorder = {
   }
 }
 let holding = false
+let opens = 0
+let mainWindow
 globalThis.__voiceMocks = {
   shared,
   electron: {
     app: { getPath: () => directory },
-    BrowserWindow: class {},
+    BrowserWindow: {
+      fromWebContents: (target) => (target === mainWindow?.webContents ? mainWindow : null),
+      getAllWindows: () => (mainWindow ? [mainWindow] : [])
+    },
     globalShortcut: {
       isRegistered: (key) => registrations.has(key),
       register: (key, callback) => {
@@ -143,6 +148,7 @@ globalThis.__voiceMocks = {
     listInputDevices: async () => [{ id: 'usb', name: 'Mic', occurrence: 0, isDefault: true }],
     Recorder: {
       open: async (options) => {
+        opens++
         captureOptions = options
         if (holding)
           await new Promise((resolve) => {
@@ -198,8 +204,10 @@ try {
   contents.getURL = () => 'file:///untrusted'
   contents.mainFrame = {}
   contents.send = (_channel, event) => events.push(event)
+  contents.isDestroyed = () => false
   const window = new EventEmitter()
   Object.assign(window, { isDestroyed: () => false, webContents: contents })
+  mainWindow = window
   service.setVoiceWindow(window)
   service.registerVoiceIpc()
   process.env.ELECTRON_RENDERER_URL = 'http://localhost:3105'
@@ -305,6 +313,54 @@ try {
   assert((await invoke('start', 'recovered', 'chat')).ok)
   assert.equal(loads, 5, 'Next recording recovers a crashed model process')
   await invoke('stop', 'recovered', false)
+
+  // Hands-free listener: one utterance per pause, yields the mic to dictation.
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 1))
+  const speech = () => captureOptions.onChunk({ samples: new Float32Array(1600).fill(0.1) })
+  const silence = (n) => {
+    for (let i = 0; i < n; i++) captureOptions.onChunk({ samples: new Float32Array(1600) })
+  }
+  let before = opens
+  assert((await invoke('listen', 'wake')).ok)
+  while (opens === before || !recorder.isRecording) await tick()
+  assert(
+    events.some((e) => e.type === 'listener' && e.listenerId === 'wake' && e.phase === 'listening')
+  )
+  silence(3)
+  assert(!events.some((e) => e.type === 'utterance'), 'Silence alone is never transcribed')
+  speech()
+  assert(
+    events.some((e) => e.type === 'listener' && e.listenerId === 'wake' && e.phase === 'speech')
+  )
+  silence(8)
+  assert(
+    events.some((e) => e.type === 'utterance' && e.listenerId === 'wake' && e.text === 'live text'),
+    'A pause after speech emits the utterance'
+  )
+  const closedBefore = closes
+  assert((await invoke('start', 'dictate', 'chat')).ok)
+  assert(closes > closedBefore, 'Dictation takes the microphone from the listener')
+  before = opens
+  await invoke('stop', 'dictate', false)
+  while (opens === before) await tick()
+  assert(recorder.isRecording, 'The listener resumes after dictation')
+  const closedListening = closes
+  await invoke('unlisten', 'wake')
+  while (closes === closedListening) await tick()
+
+  // Auto-stop: a pause after speech finishes the dictation on its own.
+  assert((await invoke('start', 'auto', 'chat', { autoStop: true })).ok)
+  speech()
+  silence(16)
+  while (
+    !events.some((e) => e.type === 'recording' && e.recordingId === 'auto' && e.phase === 'stopped')
+  )
+    await tick()
+  assert.equal(
+    events.find((e) => e.type === 'recording' && e.recordingId === 'auto' && e.phase === 'stopped')
+      .error,
+    undefined
+  )
   await invoke('remove', shared.VOICE_MODELS[0].id)
   assert.equal(settings.modelId, null, 'Removing the selected model clears selection')
   assert.equal(kills, 4, 'Removing the selected model unloads it')
@@ -340,7 +396,7 @@ try {
   }
   service.shutdownVoice()
   console.log(
-    'VOICE SERVICE OK: opt-in, isolation, hotkeys, streaming, warm reuse without mic, unload/switch/removal, crash recovery, cancellation, verified downloads'
+    'VOICE SERVICE OK: opt-in, isolation, hotkeys, streaming, warm reuse without mic, unload/switch/removal, crash recovery, listeners, auto-stop, cancellation, verified downloads'
   )
 } finally {
   await rm(directory, { recursive: true, force: true })

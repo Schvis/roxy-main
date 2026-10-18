@@ -38,7 +38,7 @@ Roxy 是一款使用 **TypeScript** 编写、采用 **React** 界面的 [Electro
 - **多提供商与自定义端点** — 原生支持 OpenAI、Copilot（支持自动令牌刷新）、Anthropic、通过 Vercel AI SDK 支持的 Google Gemini、本地模型以及自定义图像生成端点。
 - **集成 IDE 与 Git 操作** — 内置代码编辑器，支持语法高亮（Shiki）、行差异标记、可视化合并冲突解决器、交互式 Git 提交图和多仓库工作区管理。
 - **内嵌终端** — 基于 `@xterm/xterm` 和 `node-pty` 的硬件加速终端模拟器，支持持久 Shell 会话、独立弹出窗口及命令历史。
-- **Live2D 伴侣与语音合成** — 交互式洛琪希·米格路迪亚（Roxy Migurdia）Live2D 形象，带有动画表情与互动反应（摸头/胸口互动），结合离线 GPU 加速的 RVC（Retrieval-based Voice Conversion）v2 TTS、faster-whisper STT 语音输入或 Fish Audio 云端语音。
+- **Live2D 伴侣与语音合成** — 交互式洛琪希·米格路迪亚（Roxy Migurdia）Live2D 形象，带有动画表情与互动反应（摸头/胸口互动），结合离线 GPU 加速的 RVC（Retrieval-based Voice Conversion）v2 TTS、sherpa-onnx STT 语音输入或 Fish Audio 云端语音。
 - **远程工作区与移动端中继** — 通过二维码和 PIN 码与手机或平板配对，无需通过第三方中转代码；默认连接至 `https://roxy.schvis.com`（可通过 `ROXY_REMOTE_BASE` 配置），并支持在 `remote-server/` 中独立自托管 Next.js App Router 中继服务器（未提交 / 被 git 忽略）。
 - **生态与扩展能力** — Model Context Protocol (MCP) 客户端 + Windows MCP、语言服务器协议 (LSP) 诊断反馈、`SKILL.md` 技能运行器、持久 Chromium 浏览器自动化以及 Discord Rich Presence。
 - **完整国际化** — 涵盖 10 种语言（阿拉伯语、德语、英语、西班牙语、法语、印地语、日语、葡萄牙语、俄语、中文）的完整界面本地化，并通过自动化工具保持同步。
@@ -55,7 +55,7 @@ Roxy 是一款使用 **TypeScript** 编写、采用 **React** 界面的 [Electro
 | 终端               | @xterm/xterm 6 + node-pty                                    |
 | 代码与 Diff 查看器 | Shiki + diff                                                 |
 | 集成               | Model Context Protocol (MCP) SDK, LSP, Discord RPC           |
-| 语音引擎           | 本地 RVC v2 (PyTorch/CUDA) + faster-whisper + Fish Audio API |
+| 语音引擎           | 本地 RVC v2 (PyTorch/CUDA) + sherpa-onnx + Fish Audio API    |
 | 伴侣               | Live2D Cubism Core                                           |
 | 存储               | better-sqlite3                                               |
 | 打包               | electron-builder                                             |
@@ -76,14 +76,13 @@ roxy/
 ├── script/                 # 配置脚本、TTS/STT 后台进程、i18n 翻译与打包
 │   ├── rvc_tts_server.py   # 本地 GPU RVC TTS 推理后台服务（端口 5050）
 │   ├── setup_tts_env.py    # 自动化 Python 环境及 CUDA 依赖安装程序
-│   ├── transcribe.py       # faster-whisper STT 语音识别运行器
 │   ├── i18n-sync.mjs       # default.json 的语言目录同步器
 │   └── i18n-translate.mjs  # 基于 OpenRouter 的机器翻译运行器
 ├── src/
 │   ├── main/               # Electron 主进程 (Node.js)
 │   │   ├── index.ts        # 应用生命周期、窗口创建、服务启动
 │   │   ├── harness/        # 代理循环：agent.ts（轮次循环、工具模式）、tools.ts（分发）
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # better-sqlite3 存储：架构、迁移、仓库层
 │   │   └── ipc/            # 连接渲染进程与框架/服务的 ipcMain 处理器
 │   ├── preload/            # 主进程与渲染进程之间的安全桥接层 (window.api)
@@ -177,7 +176,7 @@ npm run tts:server
 
 - **Live2D 形象** — 在 [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) 和 [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) 中通过 Cubism Core 渲染，具备可交互物理效果、表情触发和音频对口型。
 - **RVC v2 推理** — 本地 Python 后台服务 [`script/rvc_tts_server.py`](script/rvc_tts_server.py) 将 edge-tts 生成与使用 `RoxyMigurdia/` 中权重的本地 GPU 音高/音色转换相结合。
-- **语音转文字** — [`src/main/services/stt.ts`](src/main/services/stt.ts) 捕获语音输入，并使用 faster-whisper（[`script/transcribe.py`](script/transcribe.py)）在本地转写。
+- **语音转文字** — [`src/main/services/voice.ts`](src/main/services/voice.ts) 通过本地 sherpa-onnx 模型流式处理语音听写、唤醒词“Hey Roxy”以及 VTuber 语音对话；音频绝不会离开本机。
 
 ### 远程工作区
 

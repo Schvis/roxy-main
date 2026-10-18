@@ -61,8 +61,10 @@ const roxy: RoxyApi = {
     download: (id) => ipcRenderer.invoke(CHANNELS.voiceDownload, id),
     cancelDownload: () => ipcRenderer.invoke(CHANNELS.voiceCancelDownload),
     remove: (id) => ipcRenderer.invoke(CHANNELS.voiceRemove, id),
-    start: (id, chatId) => ipcRenderer.invoke(CHANNELS.voiceStart, id, chatId),
+    start: (id, chatId, options) => ipcRenderer.invoke(CHANNELS.voiceStart, id, chatId, options),
     stop: (id, finalize) => ipcRenderer.invoke(CHANNELS.voiceStop, id, finalize),
+    listen: (id) => ipcRenderer.invoke(CHANNELS.voiceListen, id),
+    unlisten: (id) => ipcRenderer.invoke(CHANNELS.voiceUnlisten, id),
     onEvent: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, event: VoiceEvent): void =>
         callback(event)
@@ -113,16 +115,7 @@ const roxy: RoxyApi = {
     setIdeMode: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetIdeMode, enabled),
     setIdeChatDock: (dock) => ipcRenderer.invoke(CHANNELS.settingsSetIdeChatDock, dock),
     setOverlayKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayKeybind, keybind),
-    setVoiceKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceKeybind, keybind),
     setUserProfile: (profile) => ipcRenderer.invoke(CHANNELS.settingsSetUserProfile, profile),
-    setVoiceAutoSend: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceAutoSend, enabled),
-    setVoiceLang: (lang) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceLang, lang),
-    setVoiceModel: (model) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceModel, model),
-    setVoiceSttConfig: (config) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceSttConfig, config),
-    setVoiceInputDevice: (deviceId) =>
-      ipcRenderer.invoke(CHANNELS.settingsSetVoiceInputDevice, deviceId),
-    setVoiceWakeWord: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceWakeWord, enabled),
-    setVoiceWakeWords: (words) => ipcRenderer.invoke(CHANNELS.settingsSetVoiceWakeWords, words),
     setActivePromptId: (id) => ipcRenderer.invoke(CHANNELS.settingsSetActivePromptId, id),
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
     setNotifyOnComplete: (enabled) =>
@@ -399,43 +392,6 @@ const roxy: RoxyApi = {
       ipcRenderer.on(CHANNELS.screenCursorPosition, handler)
       return () => ipcRenderer.removeListener(CHANNELS.screenCursorPosition, handler)
     }
-  },
-  stt: {
-    transcribe: (
-      audio: ArrayBuffer | Uint8Array,
-      options?: { language?: string; model?: string; task?: string }
-    ) => ipcRenderer.invoke(CHANNELS.sttTranscribe, audio, options),
-    getStatus: () => ipcRenderer.invoke(CHANNELS.sttGetStatus),
-    installDependencies: () => ipcRenderer.invoke(CHANNELS.sttInstallDependencies),
-    onInstallProgress: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
-      ipcRenderer.on(CHANNELS.sttInstallProgress, handler)
-      return () => ipcRenderer.removeListener(CHANNELS.sttInstallProgress, handler)
-    },
-    getInstalledModels: () => ipcRenderer.invoke(CHANNELS.sttGetInstalledModels),
-    downloadModel: (model: string) => ipcRenderer.invoke(CHANNELS.sttDownloadModel, model),
-    onDownloadProgress: (callback) => {
-      const handler = (
-        _event: Electron.IpcRendererEvent,
-        progress: { model: string; percent: number; current: number; total: number }
-      ): void => callback(progress)
-      ipcRenderer.on(CHANNELS.sttDownloadProgress, handler)
-      return () => ipcRenderer.removeListener(CHANNELS.sttDownloadProgress, handler)
-    },
-    onStartRecording: (callback) => {
-      const handler = (): void => callback()
-      ipcRenderer.on(CHANNELS.sttStartRecording, handler)
-      return () => ipcRenderer.removeListener(CHANNELS.sttStartRecording, handler)
-    },
-    onStopRecording: (callback) => {
-      const handler = (): void => callback()
-      ipcRenderer.on(CHANNELS.sttStopRecording, handler)
-      return () => ipcRenderer.removeListener(CHANNELS.sttStopRecording, handler)
-    },
-    setRecordingState: (isRecording: boolean) =>
-      ipcRenderer.invoke(CHANNELS.sttSetRecordingState, isRecording),
-    setShortcutPaused: (paused: boolean) =>
-      ipcRenderer.invoke(CHANNELS.sttSetShortcutPaused, paused)
   },
   clipboard: {
     hasContent: () => ipcRenderer.invoke(CHANNELS.clipboardHasContent),

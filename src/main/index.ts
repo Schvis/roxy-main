@@ -42,7 +42,6 @@ import {
   setMainWindowVisibility,
   openVtuberWindow
 } from './services/overlay'
-import { updateVoiceShortcut, unregisterVoiceShortcut } from './services/voice-shortcut'
 import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 import { initDiscordRpc, shutdownDiscordRpc } from './services/discord-rpc'
 import { flushAllActiveTurns } from './services/turn-recovery'
@@ -301,7 +300,6 @@ if (!gotTheLock) {
     void warmCatalogThenBackfill()
 
     updateOverlayShortcut(repo.getSettings())
-    updateVoiceShortcut(repo.getSettings())
 
     const initialSettings = repo.getSettings()
     if (
@@ -354,7 +352,6 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   flushAllActiveTurns('interrupted')
-  unregisterVoiceShortcut()
   killAllBackground()
   killAllShells()
   closeAllBrowsers()

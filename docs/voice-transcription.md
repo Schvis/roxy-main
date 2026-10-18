@@ -1,9 +1,9 @@
 # Local Streaming Voice
 
-Voice Translation lives in Settings > General and defaults off. The name is the
-requested UI label; the feature is speech transcription, not language translation.
-Enabling it does not download a model or open the microphone. Hotkeys start blank
-and register only after the user configures them.
+Voice input lives in Settings > Voice & Audio and defaults off. It is the only
+speech-to-text engine; the former faster-whisper/Python path was removed. Enabling it
+does not download a model or open the microphone. Global hotkeys start blank and
+register only after the user configures them.
 
 ## Implementation
 
@@ -27,19 +27,33 @@ and register only after the user configures them.
   batch models are intentionally absent. Downloaded models have their own
   licenses, linked on each card; they are not relicensed under Roxy's MIT license.
 - Settings are normalized in a dedicated SQLite `voice` row; there is no schema
-  migration. Models live under `userData/voice-models`, not the signed app bundle.
+  migration. Until that row is first saved, hold-to-talk, auto-send and wake word
+  values are read from the removed faster-whisper settings keys. Models live under
+  `userData/voice-models`, not the signed app bundle.
 - Two optional Electron accelerators both toggle recording. Registration is
-  transactional: failures preserve old shortcuts. This is not Handy's native
-  hold-to-talk/hybrid/modifier-only hook implementation.
-- Recording is bound to one main app window and one recording UUID. Transcripts
+  transactional: failures preserve old shortcuts. Hold-to-talk (default Alt+V) is
+  an in-window key listener, so it works in the main window and overlay but not
+  while Roxy is unfocused.
+- Auto-send submits the draft when a dictation finishes with text. With it on, a
+  mic click (and every wake-word dictation) uses auto-stop: an energy gate ends the
+  recording after 1.5 s of silence following speech, or after 8 s of none.
+- Recording is bound to the window that started it and one recording UUID. Transcripts
   are revisioned snapshots, not appended deltas. Only the verified voice-owned
   input range changes. Typing, sending, route changes, unmounting, disable,
   suspend/lock, renderer loss, and reset cancel it. Already displayed text stays.
 - Missing selected microphone falls back to the current system default; the
   user's preference is retained. Default devices are resolved on every start.
   Devices are explicitly refreshed in Settings rather than continuously polled.
-- Capture is on-demand, not always-on. Five seconds of outstanding PCM bounds
-  slow inference; dictation stops after ten minutes. No transcript/audio logging.
+- Dictation capture is on-demand. Five seconds of outstanding PCM bounds slow
+  inference; dictation stops after ten minutes. No transcript/audio logging.
+- Listeners (`voice.listen`) are the exception: the wake word (main window) and the
+  VTuber voice conversation keep the microphone open. An adaptive energy gate with
+  300 ms pre-roll feeds the recognizer only during speech and finishes an utterance
+  after 700 ms of silence (15 s max); each utterance goes back to its window as text.
+  Only the newest listener holds the mic, dictation preempts all of them, and they
+  release it while suspended or locked. Wake phrases are matched in the renderer
+  (`matchWakeWord`): a phrase with a request fills the draft, a bare phrase starts an
+  auto-stopping dictation.
 - The mic spinner is the primary startup/finishing feedback. Routine listening
   text is hidden. Startup/finishing text appears above the input only after two
   seconds in that phase; errors and microphone fallback remain immediate.

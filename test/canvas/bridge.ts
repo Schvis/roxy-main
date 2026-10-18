@@ -82,19 +82,6 @@ CanvasRenderingContext2D.prototype.fillText = function (text: string, ...args: n
   Reflect.apply(fillText, this, [text, ...args])
 }
 window.roxy = {
-  stt: {
-    setRecordingState: async () => {},
-    onStartRecording: () => () => {},
-    onStopRecording: () => () => {},
-    transcribe: async () => ({ text: '' }),
-    getStatus: async () => ({ installed: true }),
-    installDependencies: async () => ({ ok: true, log: '' }),
-    onInstallProgress: () => () => {},
-    getInstalledModels: async () => [],
-    downloadModel: async () => ({ ok: true }),
-    onDownloadProgress: () => () => {},
-    setShortcutPaused: async () => {}
-  },
   tts: {
     getStatus: async () => ({ installed: true, running: false }),
     install: async () => ({ ok: true, log: '' }),

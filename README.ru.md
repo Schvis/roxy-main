@@ -38,29 +38,29 @@ Roxy — приложение на [Electron](https://www.electronjs.org/), на
 - **Поддержка множества провайдеров и кастомных эндпоинтов** — Нативная поддержка OpenAI, Copilot (с автоматическим обновлением токенов), Anthropic, Google Gemini через Vercel AI SDK, локальных моделей и кастомных эндпоинтов генерации изображений.
 - **Встроенная IDE и операции Git** — Встроенный редактор кода с подсветкой синтаксиса (Shiki), построчной индикацией различий (diff), визуальным разрешением конфликтов слияния, интерактивным графом коммитов Git и управлением многорепозиторными рабочими пространствами.
 - **Встроенный терминал** — Аппаратно-ускоренный эмулятор терминала на базе `@xterm/xterm` и `node-pty` с поддержкой постоянных сессий оболочки, отдельных всплывающих окон и истории команд.
-- **Live2D-компаньон и синтез речи** — Интерактивный аватар Live2D Рокси Мигурдия с анимированной мимикой и реакциями (поглаживание по голове / взаимодействие с грудью), дополненный офлайн-TTS RVC (Retrieval-based Voice Conversion) v2 с GPU-ускорением, голосовым вводом STT faster-whisper или облачным голосом Fish Audio.
+- **Live2D-компаньон и синтез речи** — Интерактивный аватар Live2D Рокси Мигурдия с анимированной мимикой и реакциями (поглаживание по голове / взаимодействие с грудью), дополненный офлайн-TTS RVC (Retrieval-based Voice Conversion) v2 с GPU-ускорением, голосовым вводом STT sherpa-onnx или облачным голосом Fish Audio.
 - **Удалённое рабочее пространство и мобильный релей** — Сопряжение со смартфоном или планшетом по QR-коду и PIN-коду без передачи кода через сторонние сервисы; по умолчанию `https://roxy.schvis.com` (настраивается через `ROXY_REMOTE_BASE`), с поддержкой автономного локального релей-сервера на базе Next.js App Router в `remote-server/` (не коммитится / игнорируется git).
 - **Экосистема и расширяемость** — Клиент Model Context Protocol (MCP) + Windows MCP, обратная связь по диагностике Language Server Protocol (LSP), исполнитель навыков `SKILL.md`, постоянная автоматизация браузера Chromium и Discord Rich Presence.
 - **Полная интернационализация** — Полная локализация интерфейса на 10 языков (арабский, немецкий, английский, испанский, французский, хинди, японский, португальский, русский, китайский), синхронизируемая с помощью автоматизированных инструментов.
 
 ## Технологический стек
 
-| Слой                  | Решение                                                           |
-| --------------------- | ----------------------------------------------------------------- |
-| Настольное приложение | Electron 33                                                       |
-| Сборщик               | electron-vite (Vite 5)                                            |
-| Интерфейс             | React 18 + TypeScript                                             |
-| Стилизация            | Tailwind CSS v4                                                   |
-| Модели и инструменты  | Vercel AI SDK (Anthropic, Google) + нативные OpenAI, Copilot SSE  |
-| Терминал              | @xterm/xterm 6 + node-pty                                         |
-| Просмотр кода и diff  | Shiki + diff                                                      |
-| Интеграции            | Model Context Protocol (MCP) SDK, LSP, Discord RPC                |
-| Голосовой движок      | Локальный RVC v2 (PyTorch/CUDA) + faster-whisper + Fish Audio API |
-| Компаньон             | Live2D Cubism Core                                                |
-| Хранилище             | better-sqlite3                                                    |
-| Упаковка              | electron-builder                                                  |
-| Локализация           | i18next + react-i18next (10 языков)                               |
-| Форматирование        | Prettier                                                          |
+| Слой                  | Решение                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| Настольное приложение | Electron 33                                                      |
+| Сборщик               | electron-vite (Vite 5)                                           |
+| Интерфейс             | React 18 + TypeScript                                            |
+| Стилизация            | Tailwind CSS v4                                                  |
+| Модели и инструменты  | Vercel AI SDK (Anthropic, Google) + нативные OpenAI, Copilot SSE |
+| Терминал              | @xterm/xterm 6 + node-pty                                        |
+| Просмотр кода и diff  | Shiki + diff                                                     |
+| Интеграции            | Model Context Protocol (MCP) SDK, LSP, Discord RPC               |
+| Голосовой движок      | Локальный RVC v2 (PyTorch/CUDA) + sherpa-onnx + Fish Audio API   |
+| Компаньон             | Live2D Cubism Core                                               |
+| Хранилище             | better-sqlite3                                                   |
+| Упаковка              | electron-builder                                                 |
+| Локализация           | i18next + react-i18next (10 языков)                              |
+| Форматирование        | Prettier                                                         |
 
 ## Структура проекта
 
@@ -76,14 +76,13 @@ roxy/
 ├── script/                 # Скрипты настройки, демоны TTS/STT, перевод i18n и упаковка
 │   ├── rvc_tts_server.py   # Демон локального вывода GPU RVC TTS (порт 5050)
 │   ├── setup_tts_env.py    # Автоматический установщик окружения Python и зависимостей CUDA
-│   ├── transcribe.py       # Исполнитель распознавания речи STT faster-whisper
 │   ├── i18n-sync.mjs       # Синхронизатор каталогов для default.json
 │   └── i18n-translate.mjs  # Запуск машинного перевода через OpenRouter
 ├── src/
 │   ├── main/               # Основной процесс Electron (Node.js)
 │   │   ├── index.ts        # Жизненный цикл приложения, создание окон, запуск сервисов
 │   │   ├── harness/        # Цикл агента: agent.ts (цикл ходов, схемы инструментов), tools.ts (диспетчеризация)
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # Хранилище better-sqlite3: схема, миграции, слой репозитория
 │   │   └── ipc/            # Обработчики ipcMain, связывающие рендерер с harness и сервисами
 │   ├── preload/            # Безопасный мост между основным процессом и рендерером (window.api)
@@ -177,7 +176,7 @@ npm run tts:server
 
 - **Аватар Live2D** — Отрисовывается через Cubism Core в [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) и [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) с интерактивной физикой, триггерами эмоций и синхронизацией губ со звуком.
 - **Вывод RVC v2** — Локальный Python-демон [`script/rvc_tts_server.py`](script/rvc_tts_server.py) объединяет генерацию edge-tts с преобразованием высоты тона и тембра на локальном GPU с помощью чекпоинтов в `RoxyMigurdia/`.
-- **Распознавание речи (STT)** — [`src/main/services/stt.ts`](src/main/services/stt.ts) захватывает голосовые подсказки и транскрибирует их локально с помощью faster-whisper ([`script/transcribe.py`](script/transcribe.py)).
+- **Распознавание речи (STT)** — [`src/main/services/voice.ts`](src/main/services/voice.ts) в потоковом режиме обрабатывает диктовку, слово активации «Hey Roxy» и голосовой разговор с VTuber с помощью локальной модели sherpa-onnx; звук никогда не покидает компьютер.
 
 ### Удалённое рабочее пространство
 

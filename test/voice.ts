@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict'
-import { DEFAULT_VOICE, VOICE_MODELS, mergeVoiceDraft, normalizeVoice } from '../src/shared/voice'
+import {
+  DEFAULT_VOICE,
+  DEFAULT_WAKE_WORDS,
+  VOICE_MODELS,
+  matchWakeWord,
+  mergeVoiceDraft,
+  normalizeVoice
+} from '../src/shared/voice'
 
 for (const value of [undefined, null, false, '', {}, { enabled: 'true' }, { enabled: 1 }]) {
   assert.equal(normalizeVoice(value).enabled, false)
@@ -62,6 +69,38 @@ assert.equal(
   'draft \u4f60\u597d'
 )
 assert.equal(mergeVoiceDraft('short', { start: 99, text: '' }, 'voice'), null)
+
+// Hands-free settings default off; wake phrases are bounded and never empty.
+assert.equal(normalizeVoice(null).autoSend, false)
+assert.equal(normalizeVoice(null).wakeWord, false)
+assert.equal(normalizeVoice(null).holdKey, 'Alt+V')
+assert.equal(normalizeVoice({ holdKey: '' }).holdKey, '')
+assert.deepEqual(normalizeVoice({ wakeWords: [] }).wakeWords, DEFAULT_WAKE_WORDS)
+assert.deepEqual(normalizeVoice({ wakeWords: [' Hey Jarvis ', 'hey jarvis', 4] }).wakeWords, [
+  'hey jarvis'
+])
+assert.equal(
+  normalizeVoice({ wakeWords: Array.from({ length: 50 }, (_, i) => `w${i}`) }).wakeWords.length,
+  20
+)
+assert(normalizeVoice(null).wakeWords !== DEFAULT_WAKE_WORDS, 'Defaults are copied, not shared')
+
+assert.deepEqual(matchWakeWord('Hey Roxy, what is the weather in Paris?'), {
+  matched: true,
+  query: 'what is the weather in Paris?'
+})
+assert.deepEqual(matchWakeWord('hey roxy'), { matched: true, query: '' })
+assert.deepEqual(matchWakeWord('Roxy roxy, run tests.'), { matched: true, query: 'run tests.' })
+assert.deepEqual(matchWakeWord('Um, hey Rocky open the file'), {
+  matched: true,
+  query: 'open the file'
+})
+assert.deepEqual(matchWakeWord('hey jarvis do it', ['hey jarvis']), {
+  matched: true,
+  query: 'do it'
+})
+assert.equal(matchWakeWord('hello there').matched, false)
+assert.equal(matchWakeWord('').matched, false)
 console.log(
-  'VOICE OK: default-off normalization, streaming catalog, revision snapshots, range conflicts and Unicode'
+  'VOICE OK: default-off normalization, streaming catalog, revision snapshots, range conflicts, Unicode, wake phrases'
 )

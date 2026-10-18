@@ -38,7 +38,7 @@ Roxy は **TypeScript** で書かれ、**React** の画面を備えた [Electron
 - **マルチプロバイダーとカスタムエンドポイント** — OpenAI、Copilot（自動トークンリフレッシュ対応）、Anthropic、Vercel AI SDK 経由の Google Gemini、ローカルモデル、カスタム画像生成エンドポイントのネイティブサポート。
 - **内蔵 IDE と Git 操作** — シンタックスハイライト（Shiki）、行ごとの diff 装飾、ビジュアルなマージコンフリクト解決機能、インタラクティブな Git コミットグラフ、マルチリポジトリのワークスペース管理を備えた内蔵コードエディタ。
 - **内蔵ターミナル** — `@xterm/xterm` と `node-pty` によるハードウェアアクセラレーション対応ターミナルエミュレーター。永続シェルセッション、独立ポップアウト、コマンド履歴をサポート。
-- **Live2D パートナーと音声合成** — アニメーション表情やリアクション（頭なで／胸タッチ反応）を備えたロキシー・ミグルディアのインタラクティブな Live2D アバター。オフライン GPU 加速 RVC (Retrieval-based Voice Conversion) v2 TTS、faster-whisper STT 音声入力、または Fish Audio クラウド音声を連携。
+- **Live2D パートナーと音声合成** — アニメーション表情やリアクション（頭なで／胸タッチ反応）を備えたロキシー・ミグルディアのインタラクティブな Live2D アバター。オフライン GPU 加速 RVC (Retrieval-based Voice Conversion) v2 TTS、sherpa-onnx STT 音声入力、または Fish Audio クラウド音声を連携。
 - **リモートワークスペースとモバイル中継** — サードパーティを介さずに QR コードと PIN でスマートフォンやタブレットとペアリング可能。デフォルトは `https://roxy.schvis.com`（`ROXY_REMOTE_BASE` で変更可能）、`remote-server/` 内のスタンドアロンなセルフホスト Next.js App Router リレーサーバーもサポート（未コミット／git-ignore 対象）。
 - **エコシステムと拡張性** — Model Context Protocol (MCP) クライアント + Windows MCP、Language Server Protocol (LSP) 診断フィードバック、`SKILL.md` スキルランナー、永続 Chromium ブラウザ自動化、Discord Rich Presence。
 - **完全な多言語対応** — 10 言語（アラビア語、ドイツ語、英語、スペイン語、フランス語、ヒンディー語、日本語、ポルトガル語、ロシア語、中国語）にわたる完全な UI ローカライゼーションを自動化ツールで同期。
@@ -55,7 +55,7 @@ Roxy は **TypeScript** で書かれ、**React** の画面を備えた [Electron
 | ターミナル         | @xterm/xterm 6 + node-pty                                          |
 | コード & Diff      | Shiki + diff                                                       |
 | 連携               | Model Context Protocol (MCP) SDK, LSP, Discord RPC                 |
-| 音声エンジン       | ローカル RVC v2 (PyTorch/CUDA) + faster-whisper + Fish Audio API   |
+| 音声エンジン       | ローカル RVC v2 (PyTorch/CUDA) + sherpa-onnx + Fish Audio API      |
 | パートナー         | Live2D Cubism Core                                                 |
 | ストレージ         | better-sqlite3                                                     |
 | パッケージング     | electron-builder                                                   |
@@ -76,14 +76,13 @@ roxy/
 ├── script/                 # セットアップスクリプト、TTS/STT デーモン、i18n 翻訳・パッケージング
 │   ├── rvc_tts_server.py   # ローカル GPU RVC TTS 推論デーモン（ポート 5050）
 │   ├── setup_tts_env.py    # Python 環境および CUDA 依存関係の自動インストーラー
-│   ├── transcribe.py       # faster-whisper STT 音声認識ランナー
 │   ├── i18n-sync.mjs       # default.json 用カタログ同期ツール
 │   └── i18n-translate.mjs  # OpenRouter を利用した機械翻訳ランナー
 ├── src/
 │   ├── main/               # Electron メインプロセス (Node.js)
 │   │   ├── index.ts        # アプリのライフサイクル、ウィンドウ作成、サービス起動
 │   │   ├── harness/        # エージェントループ：agent.ts（ターンループ、ツールスキーマ）、tools.ts（ディスパッチ）
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # better-sqlite3 ストア：スキーマ、マイグレーション、リポジトリ層
 │   │   └── ipc/            # レンダラーとハーネス／サービスを繋ぐ ipcMain ハンドラー
 │   ├── preload/            # メインとレンダラー間の安全なブリッジ (window.api)
@@ -177,7 +176,7 @@ npm run tts:server
 
 - **Live2D アバター** — [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) および [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) 内で Cubism Core を介してレンダリングされ、インタラクティブな物理演算、表情トリガー、音声リップシンクを備えています。
 - **RVC v2 推論** — ローカル Python デーモン [`script/rvc_tts_server.py`](script/rvc_tts_server.py) が edge-tts 生成と、`RoxyMigurdia/` 内のチェックポイントを使用したローカル GPU ピッチ/声質変換を組み合わせます。
-- **音声認識 (STT)** — [`src/main/services/stt.ts`](src/main/services/stt.ts) が音声入力を取得し、faster-whisper（[`script/transcribe.py`](script/transcribe.py)）を使用してローカルで文字起こしを行います。
+- **音声認識 (STT)** — [`src/main/services/voice.ts`](src/main/services/voice.ts) がローカルの sherpa-onnx モデルで音声入力、ウェイクワード「Hey Roxy」、VTuber との音声会話をストリーミング処理します。音声が外部に送信されることはありません。
 
 ### リモートワークスペース
 

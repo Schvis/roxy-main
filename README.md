@@ -45,7 +45,7 @@ control, persistent scheduled bots, and native terminals.
 - **Integrated IDE & Git Operations** — Built-in code editor with syntax highlighting (Shiki), line diff decorations, visual merge conflict solver, interactive git commit graph, and multi-repo workspace management.
 - **Embedded Terminal** — Hardware-accelerated terminal emulator powered by `@xterm/xterm` and `node-pty` supporting persistent shell sessions, standalone popouts, and command history.
 - **Persistent Bots** — Top-level bot chats with saved roles, explicit project-session handoffs, message queues, and interval or cron schedules. Bots run through the desktop harness while Roxy is running; see [Bots](BOTS.md).
-- **Live2D Companion & Voice Synthesis** — Interactive Roxy Migurdia Live2D avatar with animated expressions and reactions (headpat/chest interactions), coupled with offline GPU-accelerated RVC (Retrieval-based Voice Conversion) v2 TTS, faster-whisper STT voice input, or Fish Audio cloud voice.
+- **Live2D Companion & Voice Synthesis** — Interactive Roxy Migurdia Live2D avatar with animated expressions and reactions (headpat/chest interactions), coupled with offline GPU-accelerated RVC (Retrieval-based Voice Conversion) v2 TTS, sherpa-onnx STT voice input, or Fish Audio cloud voice.
 - **Remote Workspace & Mobile Relay** — Pair with a phone or tablet via QR code and PIN without routing code through third parties; defaults to `https://roxy.schvis.com` (configurable via `ROXY_REMOTE_BASE`), with support for a standalone self-hosted Next.js App Router relay server in `remote-server/` (uncommitted / git-ignored).
 - **Ecosystem & Extensibility** — Model Context Protocol (MCP) client + Windows MCP, Language Server Protocol (LSP) diagnostics feedback, `SKILL.md` skill runner, persistent Chromium browser automation, and Discord Rich Presence.
 - **Full Internationalization** — Complete UI localization across 10 languages (Arabic, German, English, Spanish, French, Hindi, Japanese, Portuguese, Russian, Chinese) synchronized via automated tooling.
@@ -63,7 +63,7 @@ control, persistent scheduled bots, and native terminals.
 | Terminal              | @xterm/xterm 6 + node-pty                                      |
 | Code & Diff Viewers   | Shiki + diff                                                   |
 | Integrations          | Model Context Protocol (MCP) SDK, LSP, Discord RPC             |
-| Voice Engine          | Local RVC v2 (PyTorch/CUDA) + faster-whisper + Fish Audio API  |
+| Voice Engine          | Local RVC v2 (PyTorch/CUDA) + sherpa-onnx + Fish Audio API     |
 | Companion             | Live2D Cubism Core                                             |
 | Storage               | better-sqlite3                                                 |
 | Packaging             | electron-builder                                               |
@@ -84,7 +84,6 @@ roxy/
 ├── script/                 # Setup scripts, TTS/STT daemons, i18n translation & packaging
 │   ├── rvc_tts_server.py   # Local GPU RVC TTS inference daemon (port 5050)
 │   ├── setup_tts_env.py    # Automated Python environment and CUDA dependency installer
-│   ├── transcribe.py       # faster-whisper STT voice recognition runner
 │   ├── i18n-sync.mjs       # Catalog synchronizer for default.json
 │   └── i18n-translate.mjs  # Machine translation runner via OpenRouter
 ├── src/
@@ -267,8 +266,8 @@ The main process runs a single provider-agnostic agent loop; the renderer only s
   macOS retains its standard close-window-without-quitting behavior.
 - **RVC v2 Inference** — Local Python daemon [`script/rvc_tts_server.py`](script/rvc_tts_server.py)
   combines edge-tts generation with local GPU pitch/timbre conversion using checkpoints in `RoxyMigurdia/`.
-- **Speech-to-Text** — [`src/main/services/stt.ts`](src/main/services/stt.ts) captures voice prompts and
-  transcribes locally using faster-whisper ([`script/transcribe.py`](script/transcribe.py)).
+- **Speech-to-Text** — [`src/main/services/voice.ts`](src/main/services/voice.ts) streams dictation, the "Hey Roxy" wake word
+  and VTuber voice conversation through a local sherpa-onnx model; audio never leaves the machine.
 
 ### Bots
 

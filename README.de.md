@@ -38,7 +38,7 @@ Roxy ist eine mit **TypeScript** entwickelte [Electron](https://www.electronjs.o
 - **Multi-Provider & benutzerdefinierte Endpunkte** — Native Unterstützung für OpenAI, Copilot (mit automatischer Token-Aktualisierung), Anthropic, Google Gemini über Vercel AI SDK, lokale Modelle und benutzerdefinierte Bildgenerierungs-Endpunkte.
 - **Integrierte IDE & Git-Operationen** — Integrierter Code-Editor mit Syntax-Highlighting (Shiki), Zeilen-Diff-Markierungen, visuellem Merge-Konfliktlöser, interaktivem Git-Commit-Graphen und Multi-Repo-Arbeitsbereichsverwaltung.
 - **Eingebettetes Terminal** — Hardwarebeschleunigter Terminal-Emulator auf Basis von `@xterm/xterm` und `node-pty` mit Unterstützung für persistente Shell-Sitzungen, separate Popouts und Befehlsverlauf.
-- **Live2D-Begleiterin & Sprachsynthese** — Interaktiver Roxy Migurdia Live2D-Avatar mit animierten Gesichtsausdrücken und Reaktionen (Kopftäscheln / Brustinteraktionen), gekoppelt mit lokaler GPU-beschleunigter RVC (Retrieval-based Voice Conversion) v2 TTS, faster-whisper STT-Spracheingabe oder Fish Audio Cloud-Stimme.
+- **Live2D-Begleiterin & Sprachsynthese** — Interaktiver Roxy Migurdia Live2D-Avatar mit animierten Gesichtsausdrücken und Reaktionen (Kopftäscheln / Brustinteraktionen), gekoppelt mit lokaler GPU-beschleunigter RVC (Retrieval-based Voice Conversion) v2 TTS, sherpa-onnx STT-Spracheingabe oder Fish Audio Cloud-Stimme.
 - **Remote Workspace & Mobile Relay** — Kopplung mit Smartphone oder Tablet via QR-Code und PIN ohne Routing von Code über Dritte; standardmäßig `https://roxy.schvis.com` (konfigurierbar über `ROXY_REMOTE_BASE`), mit Unterstützung für einen eigenständigen, selbst gehosteten Next.js App Router Relay-Server in `remote-server/` (nicht committet / von git ignoriert).
 - **Ökosystem & Erweiterbarkeit** — Model Context Protocol (MCP) Client + Windows MCP, Language Server Protocol (LSP) Diagnose-Feedback, `SKILL.md`-Skill-Runner, persistente Chromium-Browser-Automatisierung und Discord Rich Presence.
 - **Vollständige Internationalisierung** — Komplette UI-Lokalisierung für 10 Sprachen (Arabisch, Deutsch, Englisch, Spanisch, Französisch, Hindi, Japanisch, Portugiesisch, Russisch, Chinesisch), synchronisiert über automatisierte Werkzeuge.
@@ -55,7 +55,7 @@ Roxy ist eine mit **TypeScript** entwickelte [Electron](https://www.electronjs.o
 | Terminal       | @xterm/xterm 6 + node-pty                                       |
 | Code & Diff    | Shiki + diff                                                    |
 | Integrationen  | Model Context Protocol (MCP) SDK, LSP, Discord RPC              |
-| Sprach-Engine  | Lokales RVC v2 (PyTorch/CUDA) + faster-whisper + Fish Audio API |
+| Sprach-Engine  | Lokales RVC v2 (PyTorch/CUDA) + sherpa-onnx + Fish Audio API    |
 | Begleiterin    | Live2D Cubism Core                                              |
 | Datenspeicher  | better-sqlite3                                                  |
 | Paketierung    | electron-builder                                                |
@@ -76,14 +76,13 @@ roxy/
 ├── script/                 # Setup-Skripte, TTS/STT-Dienste, i18n-Übersetzung & Paketierung
 │   ├── rvc_tts_server.py   # Lokaler GPU RVC TTS Inferenz-Dienst (Port 5050)
 │   ├── setup_tts_env.py    # Automatischer Python-Umgebungs- und CUDA-Installer
-│   ├── transcribe.py       # faster-whisper STT Spracherkennungs-Runner
 │   ├── i18n-sync.mjs       # Katalog-Synchronisierer für default.json
 │   └── i18n-translate.mjs  # Maschineller Übersetzungs-Runner über OpenRouter
 ├── src/
 │   ├── main/               # Electron-Hauptprozess (Node.js)
 │   │   ├── index.ts        # App-Lebenszyklus, Fenstererstellung, Dienststart
 │   │   ├── harness/        # Agentenschleife: agent.ts (Turn-Loop, Schemas), tools.ts (Dispatch)
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # better-sqlite3 Speicher: Schema, Migrationen, Repository-Schicht
 │   │   └── ipc/            # ipcMain-Handler zur Verbindung von Renderer mit Harness und Diensten
 │   ├── preload/            # Sichere Brücke zwischen Main und Renderer (window.api)
@@ -177,7 +176,7 @@ Der Hauptprozess führt eine einzelne, anbieterunabhängige Agentenschleife aus;
 
 - **Live2D-Avatar** — Gerendert über Cubism Core in [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) und [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) mit interaktiver Physik, Ausdrucksauslösern und Audio-Lippensynchronisation.
 - **RVC v2 Inferenz** — Lokaler Python-Dienst [`script/rvc_tts_server.py`](script/rvc_tts_server.py) kombiniert edge-tts-Generierung mit lokaler GPU-Tonhöhen-/Klangfarbenkonvertierung anhand von Checkpoints in `RoxyMigurdia/`.
-- **Spracherkennung (STT)** — [`src/main/services/stt.ts`](src/main/services/stt.ts) erfasst Spracheingaben und transkribiert sie lokal über faster-whisper ([`script/transcribe.py`](script/transcribe.py)).
+- **Spracherkennung (STT)** — [`src/main/services/voice.ts`](src/main/services/voice.ts) streamt Diktat, das Weckwort „Hey Roxy“ und VTuber-Sprachgespräche über ein lokales sherpa-onnx-Modell; Audio verlässt nie den Rechner.
 
 ### Remote-Arbeitsbereich
 

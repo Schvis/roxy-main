@@ -40,7 +40,7 @@ Roxy هو تطبيق [Electron](https://www.electronjs.org/) مكتوب بلغة
 - **مزودون متعددون ونقاط نهاية مخصصة** — دعم أصلي لـ OpenAI وCopilot (مع تحديث تلقائي للرموز المميزة) وAnthropic وGoogle Gemini عبر Vercel AI SDK، والنماذج المحلية، ونقاط نهاية مخصصة لتوليد الصور.
 - **بيئة تطوير مدمجة وعمليات Git** — محرر شفرة مدمج مع تمييز الصيغة (Shiki)، وزخارف الفروق بين الأسطر (diff)، وحلال مرئي لتعارضات الدمج، ورسم بياني تفاعلي لالتزامات Git، وإدارة مساحات عمل متعددة المستودعات.
 - **محطة طرفية مدمجة** — محاكي طرفية مسرّع بالعتاد مدعوم بـ `@xterm/xterm` و`node-pty` يدعم جلسات شل الدائمة، والنوافذ المنبثقة المستقلة، وسجل الأوامر.
-- **رفيقة Live2D وتوليد صوتي** — شخصية تفاعلية Live2D لـ Roxy Migurdia بتعبيرات وردود فعل متحركة (تفاعلات التربيت على الرأس / الصدر)، مقترنة بتحويل صوتي محلي غير متصل RVC (Retrieval-based Voice Conversion) v2 مسرّع بالـ GPU عبر TTS، وإدخال صوتي STT عبر faster-whisper، أو أصوات سحابية عبر Fish Audio.
+- **رفيقة Live2D وتوليد صوتي** — شخصية تفاعلية Live2D لـ Roxy Migurdia بتعبيرات وردود فعل متحركة (تفاعلات التربيت على الرأس / الصدر)، مقترنة بتحويل صوتي محلي غير متصل RVC (Retrieval-based Voice Conversion) v2 مسرّع بالـ GPU عبر TTS، وإدخال صوتي STT عبر sherpa-onnx، أو أصوات سحابية عبر Fish Audio.
 - **مساحة عمل بعيدة وترحيل للهاتف** — اقتران مع الهاتف أو الجهاز اللوحي عبر رمز QR ورمز PIN دون توجيه الشفرة عبر أطراف ثالثة؛ افتراضياً عبر `https://roxy.schvis.com` (قابل للتهيئة عبر `ROXY_REMOTE_BASE`)، مع دعم خادم ترحيل Next.js App Router مستقل ومستضاف ذاتياً في `remote-server/` (غير مضمن / مهمل بواسطة git).
 - **المنظومة وقابلية التوسيع** — عميل بروتوكول سياق النموذج (MCP) + Windows MCP، وتغذية راجعة لتشخيصات بروتوكول خادم اللغة (LSP)، ومشغّل مهارات `SKILL.md`، وأتمتة متصفح Chromium الدائمة، وDiscord Rich Presence.
 - **تدويل كامل** — توطين شامل للواجهة عبر 10 لغات (العربية، الألمانية، الإنجليزية، الإسبانية، الفرنسية، الهندية، اليابانية، البرتغالية، الروسية، الصينية) متزامن عبر أدوات مؤتمتة.
@@ -57,7 +57,7 @@ Roxy هو تطبيق [Electron](https://www.electronjs.org/) مكتوب بلغة
 | المحطة الطرفية           | @xterm/xterm 6 + node-pty                                           |
 | عارض الشفرة والفروق      | Shiki + diff                                                        |
 | التكاملات                | حزمة أدوات Model Context Protocol (MCP)، LSP، Discord RPC           |
-| محرك الصوت               | RVC v2 محلي (PyTorch/CUDA) + faster-whisper + واجهة Fish Audio      |
+| محرك الصوت               | RVC v2 محلي (PyTorch/CUDA) + sherpa-onnx + واجهة Fish Audio         |
 | الرفيقة                  | Live2D Cubism Core                                                  |
 | التخزين                  | better-sqlite3                                                      |
 | الحزم                    | electron-builder                                                    |
@@ -78,14 +78,13 @@ roxy/
 ├── script/                 # نصوص الإعداد وخوادم TTS/STT وترجمة i18n والتحزيم
 │   ├── rvc_tts_server.py   # خادم استدلال RVC TTS محلي بمعالج الرسوميات (منفذ 5050)
 │   ├── setup_tts_env.py    # مثبت تلقائي لبيئة Python واعتماديات CUDA
-│   ├── transcribe.py       # مشغّل التعرف الصوتي STT عبر faster-whisper
 │   ├── i18n-sync.mjs       # أداة مزامنة الكتالوج لـ default.json
 │   └── i18n-translate.mjs  # مشغّل الترجمة الآلية عبر OpenRouter
 ├── src/
 │   ├── main/               # عملية Electron الرئيسية (Node.js)
 │   │   ├── index.ts        # دورة حياة التطبيق وإنشاء النوافذ وبدء الخدمات
 │   │   ├── harness/        # حلقة الوكيل: agent.ts (حلقة الجولات، مخططات الأدوات)، tools.ts (التوزيع)
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # تخزين better-sqlite3: المخطط، الترحيلات، طبقة المستودع
 │   │   └── ipc/            # معالجات ipcMain التي تربط المفسر ببيئة الوكيل والخدمات
 │   ├── preload/            # جسر آمن بين العملية الرئيسية والواجهة (window.api)
@@ -179,7 +178,7 @@ npm run tts:server
 
 - **شخصية Live2D** — تُعرض عبر Cubism Core في [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) و[`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) بفيزياء تفاعلية ومحفزات للتعبيرات ومزامنة لحركة الشفاه مع الصوت.
 - **استدلال RVC v2** — يجمع الخادم المحلي بلغة Python في [`script/rvc_tts_server.py`](script/rvc_tts_server.py) بين توليد edge-tts والتحويل الصوتي للنبرة والجرس عبر معالج الرسوميات المحلي باستخدام نقاط الفحص في `RoxyMigurdia/`.
-- **تحويل الكلام إلى نص (STT)** — يلتقط [`src/main/services/stt.ts`](src/main/services/stt.ts) المطالبات الصوتية ويحولها إلى نص محلياً باستخدام faster-whisper ([`script/transcribe.py`](script/transcribe.py)).
+- **تحويل الكلام إلى نص (STT)** — يبث [`src/main/services/voice.ts`](src/main/services/voice.ts) الإملاء الصوتي وكلمة التنبيه "Hey Roxy" ومحادثة VTuber الصوتية عبر نموذج sherpa-onnx محلي؛ ولا يغادر الصوت جهازك أبداً.
 
 ### مساحة العمل البعيدة
 

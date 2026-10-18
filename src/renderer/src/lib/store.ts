@@ -287,15 +287,7 @@ interface RoxyStore {
   setOverlayMode: (enabled: boolean) => Promise<void>
   setIdeMode: (enabled: boolean) => Promise<void>
   setOverlayKeybind: (keybind: string) => Promise<void>
-  setVoiceKeybind: (keybind: string) => Promise<void>
   setUserProfile: (profile: { name: string; avatar: string }) => Promise<void>
-  setVoiceAutoSend: (enabled: boolean) => Promise<void>
-  setVoiceLang: (lang: string) => Promise<void>
-  setVoiceModel: (model: string) => Promise<void>
-  setVoiceSttConfig: (config: Parameters<typeof api.settings.setVoiceSttConfig>[0]) => Promise<void>
-  setVoiceInputDevice: (deviceId: string) => Promise<void>
-  setVoiceWakeWord: (enabled: boolean) => Promise<void>
-  setVoiceWakeWords: (words: string[]) => Promise<void>
   setActivePromptId: (id: string | null) => Promise<void>
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
   setBranchPrefix: (prefix: string) => Promise<void>
@@ -2339,48 +2331,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
-  setVoiceKeybind: async (keybind) => {
-    const settings = await api.settings.setVoiceKeybind(keybind)
-    set({ settings })
-  },
-
   setUserProfile: async (profile) => {
     const settings = await api.settings.setUserProfile(profile)
-    set({ settings })
-  },
-
-  setVoiceAutoSend: async (enabled) => {
-    const settings = await api.settings.setVoiceAutoSend(enabled)
-    set({ settings })
-  },
-
-  setVoiceLang: async (lang) => {
-    const settings = await api.settings.setVoiceLang(lang)
-    set({ settings })
-  },
-
-  setVoiceModel: async (model) => {
-    const settings = await api.settings.setVoiceModel(model)
-    set({ settings })
-  },
-
-  setVoiceSttConfig: async (config) => {
-    const settings = await api.settings.setVoiceSttConfig(config)
-    set({ settings })
-  },
-
-  setVoiceInputDevice: async (deviceId) => {
-    const settings = await api.settings.setVoiceInputDevice(deviceId)
-    set({ settings })
-  },
-
-  setVoiceWakeWord: async (enabled) => {
-    const settings = await api.settings.setVoiceWakeWord(enabled)
-    set({ settings })
-  },
-
-  setVoiceWakeWords: async (words) => {
-    const settings = await api.settings.setVoiceWakeWords(words)
     set({ settings })
   },
 

@@ -16,10 +16,8 @@ import {
   FileCode,
   Folder,
   Image as ImageIcon,
-  Loader2,
   LoaderCircle,
   Mic,
-  MicOff,
   Monitor,
   Plus,
   Square,
@@ -39,10 +37,7 @@ import {
 import { imageFilesFrom, readImageFile, type ComposerImage } from '../lib/images'
 import { api } from '../lib/api'
 import { ImagePreview } from './ImagePreview'
-import { AudioRecorder } from '../lib/audio-recorder'
-import { WakeWordListener, matchWakeWord } from '../lib/wake-word'
 import { useRoxyStore } from '../lib/store'
-import { matchesKeybindDown, matchesKeybindRelease } from '../lib/keybind'
 import { cn } from '../lib/cn'
 import { useMenuAnchor } from '../lib/useMenuAnchor'
 import { createContextAttachment } from '@shared/context'
@@ -86,10 +81,6 @@ export function Composer({
   variant?: 'session' | 'bot'
 }): JSX.Element {
   const { t } = useTranslation()
-  const voiceKeybind = useRoxyStore((s) => s.settings?.voiceKeybind ?? 'Alt+V')
-  const voiceAutoSend = useRoxyStore((s) => s.settings?.voiceAutoSend ?? false)
-  const voiceLang = useRoxyStore((s) => s.settings?.voiceLang ?? 'auto')
-  const voiceWakeWord = useRoxyStore((s) => s.settings?.voiceWakeWord ?? false)
   const draft = useRoxyStore((s) => s.composerDrafts[chatId])
   const value = draft?.value ?? ''
   const images = draft?.images ?? []
@@ -119,17 +110,12 @@ export function Composer({
     }))
   }
   const [dragging, setDragging] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const [isTranscribing, setIsTranscribing] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
-  const voice = useVoiceComposer(chatId, ref)
+  // Auto-send and wake phrases submit the draft the voice hook just wrote.
+  const sendRef = useRef<() => void>(() => {})
+  const voice = useVoiceComposer(chatId, ref, () => sendRef.current())
   const mirror = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const recorderRef = useRef<AudioRecorder | null>(null)
-  const wakeWordListenerRef = useRef<WakeWordListener | null>(null)
-  const isHoldingKeyRef = useRef(false)
-  const isRecordingRef = useRef(false)
-  const isTranscribingRef = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const overflowMenuRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(800)
@@ -222,9 +208,6 @@ export function Composer({
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const contextMenuAnchor = useMenuAnchor(contextMenuRef, contextMenuOpen, 240, { gap: 8 })
 
-  isRecordingRef.current = isRecording
-  isTranscribingRef.current = isTranscribing
-
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -280,12 +263,6 @@ export function Composer({
       window.removeEventListener('keydown', onKey)
     }
   }, [contextMenuOpen])
-
-  useEffect(() => {
-    return () => {
-      recorderRef.current?.cancel()
-    }
-  }, [])
 
   const handleAttachCurrentFile = (): void => {
     setContextMenuOpen(false)
@@ -430,6 +407,8 @@ export function Composer({
     }
   }
 
+  sendRef.current = () => void submit()
+
   useEffect(() => {
     // A direct send stays pending for the whole streamed turn. Unlock once the
     // turn starts so follow-ups can queue; already-running queue sends unlock
@@ -441,14 +420,10 @@ export function Composer({
   }, [sending])
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (isRecording || isTranscribing || isHoldingKeyRef.current) {
-      if (event.key === 'Escape' && isRecording) {
-        event.preventDefault()
-        isHoldingKeyRef.current = false
-        recorderRef.current?.cancel()
-        setIsRecording(false)
-      }
+    if (voice.holding) {
+      // Hold-to-talk owns the draft until release; Escape abandons it.
       event.preventDefault()
+      if (event.key === 'Escape') voice.interrupt()
       return
     }
     if (event.nativeEvent.isComposing) return
@@ -494,7 +469,7 @@ export function Composer({
   }
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
-    if (isRecording || isTranscribing || isHoldingKeyRef.current) {
+    if (voice.holding) {
       event.preventDefault()
       return
     }
@@ -556,211 +531,6 @@ export function Composer({
     })
     // A trailing newline is invisible in a div but real in a textarea.
     .concat(value.endsWith('\n') ? [<span key="pad">{'\u200b'}</span>] : [])
-
-  const startRecording = async (): Promise<void> => {
-    if (isRecordingRef.current || isTranscribingRef.current) return
-    try {
-      wakeWordListenerRef.current?.pause()
-      if (!recorderRef.current) {
-        recorderRef.current = new AudioRecorder()
-      }
-      await recorderRef.current.start({
-        silenceDetection: true,
-        silenceDurationMs: 1800,
-        onSilence: () => {
-          if (!isHoldingKeyRef.current && isRecordingRef.current) {
-            void stopRecordingAndTranscribe()
-          }
-        }
-      })
-      setIsRecording(true)
-      ref.current?.focus()
-    } catch (err) {
-      console.error('[STT] Microphone access error:', err)
-      setIsRecording(false)
-      wakeWordListenerRef.current?.resume()
-    }
-  }
-
-  const stopRecordingAndTranscribe = async (): Promise<void> => {
-    if (!isRecordingRef.current || isTranscribingRef.current) return
-    setIsRecording(false)
-    setIsTranscribing(true)
-    try {
-      const audioBuffer = await recorderRef.current?.stop()
-      if (audioBuffer) {
-        const currentSettings = useRoxyStore.getState().settings
-        const effectiveLang = currentSettings?.voiceLang ?? voiceLang
-        const shouldAutoSend = currentSettings?.voiceAutoSend ?? voiceAutoSend
-        const langParam = effectiveLang && effectiveLang !== 'auto' ? effectiveLang : undefined
-        const res = await api.stt.transcribe(audioBuffer, {
-          language: langParam,
-          task: 'transcribe'
-        })
-        if (res?.text) {
-          const transcribed = res.text.trim()
-          if (transcribed) {
-            if (shouldAutoSend) {
-              const currentVal = ref.current?.value.trimEnd() ?? value.trimEnd()
-              const fullText = currentVal ? `${currentVal} ${transcribed}` : transcribed
-              onSend(fullText, images.length ? images : undefined)
-              setValue('')
-              setImages([])
-              if (ref.current) ref.current.style.height = 'auto'
-            } else {
-              setValue((prev) => {
-                const trimmed = prev.trimEnd()
-                const updated = trimmed ? `${trimmed} ${transcribed}` : transcribed
-                requestAnimationFrame(syncMirrorScroll)
-                return updated
-              })
-              ref.current?.focus()
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[STT] Transcription error:', err)
-    } finally {
-      setIsTranscribing(false)
-      wakeWordListenerRef.current?.resume()
-    }
-  }
-
-  const toggleRecording = async (): Promise<void> => {
-    if (isRecording) {
-      await stopRecordingAndTranscribe()
-    } else {
-      await startRecording()
-    }
-  }
-
-  useEffect(() => {
-    void api.stt.setRecordingState(isRecording)
-  }, [isRecording])
-
-  useEffect(() => {
-    const unsubStart = api.stt.onStartRecording(() => {
-      if (!isRecordingRef.current && !isTranscribingRef.current) {
-        void startRecording()
-      }
-    })
-    const unsubStop = api.stt.onStopRecording(() => {
-      if (isRecordingRef.current) {
-        void stopRecordingAndTranscribe()
-      }
-    })
-    return () => {
-      unsubStart()
-      unsubStop()
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleKeyDown = (e: globalThis.KeyboardEvent): void => {
-      const currentKeybind = useRoxyStore.getState().settings?.voiceKeybind ?? voiceKeybind
-      if (!currentKeybind) return
-
-      if (isHoldingKeyRef.current) {
-        e.preventDefault()
-        e.stopPropagation()
-        return
-      }
-
-      if (matchesKeybindDown(e, currentKeybind)) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (!isRecordingRef.current && !isTranscribingRef.current) {
-          isHoldingKeyRef.current = true
-          void startRecording()
-        }
-      }
-    }
-
-    const handleKeyUp = (e: globalThis.KeyboardEvent): void => {
-      const currentKeybind = useRoxyStore.getState().settings?.voiceKeybind ?? voiceKeybind
-      if (!currentKeybind) return
-
-      if (isHoldingKeyRef.current && matchesKeybindRelease(e, currentKeybind)) {
-        e.preventDefault()
-        e.stopPropagation()
-        isHoldingKeyRef.current = false
-        if (isRecordingRef.current) {
-          void stopRecordingAndTranscribe()
-        }
-      }
-    }
-
-    const handleBlur = (): void => {
-      if (isHoldingKeyRef.current) {
-        isHoldingKeyRef.current = false
-        if (isRecordingRef.current) {
-          void stopRecordingAndTranscribe()
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true)
-    window.addEventListener('keyup', handleKeyUp, true)
-    window.addEventListener('blur', handleBlur)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true)
-      window.removeEventListener('keyup', handleKeyUp, true)
-      window.removeEventListener('blur', handleBlur)
-    }
-  }, [voiceKeybind])
-
-  useEffect(() => {
-    if (!voiceWakeWord) {
-      wakeWordListenerRef.current?.stop()
-      wakeWordListenerRef.current = null
-      return
-    }
-
-    const listener = new WakeWordListener()
-    wakeWordListenerRef.current = listener
-
-    void listener.start((initialQuery) => {
-      const cleanQuery = initialQuery?.trim().replace(/^[,.?!:\s]+/, '')
-      const isOnlyWakeWord =
-        !cleanQuery ||
-        Boolean(
-          matchWakeWord(cleanQuery, useRoxyStore.getState().settings?.voiceWakeWords).matched &&
-          !matchWakeWord(cleanQuery, useRoxyStore.getState().settings?.voiceWakeWords).query
-        )
-
-      if (!isOnlyWakeWord && cleanQuery) {
-        const currentSettings = useRoxyStore.getState().settings
-        const shouldAutoSend = currentSettings?.voiceAutoSend ?? voiceAutoSend
-        if (shouldAutoSend) {
-          const currentVal = ref.current?.value.trimEnd() ?? value.trimEnd()
-          const fullText = currentVal ? `${currentVal} ${cleanQuery}` : cleanQuery
-          onSend(fullText, images.length ? images : undefined)
-          setValue('')
-          setImages([])
-          if (ref.current) ref.current.style.height = 'auto'
-        } else {
-          setValue((prev) => {
-            const trimmed = prev.trimEnd()
-            const updated = trimmed ? `${trimmed} ${cleanQuery}` : cleanQuery
-            requestAnimationFrame(syncMirrorScroll)
-            return updated
-          })
-          ref.current?.focus()
-        }
-      } else {
-        void startRecording()
-      }
-    })
-
-    return () => {
-      listener.stop()
-      if (wakeWordListenerRef.current === listener) {
-        wakeWordListenerRef.current = null
-      }
-    }
-  }, [voiceWakeWord])
 
   // Stop needs a handler to be honest: a session can be busy with a turn this
   // composer doesn't own (a subagent's run is driven by its parent), and a Stop
@@ -958,7 +728,7 @@ export function Composer({
             ref={ref}
             value={value}
             rows={1}
-            readOnly={isRecording || isTranscribing || isHoldingKeyRef.current}
+            readOnly={voice.holding}
             aria-label={t('composer.placeholder')}
             aria-autocomplete="list"
             aria-controls={mentions.length ? 'bot-mentions' : undefined}
@@ -969,7 +739,7 @@ export function Composer({
             onBlur={() => setFocused(false)}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onChange={(e) => {
-              if (isRecording || isTranscribing || isHoldingKeyRef.current) return
+              if (voice.holding) return
               const nextValue = e.target.value
               const caretAtEnd =
                 e.target.selectionStart === nextValue.length &&
@@ -1117,33 +887,6 @@ export function Composer({
                 <Monitor className="h-3.5 w-3.5" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => void toggleRecording()}
-              disabled={isTranscribing}
-              title={
-                isTranscribing
-                  ? t('composer.transcribing')
-                  : isRecording
-                    ? t('composer.stopRecording')
-                    : `${t('composer.voiceInput')} (${voiceKeybind})`
-              }
-              className={`press-scale flex h-6 shrink-0 items-center justify-center sq sq-md rounded-md px-1.5 transition-colors ${
-                isRecording
-                  ? 'bg-red-500/20 text-red-400 animate-pulse'
-                  : isTranscribing
-                    ? 'text-accent'
-                    : 'text-text-muted hover:bg-white/5 hover:text-text'
-              }`}
-            >
-              {isTranscribing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : isRecording ? (
-                <MicOff className="h-3.5 w-3.5 text-red-400" />
-              ) : (
-                <Mic className="h-3.5 w-3.5" />
-              )}
-            </button>
             <ModelPicker />
             {isCompact ? (
               <div ref={overflowMenuRef} className="relative">
