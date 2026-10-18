@@ -33,6 +33,7 @@ async function fixture(
       Buffer,
       AbortSignal,
       console: { log() {}, warn() {} },
+      __dirname: path.dirname(scriptPath),
       process: { platform: process.platform, env: { CLIPROXY_VERSION: version } },
       require(name) {
         if (name === 'node:timers/promises') {
