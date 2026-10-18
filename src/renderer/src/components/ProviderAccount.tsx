@@ -20,6 +20,7 @@ import { cn } from '../lib/cn'
 import { Button, Input } from './ui'
 import { ModelVisibility } from './ModelVisibility'
 import { AccountQuota } from './AccountQuota'
+import { cachedPercent, formatTokens } from './UsageMeter'
 import { ContextMenuSurface, ContextMenuRow, ContextMenuSeparator } from './ContextMenu'
 
 export function ProviderAccount({
@@ -49,6 +50,10 @@ export function ProviderAccount({
   const catalogError = useRoxyStore((s) => s.modelErrors[provider.id])
   const reauth = useRoxyStore((s) => s.copilotNeedsReauthentication[provider.id])
   const hiddenModels = useRoxyStore((s) => s.hiddenModels)
+  const usage = useRoxyStore((s) =>
+    s.usageStats?.providers.find((p) => p.providerId === provider.id)
+  )
+  const usageLoaded = useRoxyStore((s) => !!s.usageStats)
   const [open, setOpen] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [editing, setEditing] = useState(false)
@@ -178,6 +183,28 @@ export function ProviderAccount({
             )}
             {!needsReconnect && (
               <span className="mt-1 block text-xs text-text-subtle">{summary}</span>
+            )}
+            {!needsReconnect && usageLoaded && (
+              <span
+                className="mt-0.5 block text-xs text-text-subtle tabular-nums"
+                title={
+                  usage?.last30d.tokens
+                    ? t('settings.providers.usageTitle', {
+                        used: usage.last30d.tokens.toLocaleString(),
+                        cached: usage.last30d.cached.toLocaleString(),
+                        calls: usage.last30d.calls.toLocaleString()
+                      })
+                    : undefined
+                }
+              >
+                {usage?.last30d.tokens
+                  ? t('settings.providers.usageLine', {
+                      used: formatTokens(usage.last30d.tokens),
+                      cached: formatTokens(usage.last30d.cached),
+                      percent: cachedPercent(usage.last30d)
+                    })
+                  : t('settings.providers.usageNone')}
+              </span>
             )}
           </span>
           <ChevronRight

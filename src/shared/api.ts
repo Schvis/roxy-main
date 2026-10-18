@@ -3,6 +3,15 @@
  * Implemented in src/preload/index.ts, handled in src/main/ipc/*.
  */
 import type { Language } from './i18n'
+import type {
+  VoiceDevice,
+  VoiceEvent,
+  VoiceResult,
+  VoiceSettings,
+  VoiceStartOptions,
+  VoiceState
+} from './voice'
+import type { CatalogApi } from './catalog'
 import type { BackgroundResult, BackgroundSettings, BackgroundState } from './background'
 import type { Bot, BotJob, BotJobInput } from './bots'
 import type { MotionPreference } from './motion'
@@ -1018,6 +1027,22 @@ export interface RoxyApi {
       paths?: string[]
     ): Promise<WorkspaceFileReplaceResult>
   }
+  voice: {
+    state(): Promise<VoiceState>
+    update(patch: Partial<VoiceSettings>): Promise<VoiceResult<VoiceSettings>>
+    devices(): Promise<VoiceResult<VoiceDevice[]>>
+    privacy(): Promise<void>
+    download(id: string): Promise<VoiceResult>
+    cancelDownload(): Promise<void>
+    remove(id: string): Promise<VoiceResult>
+    start(recordingId: string, chatId: string, options?: VoiceStartOptions): Promise<VoiceResult>
+    stop(recordingId: string, finalize: boolean): Promise<void>
+    /** Hands-free listening: emits one `utterance` per pause until `unlisten`.
+     * Yields the microphone to dictation and to newer listeners, resuming after. */
+    listen(listenerId: string): Promise<VoiceResult>
+    unlisten(listenerId: string): Promise<void>
+    onEvent(callback: (event: VoiceEvent) => void): () => void
+  }
   bots: {
     list(): Promise<Bot[]>
     /** Reorder the bot strip; unlisted bots retain their order after the supplied ids. */
@@ -1062,21 +1087,7 @@ export interface RoxyApi {
     setIdeMode(enabled: boolean): Promise<AppSettings>
     setIdeChatDock(dock: AppSettings['ideChatDock']): Promise<AppSettings>
     setOverlayKeybind(keybind: string): Promise<AppSettings>
-    setVoiceKeybind(keybind: string): Promise<AppSettings>
     setUserProfile(profile: { name: string; avatar: string }): Promise<AppSettings>
-    setVoiceAutoSend(enabled: boolean): Promise<AppSettings>
-    setVoiceLang(lang: string): Promise<AppSettings>
-    setVoiceModel(model: string): Promise<AppSettings>
-    setVoiceSttConfig(config: {
-      provider: 'local' | 'openai'
-      url: string
-      model: string
-      apiKey?: string
-      clearApiKey?: boolean
-    }): Promise<AppSettings>
-    setVoiceInputDevice(deviceId: string): Promise<AppSettings>
-    setVoiceWakeWord(enabled: boolean): Promise<AppSettings>
-    setVoiceWakeWords(words: string[]): Promise<AppSettings>
     setActivePromptId(id: string | null): Promise<AppSettings>
     setBranchPrefix(prefix: string): Promise<AppSettings>
     /** Notify when a turn finishes: chime + OS toast, or nothing. */
@@ -1220,6 +1231,7 @@ export interface RoxyApi {
     list(): Promise<IntegrationConnection[]>
     setEnabled(id: string, enabled: boolean): Promise<void>
   }
+  catalog: CatalogApi
   mcp: {
     /** List configured MCP servers merged with their live connection status. */
     list(): Promise<McpServerView[]>
@@ -1237,6 +1249,11 @@ export interface RoxyApi {
     setupScreenhand(): Promise<{ ok: boolean; error?: string }>
   }
   skills: {
+    readRaw(name: string, cwd?: string): Promise<{ text: string; location: string }>
+    saveRaw(
+      input: { name: string; text: string; expectedText: string; location: string },
+      cwd?: string
+    ): Promise<SkillView[]>
     /** Discovered SKILL.md skills (workspace when a cwd is given, else the user's global skills). */
     list(cwd?: string): Promise<SkillView[]>
     /** Re-scan from disk (drops the cache) and return the fresh list. */
@@ -1357,36 +1374,6 @@ export interface RoxyApi {
     startCursorTracking(): Promise<void>
     stopCursorTracking(): Promise<void>
     onCursorPosition(callback: (point: { x: number; y: number }) => void): () => void
-  }
-  stt: {
-    /** Transcribe audio buffer/bytes using selected speech recognition backend. */
-    transcribe(
-      audio: ArrayBuffer | Uint8Array,
-      options?: {
-        language?: string
-        model?: string
-        task?: string
-        initialPrompt?: string
-        beamSize?: number
-      }
-    ): Promise<{ text: string }>
-    getStatus(): Promise<{ installed: boolean; pythonPath?: string }>
-    installDependencies(): Promise<{ ok: boolean; log: string }>
-    onInstallProgress(callback: (chunk: string) => void): () => void
-    getInstalledModels(): Promise<string[]>
-    downloadModel(model: string): Promise<{ ok: boolean; error?: string }>
-    onDownloadProgress(
-      callback: (progress: {
-        model: string
-        percent: number
-        current: number
-        total: number
-      }) => void
-    ): () => void
-    onStartRecording(callback: () => void): () => void
-    onStopRecording(callback: () => void): () => void
-    setRecordingState(isRecording: boolean): Promise<void>
-    setShortcutPaused(paused: boolean): Promise<void>
   }
   /**
    * The right-click editing menu's main-process half. The menu itself is drawn

@@ -54,7 +54,7 @@ import {
   toResponsesTools,
   type ResponsesEvent
 } from '../services/responses'
-import { usageCost } from '../../shared/cost'
+import { openAiCompatUsage, usageCost, type OpenAiCompatUsage } from '../../shared/cost'
 import {
   ensureMcpConnected,
   loadWorkspaceMcpServers,
@@ -1298,13 +1298,7 @@ interface StreamDelta {
     }
   }[]
   /** Final `usage` chunk when `stream_options.include_usage` is set (OpenAI-compat). */
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    total_tokens?: number
-    prompt_tokens_details?: { cached_tokens?: number }
-    completion_tokens_details?: { reasoning_tokens?: number }
-  }
+  usage?: OpenAiCompatUsage
 }
 
 export interface RunTurnOptions {
@@ -2656,17 +2650,7 @@ async function streamOnce(
     }
     assertModelStreamEvent(json)
     // A usage chunk (final frame; its `choices` is usually empty) → real counts.
-    if (json.usage) {
-      const cached = json.usage.prompt_tokens_details?.cached_tokens ?? 0
-      usage = {
-        input: Math.max(0, (json.usage.prompt_tokens ?? 0) - cached),
-        output: json.usage.completion_tokens ?? 0,
-        cacheRead: cached,
-        cacheWrite: 0,
-        reasoning: json.usage.completion_tokens_details?.reasoning_tokens ?? 0,
-        estimated: false
-      }
-    }
+    if (json.usage) usage = openAiCompatUsage(json.usage)
     const delta = json.choices?.[0]?.delta
     const reasoningDelta = delta?.reasoning_content ?? delta?.reasoning
     if (reasoningDelta) onReasoning(reasoningDelta)

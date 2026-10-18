@@ -38,29 +38,29 @@ Roxy एक [Electron](https://www.electronjs.org/) ऐप है, जिसे 
 - **मल्टी-प्रोवाइडर और कस्टम एंडपॉइंट्स** — OpenAI, Copilot (स्वचालित टोकन रीफ़्रेश के साथ), Anthropic, Vercel AI SDK के माध्यम से Google Gemini, स्थानीय मॉडल और कस्टम इमेज जनरेशन एंडपॉइंट्स के लिए नेटिव समर्थन।
 - **एकीकृत IDE और Git संचालन** — सिंटैक्स हाइलाइटिंग (Shiki), लाइन डिफ़ डेकोरेशन, विज़ुअल मर्ज कॉन्फ़्लिक्ट सॉल्वर, इंटरैक्टिव Git कमिट ग्राफ़ और मल्टी-रेपो वर्कस्पेस प्रबंधन के साथ इन-ऐप कोड एडिटर।
 - **एंबेडेड टर्मिनल** — `@xterm/xterm` और `node-pty` द्वारा संचालित हार्डवेयर-त्वरित टर्मिनल एमुलेटर, जो स्थायी शेल सत्रों, स्टैंडअलोन पॉपआउट्स और कमांड इतिहास का समर्थन करता है।
-- **Live2D साथी और वॉइस सिंथेसिस** — एनिमेटेड भावों और प्रतिक्रियाओं (सिर थपथपाने / छाती की बातचीत) के साथ इंटरैक्टिव Roxy Migurdia Live2D अवतार, ऑफ़लाइन GPU-त्वरित RVC (Retrieval-based Voice Conversion) v2 TTS, faster-whisper STT वॉइस इनपुट या Fish Audio क्लाउड वॉइस से युक्त।
+- **Live2D साथी और वॉइस सिंथेसिस** — एनिमेटेड भावों और प्रतिक्रियाओं (सिर थपथपाने / छाती की बातचीत) के साथ इंटरैक्टिव Roxy Migurdia Live2D अवतार, ऑफ़लाइन GPU-त्वरित RVC (Retrieval-based Voice Conversion) v2 TTS, sherpa-onnx STT वॉइस इनपुट या Fish Audio क्लाउड वॉइस से युक्त।
 - **रिमोट वर्कस्पेस और मोबाइल रिले** — तीसरे पक्ष के माध्यम से कोड भेजे बिना QR कोड और PIN के ज़रिए फ़ोन या टैबलेट से पेयर करें; डिफ़ॉल्ट रूप से `https://roxy.schvis.com` (जिसे `ROXY_REMOTE_BASE` द्वारा कॉन्फ़िगर किया जा सकता है), `remote-server/` में एक स्टैंडअलोन सेल्फ़-होस्टेड Next.js App Router रिले सर्वर के समर्थन के साथ (अनकमिटेड / git द्वारा उपेक्षित)।
 - **इकोसिस्टम और विस्तारशीलता** — Model Context Protocol (MCP) क्लाइंट + Windows MCP, Language Server Protocol (LSP) डायग्नोस्टिक्स फ़ीडबैक, `SKILL.md` स्किल रनर, स्थायी Chromium ब्राउज़र ऑटोमेशन और Discord Rich Presence।
 - **पूर्ण अंतर्राष्ट्रीयकरण** — स्वचालित उपकरणों द्वारा सिंक्रनाइज़ की गई 10 भाषाओं (अरबी, जर्मन, अंग्रेज़ी, स्पैनिश, फ़्रेंच, हिन्दी, जापानी, पुर्तगाली, रूसी, चीनी) में संपूर्ण UI स्थानीयकरण।
 
 ## टेक्नोलॉजी स्टैक
 
-| परत               | तकनीक                                                           |
-| ----------------- | --------------------------------------------------------------- |
-| डेस्कटॉप          | Electron 33                                                     |
-| बिल्ड टूल         | electron-vite (Vite 5)                                          |
-| इंटरफ़ेस          | React 18 + TypeScript                                           |
-| स्टाइलिंग         | Tailwind CSS v4                                                 |
-| टूल-कॉलिंग व मॉडल | Vercel AI SDK (Anthropic, Google) + नेटिव OpenAI, Copilot SSE   |
-| टर्मिनल           | @xterm/xterm 6 + node-pty                                       |
-| कोड व डिफ़ व्यूअर | Shiki + diff                                                    |
-| इंटीग्रेशन        | Model Context Protocol (MCP) SDK, LSP, Discord RPC              |
-| वॉइस इंजन         | स्थानीय RVC v2 (PyTorch/CUDA) + faster-whisper + Fish Audio API |
-| साथी              | Live2D Cubism Core                                              |
-| स्टोरेज           | better-sqlite3                                                  |
-| पैकेजिंग          | electron-builder                                                |
-| स्थानीयकरण        | i18next + react-i18next (10 भाषाएँ)                             |
-| फ़ॉर्मैटिंग       | Prettier                                                        |
+| परत               | तकनीक                                                         |
+| ----------------- | ------------------------------------------------------------- |
+| डेस्कटॉप          | Electron 33                                                   |
+| बिल्ड टूल         | electron-vite (Vite 5)                                        |
+| इंटरफ़ेस          | React 18 + TypeScript                                         |
+| स्टाइलिंग         | Tailwind CSS v4                                               |
+| टूल-कॉलिंग व मॉडल | Vercel AI SDK (Anthropic, Google) + नेटिव OpenAI, Copilot SSE |
+| टर्मिनल           | @xterm/xterm 6 + node-pty                                     |
+| कोड व डिफ़ व्यूअर | Shiki + diff                                                  |
+| इंटीग्रेशन        | Model Context Protocol (MCP) SDK, LSP, Discord RPC            |
+| वॉइस इंजन         | स्थानीय RVC v2 (PyTorch/CUDA) + sherpa-onnx + Fish Audio API  |
+| साथी              | Live2D Cubism Core                                            |
+| स्टोरेज           | better-sqlite3                                                |
+| पैकेजिंग          | electron-builder                                              |
+| स्थानीयकरण        | i18next + react-i18next (10 भाषाएँ)                           |
+| फ़ॉर्मैटिंग       | Prettier                                                      |
 
 ## प्रोजेक्ट संरचना
 
@@ -76,14 +76,13 @@ roxy/
 ├── script/                 # सेटअप स्क्रिप्ट्स, TTS/STT डेमन्स, i18n अनुवाद व पैकेजिंग
 │   ├── rvc_tts_server.py   # स्थानीय GPU RVC TTS इन्फ़्रेंस डेमन (पोर्ट 5050)
 │   ├── setup_tts_env.py    # स्वचालित Python वातावरण व CUDA डिपेंडेंसी इंस्टॉलर
-│   ├── transcribe.py       # faster-whisper STT वॉइस रिकग्निशन रनर
 │   ├── i18n-sync.mjs       # default.json के लिए कैटलॉग सिंक्रनाइज़र
 │   └── i18n-translate.mjs  # OpenRouter द्वारा मशीन अनुवाद रनर
 ├── src/
 │   ├── main/               # Electron मुख्य प्रक्रिया (Node.js)
 │   │   ├── index.ts        # ऐप जीवनचक्र, विंडो निर्माण, सेवा स्टार्टअप
 │   │   ├── harness/        # एजेंट लूप: agent.ts (टर्न लूप, टूल स्कीमा), tools.ts (डिस्पैच)
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # better-sqlite3 स्टोर: स्कीमा, माइग्रेशन, रिपॉज़िटरी लेयर
 │   │   └── ipc/            # रेंडरर को हार्नेस व सेवाओं से जोड़ने वाले ipcMain हैंडलर्स
 │   ├── preload/            # मुख्य प्रक्रिया और रेंडरर के बीच सुरक्षित ब्रिज (window.api)
@@ -177,7 +176,7 @@ npm run tts:server
 
 - **Live2D अवतार** — इंटरैक्टिव फ़िज़िक्स, एक्सप्रेशन ट्रिगर्स और ऑडियो लिप-सिंक के साथ [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) और [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) में Cubism Core द्वारा रेंडर किया गया।
 - **RVC v2 इन्फ़्रेंस** — स्थानीय Python डेमन [`script/rvc_tts_server.py`](script/rvc_tts_server.py) edge-tts जेनरेशन को `RoxyMigurdia/` के चेकपॉइंट्स का उपयोग करके स्थानीय GPU पिच/टिम्ब्रे रूपांतरण के साथ जोड़ता है।
-- **स्पीच-टू-टेक्स्ट (STT)** — [`src/main/services/stt.ts`](src/main/services/stt.ts) वॉइस प्रॉम्प्ट्स को कैप्चर करता है और faster-whisper ([`script/transcribe.py`](script/transcribe.py)) का उपयोग करके स्थानीय रूप से ट्रांसक्राइब करता है।
+- **स्पीच-टू-टेक्स्ट (STT)** — [`src/main/services/voice.ts`](src/main/services/voice.ts) एक स्थानीय sherpa-onnx मॉडल के ज़रिए डिक्टेशन, "Hey Roxy" वेक वर्ड और VTuber वॉइस बातचीत को स्ट्रीम करता है; ऑडियो कभी भी मशीन से बाहर नहीं जाता।
 
 ### रिमोट वर्कस्पेस
 

@@ -11,7 +11,11 @@ import {
 } from 'electron'
 import createDiagnosticsWorker from '../services/file-diagnostics-worker?nodeWorker'
 import { DiagnosticsWorkerClient } from '../services/diagnostics-worker-client'
+import { registerVoiceIpc, resetVoice } from '../services/voice'
 import { CHANNELS } from '../../shared/ipc'
+import { CatalogClient } from '../services/catalog'
+import type { CatalogApi, CatalogKind } from '../../shared/catalog'
+import { catalogMcpId } from '../../shared/catalog-mcp'
 import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, type MotionPreference } from '../../shared/motion'
 import type { BackgroundResult, BackgroundSettings } from '../../shared/background'
@@ -74,11 +78,6 @@ import { focusMainWindow } from '../services/main-window'
 import { getRandomHeadpatAudio } from '../services/headpat'
 import { getRandomChestAudio } from '../services/chest'
 import {
-  updateVoiceShortcut,
-  setRecordingStateFromRenderer,
-  setVoiceShortcutPaused
-} from '../services/voice-shortcut'
-import {
   emitMessagesUpdated,
   emitTurnState,
   getActiveChat,
@@ -122,13 +121,6 @@ import {
   handleAudioReady,
   handleAudioEnded
 } from '../services/tts'
-import {
-  transcribeAudio,
-  getSttStatus,
-  installSttDependencies,
-  getInstalledWhisperModels,
-  downloadWhisperModel
-} from '../services/stt'
 import { setDiscordRpcEnabledState, setDiscordRpcClientIdState } from '../services/discord-rpc'
 import { pickDefaultModel } from '../../shared/models'
 import { CLIPROXY_PROVIDER_IDS, isCliProxyProvider } from '../../shared/cliproxy'
@@ -198,9 +190,12 @@ import {
   listSkills,
   refreshSkills,
   readSkill,
+  readRawSkill,
+  saveRawSkill,
   writeSkill,
   deleteSkill,
-  installSkillFromSource
+  installSkillFromSource,
+  installCatalogSkillFiles
 } from '../services/skills'
 import {
   createTheme,
@@ -245,6 +240,16 @@ import { BUNDLE_FILENAME } from '../../shared/portable'
 const diagnosticsWorker = new DiagnosticsWorkerClient(() => createDiagnosticsWorker({}))
 const llmControllers = new Map<string, AbortController>()
 const localTurnReleases = new Map<string, { senderId: number; release: () => void }>()
+
+const catalogs = new WeakMap<Electron.WebContents, CatalogClient>()
+function catalogFor(sender: Electron.WebContents): CatalogClient {
+  let client = catalogs.get(sender)
+  if (!client) {
+    client = new CatalogClient()
+    catalogs.set(sender, client)
+  }
+  return client
+}
 
 /**
  * Every abortable piece of model work a SESSION currently owns.
@@ -435,6 +440,7 @@ export function registerIpc(): void {
     broadcastSettings(settings)
     return settings
   })
+  registerVoiceIpc()
   // ---- settings ----
   ipcMain.handle(CHANNELS.settingsGetAll, () => repo.getSettings())
   ipcMain.handle(
@@ -463,38 +469,9 @@ export function registerIpc(): void {
     updateOverlayShortcut(settings)
     return settings
   })
-  ipcMain.handle(CHANNELS.settingsSetVoiceKeybind, (_e, keybind: string) => {
-    const settings = repo.setVoiceKeybind(keybind)
-    updateVoiceShortcut(settings)
-    return settings
-  })
   ipcMain.handle(CHANNELS.settingsSetUserProfile, (_e, profile: { name: string; avatar: string }) =>
     repo.setUserProfile(profile)
   )
-  ipcMain.handle(CHANNELS.settingsSetVoiceAutoSend, (_e, enabled: boolean) => {
-    return repo.setVoiceAutoSend(enabled)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceLang, (_e, lang: string) => {
-    return repo.setVoiceLang(lang)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceModel, (_e, model: string) => {
-    return repo.setVoiceModel(model)
-  })
-  ipcMain.handle(
-    CHANNELS.settingsSetVoiceSttConfig,
-    (_e, config: Parameters<typeof repo.setVoiceSttConfig>[0]) => {
-      return repo.setVoiceSttConfig(config)
-    }
-  )
-  ipcMain.handle(CHANNELS.settingsSetVoiceInputDevice, (_e, deviceId: string) => {
-    return repo.setVoiceInputDevice(deviceId)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceWakeWord, (_e, enabled: boolean) => {
-    return repo.setVoiceWakeWord(enabled)
-  })
-  ipcMain.handle(CHANNELS.settingsSetVoiceWakeWords, (_e, words: string[]) => {
-    return repo.setVoiceWakeWords(words)
-  })
   ipcMain.handle(CHANNELS.settingsSetActivePromptId, (_e, id: string | null) =>
     repo.setActivePromptId(id)
   )
@@ -663,45 +640,6 @@ export function registerIpc(): void {
     handleAudioEnded(id)
   })
 
-  ipcMain.handle(
-    CHANNELS.sttTranscribe,
-    async (
-      _e,
-      audioData: ArrayBuffer | Uint8Array,
-      options?: { language?: string; model?: string; task?: string }
-    ) => {
-      const buffer = Buffer.isBuffer(audioData)
-        ? audioData
-        : audioData instanceof ArrayBuffer
-          ? Buffer.from(audioData)
-          : Buffer.from(audioData.buffer, audioData.byteOffset, audioData.byteLength)
-      return transcribeAudio(buffer, options)
-    }
-  )
-
-  ipcMain.handle(CHANNELS.sttGetStatus, () => getSttStatus())
-  ipcMain.handle(CHANNELS.sttInstallDependencies, async (event) => {
-    return installSttDependencies((chunk) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(CHANNELS.sttInstallProgress, chunk)
-      }
-    })
-  })
-  ipcMain.handle(CHANNELS.sttGetInstalledModels, () => getInstalledWhisperModels())
-  ipcMain.handle(CHANNELS.sttDownloadModel, async (event, modelName: string) => {
-    return downloadWhisperModel(modelName, (progress) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(CHANNELS.sttDownloadProgress, { model: modelName, ...progress })
-      }
-    })
-  })
-  ipcMain.handle(CHANNELS.sttSetRecordingState, (_e, isRecording: boolean) => {
-    setRecordingStateFromRenderer(isRecording)
-  })
-  ipcMain.handle(CHANNELS.sttSetShortcutPaused, (_e, paused: boolean) => {
-    setVoiceShortcutPaused(paused)
-  })
-
   setTtsLogListener((chunk) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
@@ -739,6 +677,7 @@ export function registerIpc(): void {
   })
   ipcMain.handle(CHANNELS.settingsCompleteOnboarding, () => repo.completeOnboarding())
   ipcMain.handle(CHANNELS.settingsReset, async () => {
+    await resetVoice()
     // "Wipes all providers" has to include the subscription tokens held by the
     // sidecar, which resetAll() can't see - they aren't in the database. Every
     // sidecar-backed provider has to be named: disconnecting one now leaves the
@@ -761,7 +700,6 @@ export function registerIpc(): void {
     invalidateCopilotModels()
     invalidateCopilotToken()
     updateOverlayShortcut(repo.getSettings())
-    updateVoiceShortcut(repo.getSettings())
     for (const window of BrowserWindow.getAllWindows())
       if (!window.isDestroyed())
         window.webContents.send(CHANNELS.settingsMotionChanged, DEFAULT_MOTION)
@@ -1014,8 +952,64 @@ export function registerIpc(): void {
     return await setupScreenhand()
   })
 
+  // ---- public discovery relay; credentials stay exclusively on roxy.gg ----
+  ipcMain.handle(
+    CHANNELS.catalogSearch,
+    (event, kind: CatalogKind, query: string, cursor?: string) =>
+      catalogFor(event.sender).search(kind, query, cursor)
+  )
+  ipcMain.handle(CHANNELS.catalogSkillDetail, (event, id: string) =>
+    catalogFor(event.sender).skillDetail(id)
+  )
+  ipcMain.handle(CHANNELS.catalogMcpSetup, (event, id: string) =>
+    catalogFor(event.sender).mcpSetup(id)
+  )
+  ipcMain.handle(CHANNELS.catalogInstallSkill, async (event, id: string, reviewId: string) => {
+    const client = catalogFor(event.sender)
+    const bundle = client.skillForInstall(id, reviewId)
+    // Refuse shadowing skills in other global roots, including a concurrent add.
+    refreshSkills()
+    if (
+      (await listSkills(app.getPath('home'))).some(
+        (s) => s.name.toLowerCase() === bundle.name.toLowerCase()
+      )
+    )
+      throw Error(
+        'A skill with this name already exists. Remove it before installing another source.'
+      )
+    await installCatalogSkillFiles(bundle.name, bundle.files)
+    client.forget(reviewId)
+    return discoverSkillViews()
+  })
+  ipcMain.handle(
+    CHANNELS.catalogInstallMcp,
+    async (event, input: Parameters<CatalogApi['installMcp']>[0]) => {
+      if (!input || typeof input !== 'object') throw Error('Invalid catalog setup.')
+      const client = catalogFor(event.sender)
+      const id = catalogMcpId(input.id)
+      const config = client.mcpForInstall(id, input.reviewId, input.optionId, input.values)
+      // No await between collision check and persistence: never upsert over a user's config.
+      if (repo.listMcpServers().some((s) => s.id.toLowerCase() === id.toLowerCase()))
+        throw Error('This MCP server is already configured.')
+      repo.upsertMcpServer({ id, config, enabled: true })
+      client.forget(input.reviewId)
+      await reconnectMcpServer({ id, config, enabled: true }, app.getPath('home'))
+      return listMcpServersWithStatus()
+    }
+  )
+
   // ---- skills (SKILL.md discovery) ----
   ipcMain.handle(CHANNELS.skillsList, (_e, cwd?: string) => discoverSkillViews(cwd))
+  ipcMain.handle(CHANNELS.skillsReadRaw, (_e, name: string, cwd?: string) =>
+    readRawSkill(name, cwd || app.getPath('home'))
+  )
+  ipcMain.handle(
+    CHANNELS.skillsSaveRaw,
+    async (_e, input: Parameters<typeof saveRawSkill>[0], cwd?: string) => {
+      await saveRawSkill(input, cwd || app.getPath('home'))
+      return discoverSkillViews(cwd)
+    }
+  )
   ipcMain.handle(CHANNELS.skillsRefresh, (_e, cwd?: string) => {
     refreshSkills(cwd || undefined)
     return discoverSkillViews(cwd)
@@ -1030,15 +1024,22 @@ export function registerIpc(): void {
   // default (~/.roxy/skills); the agent's `skill_manage` tool can target either
   // scope. Both go through the same writeSkill/deleteSkill service.
   ipcMain.handle(CHANNELS.skillsCreate, async (_e, input: SkillWriteInput, cwd?: string) => {
-    await writeSkill({ ...input, scope: input.scope ?? 'global' }, cwd || '', { mode: 'create' })
+    const result = await writeSkill({ ...input, scope: input.scope ?? 'global' }, cwd || '', {
+      mode: 'create'
+    })
+    if (!result.ok) throw Error(result.error)
     return discoverSkillViews(cwd)
   })
   ipcMain.handle(CHANNELS.skillsUpdate, async (_e, input: SkillWriteInput, cwd?: string) => {
-    await writeSkill({ ...input, scope: input.scope ?? 'global' }, cwd || '', { mode: 'edit' })
+    const result = await writeSkill({ ...input, scope: input.scope ?? 'global' }, cwd || '', {
+      mode: 'edit'
+    })
+    if (!result.ok) throw Error(result.error)
     return discoverSkillViews(cwd)
   })
   ipcMain.handle(CHANNELS.skillsRemove, async (_e, name: string, cwd?: string) => {
-    await deleteSkill(name, cwd || '')
+    const result = await deleteSkill(name, cwd || '')
+    if (!result.ok) throw Error(result.error)
     return discoverSkillViews(cwd)
   })
   // Install skill(s) from a remote source (GitHub repo/URL or a direct SKILL.md).

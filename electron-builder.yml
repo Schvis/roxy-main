@@ -26,14 +26,14 @@ extraResources:
     to: script/rvc_tts_server.py
   - from: script/setup_tts_env.py
     to: script/setup_tts_env.py
-  - from: script/transcribe.py
-    to: script/transcribe.py
 asarUnpack:
   - resources/**
   - RoxyMigurdia/**
   - script/**
   - node_modules/sharp/**
   - node_modules/@img/**
+  - node_modules/@handy-computer/**
+  - node_modules/sherpa-onnx-*/**
 # Fetch the latest CLIProxyAPI release for this OS/architecture, verify its
 # published checksum, and place the native executable in app resources before
 # code signing. Packaged apps never download the sidecar at runtime.
@@ -56,6 +56,8 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Roxy uses your microphone for local, live speech-to-text in the chat composer.
   # Notarization runs only when Apple credentials are present in the environment
   # (APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, or an APPLE_API_KEY
   # set). See SIGNING.md. Use `npm run dist:mac` to load them from .env.

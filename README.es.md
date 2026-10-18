@@ -38,7 +38,7 @@ Más allá del bucle del agente, Roxy integra un IDE integrado con resolución d
 - **Múltiples proveedores y endpoints personalizados** — Soporte nativo para OpenAI, Copilot (con actualización automática de tokens), Anthropic, Google Gemini a través de Vercel AI SDK, modelos locales y endpoints personalizados para generación de imágenes.
 - **IDE integrado y operaciones de Git** — Editor de código integrado con resaltado de sintaxis (Shiki), decoración de diferencias por línea, solucionador visual de conflictos de fusión, gráfico interactivo de commits de Git y gestión de espacios de trabajo multirrepositorio.
 - **Terminal integrada** — Emulador de terminal con aceleración por hardware basado en `@xterm/xterm` y `node-pty`, compatible con sesiones de shell persistentes, ventanas emergentes independientes e historial de comandos.
-- **Compañera Live2D y síntesis de voz** — Avatar interactivo en Live2D de Roxy Migurdia con expresiones y reacciones animadas (interacciones de caricias en la cabeza / pecho), junto con TTS RVC (Retrieval-based Voice Conversion) v2 acelerado por GPU local sin conexión, entrada de voz STT con faster-whisper o voz en la nube de Fish Audio.
+- **Compañera Live2D y síntesis de voz** — Avatar interactivo en Live2D de Roxy Migurdia con expresiones y reacciones animadas (interacciones de caricias en la cabeza / pecho), junto con TTS RVC (Retrieval-based Voice Conversion) v2 acelerado por GPU local sin conexión, entrada de voz STT con sherpa-onnx o voz en la nube de Fish Audio.
 - **Espacio de trabajo remoto y retransmisión móvil** — Emparejamiento con teléfono o tableta mediante código QR y PIN sin transferir código a través de terceros; de forma predeterminada en `https://roxy.schvis.com` (configurable mediante `ROXY_REMOTE_BASE`), con soporte para un servidor de retransmisión Next.js App Router autohospedado e independiente en `remote-server/` (sin commits / ignorado por git).
 - **Ecosistema y extensibilidad** — Cliente de Model Context Protocol (MCP) + Windows MCP, retroalimentación de diagnósticos de Language Server Protocol (LSP), ejecutor de habilidades `SKILL.md`, automatización persistente de navegador Chromium y Discord Rich Presence.
 - **Internacionalización completa** — Localización completa de la interfaz en 10 idiomas (árabe, alemán, inglés, español, francés, hindi, japonés, portugués, ruso y chino) sincronizada mediante herramientas automatizadas.
@@ -55,7 +55,7 @@ Más allá del bucle del agente, Roxy integra un IDE integrado con resolución d
 | Terminal               | @xterm/xterm 6 + node-pty                                      |
 | Visor de código y diff | Shiki + diff                                                   |
 | Integraciones          | Model Context Protocol (MCP) SDK, LSP, Discord RPC             |
-| Motor de voz           | RVC v2 local (PyTorch/CUDA) + faster-whisper + Fish Audio API  |
+| Motor de voz           | RVC v2 local (PyTorch/CUDA) + sherpa-onnx + Fish Audio API     |
 | Compañera              | Live2D Cubism Core                                             |
 | Almacenamiento         | better-sqlite3                                                 |
 | Empaquetado            | electron-builder                                               |
@@ -76,14 +76,13 @@ roxy/
 ├── script/                 # Scripts de configuración, demonios TTS/STT, traducción i18n y empaquetado
 │   ├── rvc_tts_server.py   # Demonio de inferencia TTS RVC local con GPU (puerto 5050)
 │   ├── setup_tts_env.py    # Instalador automático del entorno de Python y dependencias de CUDA
-│   ├── transcribe.py       # Ejecutor de reconocimiento de voz STT con faster-whisper
 │   ├── i18n-sync.mjs       # Sincronizador de catálogos para default.json
 │   └── i18n-translate.mjs  # Ejecutor de traducción automática a través de OpenRouter
 ├── src/
 │   ├── main/               # Proceso principal de Electron (Node.js)
 │   │   ├── index.ts        # Ciclo de vida de la app, creación de ventanas, inicio de servicios
 │   │   ├── harness/        # Bucle de agente: agent.ts (turnos, esquemas de herramientas), tools.ts (despacho)
-│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, stt.ts, browser.ts, remote.ts, …
+│   │   ├── services/       # llm.ts, aisdk.ts, mcp.ts, lsp.ts, tts.ts, voice.ts, browser.ts, remote.ts, …
 │   │   ├── db/             # Almacén better-sqlite3: esquema, migraciones, capa de repositorio
 │   │   └── ipc/            # Manejadores ipcMain que conectan el renderer con harness y servicios
 │   ├── preload/            # Puente seguro entre main y renderer (window.api)
@@ -177,7 +176,7 @@ El proceso principal ejecuta un único bucle de agente independiente del proveed
 
 - **Avatar Live2D** — Renderizado mediante Cubism Core en [`Live2dCanvas.tsx`](src/renderer/src/components/Live2dCanvas.tsx) y [`VtuberStandalone.tsx`](src/renderer/src/components/VtuberStandalone.tsx) con física interactiva, disparadores de expresiones y sincronización labial con audio.
 - **Inferencia RVC v2** — El demonio local en Python [`script/rvc_tts_server.py`](script/rvc_tts_server.py) combina la generación edge-tts con conversión de tono y timbre por GPU local usando checkpoints en `RoxyMigurdia/`.
-- **Voz a texto (STT)** — [`src/main/services/stt.ts`](src/main/services/stt.ts) captura instrucciones de voz y las transcribe localmente mediante faster-whisper ([`script/transcribe.py`](script/transcribe.py)).
+- **Voz a texto (STT)** — [`src/main/services/voice.ts`](src/main/services/voice.ts) transmite el dictado, la palabra de activación «Hey Roxy» y la conversación por voz del VTuber mediante un modelo local de sherpa-onnx; el audio nunca sale del equipo.
 
 ### Espacio de trabajo remoto
 

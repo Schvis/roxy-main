@@ -42,13 +42,13 @@ import {
   setMainWindowVisibility,
   openVtuberWindow
 } from './services/overlay'
-import { updateVoiceShortcut, unregisterVoiceShortcut } from './services/voice-shortcut'
 import { startLocalTtsServer, stopLocalTtsServer } from './services/tts'
 import { initDiscordRpc, shutdownDiscordRpc } from './services/discord-rpc'
 import { flushAllActiveTurns } from './services/turn-recovery'
 import { initPortableMode } from './services/portable-mode'
 
 let isQuitting = false
+import { setVoiceWindow, shutdownVoice } from './services/voice'
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin'
@@ -172,6 +172,7 @@ function createWindow(): BrowserWindow {
   // Clicking a completion toast has to raise THIS window, not whichever one
   // happens to be first in getAllWindows() (the agent browser opens its own).
   setToastWindow(mainWindow)
+  setVoiceWindow(mainWindow)
 
   return mainWindow
 }
@@ -299,7 +300,6 @@ if (!gotTheLock) {
     void warmCatalogThenBackfill()
 
     updateOverlayShortcut(repo.getSettings())
-    updateVoiceShortcut(repo.getSettings())
 
     const initialSettings = repo.getSettings()
     if (
@@ -344,6 +344,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   isQuitting = true
   flushAllActiveTurns('interrupted')
+  shutdownVoice()
   stopAutomation()
   stopAllTurns()
   shutdownTracking()
@@ -351,7 +352,6 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   flushAllActiveTurns('interrupted')
-  unregisterVoiceShortcut()
   killAllBackground()
   killAllShells()
   closeAllBrowsers()

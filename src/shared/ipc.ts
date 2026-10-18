@@ -1,5 +1,17 @@
 /** IPC channel names shared by the preload bridge and the main-process handlers. */
 export const CHANNELS = {
+  voiceState: 'voice:state',
+  voiceEvent: 'voice:event',
+  voiceUpdate: 'voice:update',
+  voiceDevices: 'voice:devices',
+  voicePrivacy: 'voice:privacy',
+  voiceDownload: 'voice:download',
+  voiceCancelDownload: 'voice:cancelDownload',
+  voiceRemove: 'voice:remove',
+  voiceStart: 'voice:start',
+  voiceStop: 'voice:stop',
+  voiceListen: 'voice:listen',
+  voiceUnlisten: 'voice:unlisten',
   botsList: 'bots:list',
   botsReorder: 'bots:reorder',
   botsCreate: 'bots:create',
@@ -35,15 +47,7 @@ export const CHANNELS = {
   filesSearch: 'files:search',
   filesReplace: 'files:replace',
   settingsSetOverlayKeybind: 'settings:setOverlayKeybind',
-  settingsSetVoiceKeybind: 'settings:setVoiceKeybind',
   settingsSetUserProfile: 'settings:setUserProfile',
-  settingsSetVoiceAutoSend: 'settings:setVoiceAutoSend',
-  settingsSetVoiceLang: 'settings:setVoiceLang',
-  settingsSetVoiceModel: 'settings:setVoiceModel',
-  settingsSetVoiceSttConfig: 'settings:setVoiceSttConfig',
-  settingsSetVoiceInputDevice: 'settings:setVoiceInputDevice',
-  settingsSetVoiceWakeWord: 'settings:setVoiceWakeWord',
-  settingsSetVoiceWakeWords: 'settings:setVoiceWakeWords',
   settingsSetActivePromptId: 'settings:setActivePromptId',
   settingsSetBranchPrefix: 'settings:setBranchPrefix',
   settingsSetLanguage: 'settings:setLanguage',
@@ -107,18 +111,6 @@ export const CHANNELS = {
   ttsAudioReady: 'tts:audioReady',
   ttsAudioEnded: 'tts:audioEnded',
   ttsTestVoice: 'tts:testVoice',
-
-  sttTranscribe: 'stt:transcribe',
-  sttGetStatus: 'stt:getStatus',
-  sttInstallDependencies: 'stt:installDependencies',
-  sttInstallProgress: 'stt:installProgress',
-  sttGetInstalledModels: 'stt:getInstalledModels',
-  sttDownloadModel: 'stt:downloadModel',
-  sttDownloadProgress: 'stt:downloadProgress',
-  sttStartRecording: 'stt:startRecording',
-  sttStopRecording: 'stt:stopRecording',
-  sttSetRecordingState: 'stt:setRecordingState',
-  sttSetShortcutPaused: 'stt:setShortcutPaused',
 
   // Anonymous usage tracking. Its own pair of channels rather than a field on
   // AppSettings: the flag lives in a file outside the database, so opting out
@@ -210,6 +202,8 @@ export const CHANNELS = {
   skillsList: 'skills:list',
   skillsRefresh: 'skills:refresh',
   skillsRead: 'skills:read',
+  skillsReadRaw: 'skills:readRaw',
+  skillsSaveRaw: 'skills:saveRaw',
   skillsCreate: 'skills:create',
   skillsUpdate: 'skills:update',
   skillsRemove: 'skills:remove',
@@ -219,6 +213,11 @@ export const CHANNELS = {
   promptsCreate: 'prompts:create',
   promptsUpdate: 'prompts:update',
   promptsRemove: 'prompts:remove',
+  catalogSearch: 'catalog:search',
+  catalogSkillDetail: 'catalog:skillDetail',
+  catalogInstallSkill: 'catalog:installSkill',
+  catalogMcpSetup: 'catalog:mcpSetup',
+  catalogInstallMcp: 'catalog:installMcp',
 
   /**
    * Themes -- user-authored `theme.json` files that re-point the app's CSS

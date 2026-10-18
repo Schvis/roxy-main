@@ -164,11 +164,13 @@ export function Switch({
   checked,
   onChange,
   disabled,
+  label,
   'aria-label': ariaLabel
 }: {
   checked: boolean
   onChange?: (value: boolean) => void
   disabled?: boolean
+  label?: string
   'aria-label'?: string
 }): JSX.Element {
   return (
@@ -176,7 +178,7 @@ export function Switch({
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? label}
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
       className={cn(

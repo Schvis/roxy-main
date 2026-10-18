@@ -172,7 +172,13 @@ export function VtuberStandalone(): JSX.Element {
 
   useEffect(() => {
     if (settings?.vtuberVadEnabled) {
-      void vadSessionRef.current?.start()
+      void vadSessionRef.current?.start().then((started) => {
+        if (started) return
+        // Conversation runs on the local voice engine; say what's missing.
+        setBubbleText(t('vtuber.vadUnavailable'))
+        setBubbleVisible(true)
+        void setVtuberVadEnabled(false)
+      })
     } else {
       vadSessionRef.current?.stop()
     }

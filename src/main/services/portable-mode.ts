@@ -56,6 +56,9 @@ function isInstalledApp(execDir: string): boolean {
 export function isPortableMode(): boolean {
   if (portableResolved) return portableActive
 
+  // `app` is undefined when main-process modules run under plain Node (smoke tests).
+  const packaged = app?.isPackaged === true
+
   // 1. electron-builder portable executable target
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
     portableActive = true
@@ -67,7 +70,7 @@ export function isPortableMode(): boolean {
   // 2. Explicit flag or environment variable
   if (process.argv.includes('--portable') || process.env.ROXY_PORTABLE === '1') {
     portableActive = true
-    portableDir = app.isPackaged
+    portableDir = packaged
       ? path.dirname(process.execPath)
       : path.join(process.cwd(), '.portable-data')
     portableResolved = true
@@ -75,7 +78,7 @@ export function isPortableMode(): boolean {
   }
 
   // 3. Packaged folder checks
-  if (app.isPackaged) {
+  if (packaged) {
     try {
       const execDir = path.dirname(process.execPath)
       const dataPath = path.join(execDir, 'data')
