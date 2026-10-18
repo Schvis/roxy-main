@@ -20,6 +20,7 @@ import type { ResolvedTheme } from '../shared/theme'
 import type { MotionPreference } from '../shared/motion'
 import type { AppSettings } from '../shared/types'
 import type { BackgroundState } from '../shared/background'
+import type { VoiceEvent } from '../shared/voice'
 
 /**
  * The typed bridge exposed to the renderer as `window.roxy`. Every method maps
@@ -51,6 +52,23 @@ const roxy: RoxyApi = {
       ipcRenderer.invoke(CHANNELS.filesSearch, sessionId, query, options),
     replace: (sessionId, query, replacement, options, paths) =>
       ipcRenderer.invoke(CHANNELS.filesReplace, sessionId, query, replacement, options, paths)
+  },
+  voice: {
+    state: () => ipcRenderer.invoke(CHANNELS.voiceState),
+    update: (patch) => ipcRenderer.invoke(CHANNELS.voiceUpdate, patch),
+    devices: () => ipcRenderer.invoke(CHANNELS.voiceDevices),
+    privacy: () => ipcRenderer.invoke(CHANNELS.voicePrivacy),
+    download: (id) => ipcRenderer.invoke(CHANNELS.voiceDownload, id),
+    cancelDownload: () => ipcRenderer.invoke(CHANNELS.voiceCancelDownload),
+    remove: (id) => ipcRenderer.invoke(CHANNELS.voiceRemove, id),
+    start: (id, chatId) => ipcRenderer.invoke(CHANNELS.voiceStart, id, chatId),
+    stop: (id, finalize) => ipcRenderer.invoke(CHANNELS.voiceStop, id, finalize),
+    onEvent: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, event: VoiceEvent): void =>
+        callback(event)
+      ipcRenderer.on(CHANNELS.voiceEvent, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.voiceEvent, handler)
+    }
   },
   bots: {
     list: () => ipcRenderer.invoke(CHANNELS.botsList),
@@ -253,6 +271,14 @@ const roxy: RoxyApi = {
     list: () => ipcRenderer.invoke(CHANNELS.integrationsList),
     setEnabled: (id, enabled) => ipcRenderer.invoke(CHANNELS.integrationsSetEnabled, id, enabled)
   },
+  catalog: {
+    search: (kind, query, cursor) =>
+      ipcRenderer.invoke(CHANNELS.catalogSearch, kind, query, cursor),
+    skillDetail: (id) => ipcRenderer.invoke(CHANNELS.catalogSkillDetail, id),
+    installSkill: (id, reviewId) => ipcRenderer.invoke(CHANNELS.catalogInstallSkill, id, reviewId),
+    mcpSetup: (id) => ipcRenderer.invoke(CHANNELS.catalogMcpSetup, id),
+    installMcp: (input) => ipcRenderer.invoke(CHANNELS.catalogInstallMcp, input)
+  },
   mcp: {
     list: () => ipcRenderer.invoke(CHANNELS.mcpList),
     upsert: (input) => ipcRenderer.invoke(CHANNELS.mcpUpsert, input),
@@ -263,6 +289,8 @@ const roxy: RoxyApi = {
     setupScreenhand: () => ipcRenderer.invoke(CHANNELS.mcpSetupScreenhand)
   },
   skills: {
+    readRaw: (name, cwd) => ipcRenderer.invoke(CHANNELS.skillsReadRaw, name, cwd),
+    saveRaw: (input, cwd) => ipcRenderer.invoke(CHANNELS.skillsSaveRaw, input, cwd),
     list: (cwd) => ipcRenderer.invoke(CHANNELS.skillsList, cwd),
     refresh: (cwd) => ipcRenderer.invoke(CHANNELS.skillsRefresh, cwd),
     read: (name, cwd) => ipcRenderer.invoke(CHANNELS.skillsRead, name, cwd),

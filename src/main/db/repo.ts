@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { normalizeVoice, type VoiceSettings } from '../../shared/voice'
 import { isOpenAiCompatible, resolveSeed } from '../../shared/providers'
 import { isCliProxyProvider } from '../../shared/cliproxy'
 import { providerAccountName } from './migrations'
@@ -272,6 +273,21 @@ export function setIdeWindowSize(width: number, height: number): void {
     write.run('ide_window_w', String(Math.max(760, Math.round(width))))
     write.run('ide_window_h', String(Math.max(480, Math.round(height))))
   })()
+}
+
+export function getVoiceSettings(): VoiceSettings {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get('voice') as
+    | { value: string }
+    | undefined
+  try {
+    return normalizeVoice(row ? JSON.parse(row.value) : null)
+  } catch {
+    return normalizeVoice(null)
+  }
+}
+
+export function setVoiceSettings(settings: VoiceSettings): void {
+  setSetting('voice', JSON.stringify(normalizeVoice(settings)))
 }
 
 // ---- Forge host overrides ----------------------------------------------

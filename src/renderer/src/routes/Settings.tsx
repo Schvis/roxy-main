@@ -57,6 +57,7 @@ import { AudioRecorder } from '../lib/audio-recorder'
 import { cameraManager } from '../lib/vision'
 
 import { BackgroundSettings } from '../components/BackgroundSettings'
+import { VoiceSettings } from '../components/VoiceSettings'
 import { RemoteWorkspaceDialog } from '../components/RemoteWorkspaceDialog'
 import { SidebarNavItem } from '../components/SidebarFrame'
 import Themes from './Themes'
@@ -91,6 +92,7 @@ const SETTINGS_GROUPS = [
       { id: 'accounts', label: 'settings.navigation.accounts', icon: UserRound },
       { id: 'browser', label: 'settings.browser.heading', icon: Globe },
       { id: 'language', label: 'settings.language.heading', icon: Languages },
+      { id: 'voiceTranslation', label: 'voice.heading', icon: Mic },
       { id: 'worktrees', label: 'settings.navigation.worktrees', icon: GitBranch },
       { id: 'notifications', label: 'settings.notifications.heading', icon: Bell },
       { id: 'remote', label: 'sidebar.remoteWorkspace', icon: MonitorSmartphone },
@@ -1203,6 +1205,14 @@ export default function Settings(): JSX.Element {
         </Button>
       </section>
       {remoteOpen && <RemoteWorkspaceDialog onClose={() => setRemoteOpen(false)} />}
+      <section
+        id="settings-voiceTranslation-panel"
+        role="region"
+        aria-labelledby="settings-voiceTranslation"
+        hidden={panel !== 'voiceTranslation'}
+      >
+        {(visited.has('voiceTranslation') || panel === 'voiceTranslation') && <VoiceSettings />}
+      </section>
 
       <div
         id="settings-accounts-panel"

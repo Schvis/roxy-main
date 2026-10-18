@@ -49,6 +49,7 @@ import { flushAllActiveTurns } from './services/turn-recovery'
 import { initPortableMode } from './services/portable-mode'
 
 let isQuitting = false
+import { setVoiceWindow, shutdownVoice } from './services/voice'
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin'
@@ -172,6 +173,7 @@ function createWindow(): BrowserWindow {
   // Clicking a completion toast has to raise THIS window, not whichever one
   // happens to be first in getAllWindows() (the agent browser opens its own).
   setToastWindow(mainWindow)
+  setVoiceWindow(mainWindow)
 
   return mainWindow
 }
@@ -344,6 +346,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   isQuitting = true
   flushAllActiveTurns('interrupted')
+  shutdownVoice()
   stopAutomation()
   stopAllTurns()
   shutdownTracking()

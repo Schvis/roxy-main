@@ -1,5 +1,15 @@
 /** IPC channel names shared by the preload bridge and the main-process handlers. */
 export const CHANNELS = {
+  voiceState: 'voice:state',
+  voiceEvent: 'voice:event',
+  voiceUpdate: 'voice:update',
+  voiceDevices: 'voice:devices',
+  voicePrivacy: 'voice:privacy',
+  voiceDownload: 'voice:download',
+  voiceCancelDownload: 'voice:cancelDownload',
+  voiceRemove: 'voice:remove',
+  voiceStart: 'voice:start',
+  voiceStop: 'voice:stop',
   botsList: 'bots:list',
   botsReorder: 'bots:reorder',
   botsCreate: 'bots:create',
@@ -210,6 +220,8 @@ export const CHANNELS = {
   skillsList: 'skills:list',
   skillsRefresh: 'skills:refresh',
   skillsRead: 'skills:read',
+  skillsReadRaw: 'skills:readRaw',
+  skillsSaveRaw: 'skills:saveRaw',
   skillsCreate: 'skills:create',
   skillsUpdate: 'skills:update',
   skillsRemove: 'skills:remove',
@@ -219,6 +231,11 @@ export const CHANNELS = {
   promptsCreate: 'prompts:create',
   promptsUpdate: 'prompts:update',
   promptsRemove: 'prompts:remove',
+  catalogSearch: 'catalog:search',
+  catalogSkillDetail: 'catalog:skillDetail',
+  catalogInstallSkill: 'catalog:installSkill',
+  catalogMcpSetup: 'catalog:mcpSetup',
+  catalogInstallMcp: 'catalog:installMcp',
 
   /**
    * Themes -- user-authored `theme.json` files that re-point the app's CSS

@@ -17,6 +17,7 @@ import {
   Folder,
   Image as ImageIcon,
   Loader2,
+  LoaderCircle,
   Mic,
   MicOff,
   Monitor,
@@ -26,6 +27,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
+import { useVoiceComposer } from '../lib/voice'
 import { ModelPicker } from './ModelPicker'
 import {
   ContextMeter,
@@ -102,6 +104,7 @@ export function Composer({
     }))
   }
   const setValue = (next: string | ((current: string) => string)): void => {
+    voice.interrupt()
     updateDraft((current) => ({
       ...current,
       value: typeof next === 'function' ? next(current.value) : next
@@ -119,6 +122,7 @@ export function Composer({
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
+  const voice = useVoiceComposer(chatId, ref)
   const mirror = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const recorderRef = useRef<AudioRecorder | null>(null)
@@ -448,6 +452,11 @@ export function Composer({
       return
     }
     if (event.nativeEvent.isComposing) return
+    if (event.key === 'Escape' && voice.phase !== 'idle') {
+      event.preventDefault()
+      voice.interrupt()
+      return
+    }
     if (mentions.length) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
@@ -762,6 +771,24 @@ export function Composer({
 
   return (
     <div className="composer-gutter w-full min-w-0 bg-bg px-4 pb-1.5">
+      {voice.enabled && (voice.slowPhase || voice.error || voice.fallback) && (
+        <p
+          role={voice.error ? 'alert' : 'status'}
+          className={cn(
+            'mx-auto mb-2 max-w-3xl text-xs',
+            voice.error ? 'text-danger' : 'text-text-muted'
+          )}
+        >
+          {voice.error
+            ? t(`voice.errors.${voice.error}`)
+            : voice.slowPhase
+              ? t(`voice.phase.${voice.slowPhase}`)
+              : t('voice.fallback')}
+          {voice.fallback && voice.slowPhase && !voice.error && (
+            <span className="mt-1 block">{t('voice.fallback')}</span>
+          )}
+        </p>
+      )}
       <div
         ref={containerRef}
         onDragOver={(e) => {
@@ -1210,99 +1237,124 @@ export function Composer({
               </>
             ) : null}
           </div>
-          {showStop ? (
-            <button
-              onClick={onStop}
-              title={t('composer.stop')}
-              className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90"
-            >
-              <Square className="h-3 w-3 fill-current" />
-            </button>
-          ) : sending ? (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {onStop && (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  title={t('composer.stop')}
-                  className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text"
-                >
-                  <Square className="h-3 w-3 fill-current" />
-                </button>
-              )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {voice.enabled && (
               <button
                 type="button"
-                onClick={() => void submit()}
-                disabled={!canSend}
-                title={t('composer.addToQueue')}
+                aria-label={t(voice.phase === 'idle' ? 'voice.start' : 'voice.stop')}
+                title={t(voice.phase === 'idle' ? 'voice.start' : 'voice.stop')}
+                aria-pressed={voice.phase !== 'idle'}
+                aria-busy={voice.phase === 'starting' || voice.phase === 'stopping'}
+                disabled={voice.phase === 'stopping'}
+                onClick={voice.toggle}
                 className={cn(
-                  'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30',
-                  isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
+                  'press-scale flex h-8 w-8 shrink-0 items-center justify-center rounded-lg disabled:opacity-40',
+                  voice.phase === 'idle'
+                    ? 'text-text-muted hover:bg-white/5 hover:text-text'
+                    : 'bg-danger/15 text-danger'
                 )}
               >
-                <ArrowUp className="h-3.5 w-3.5" />
-                {!isCompact && <span>{t('composer.queue')}</span>}
+                {voice.phase === 'starting' || voice.phase === 'stopping' ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
               </button>
+            )}
+            {showStop ? (
               <button
-                type="button"
-                onClick={() => void submit(undefined, true)}
-                disabled={!canSend}
-                title={t('composer.forceSend')}
-                className={cn(
-                  'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30',
-                  isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
-                )}
+                onClick={onStop}
+                title={t('composer.stop')}
+                className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90"
               >
-                <Zap className="h-3.5 w-3.5 fill-current" />
-                {!isCompact && <span>{t('composer.force')}</span>}
+                <Square className="h-3 w-3 fill-current" />
               </button>
-            </div>
-          ) : (
-            <div className="flex max-w-[min(100%,22rem)] flex-col items-end gap-1">
-              {knownTargets.length > 1 && !sendTarget && (
-                <div
-                  role="group"
-                  aria-label={t('composer.chooseSendTo')}
-                  className="flex flex-wrap justify-end gap-1"
-                >
-                  <span className="px-1 text-[11px] text-text-muted">
-                    {t('composer.chooseSendTo')}
-                  </span>
-                  {knownTargets.map((bot) => (
-                    <button
-                      key={bot.id}
-                      type="button"
-                      onClick={() => setPickedSendId(bot.id)}
-                      className="press-scale rounded-md bg-white/5 px-2 py-0.5 text-[11px] font-medium text-accent hover:bg-white/10"
-                    >
-                      @{bot.username}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-1.5">
-                {sendTarget && (
+            ) : sending ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {onStop && (
                   <button
                     type="button"
-                    onClick={() => void submit(sendTarget.id)}
-                    disabled={!canSend || submitting}
-                    title={t('composer.sendToHint')}
-                    className="press-scale h-8 shrink-0 rounded-lg bg-accent/15 px-2.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:opacity-30"
+                    onClick={onStop}
+                    title={t('composer.stop')}
+                    className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text"
                   >
-                    {t('composer.sendTo', { username: sendTarget.username })}
+                    <Square className="h-3 w-3 fill-current" />
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => void submit()}
-                  disabled={!canSend || submitting}
-                  title={sending ? t('composer.addToQueue') : t('composer.send')}
-                  className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30"
+                  disabled={!canSend}
+                  title={t('composer.addToQueue')}
+                  className={cn(
+                    'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30',
+                    isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
+                  )}
                 >
-                  <ArrowUp className="h-4 w-4" />
+                  <ArrowUp className="h-3.5 w-3.5" />
+                  {!isCompact && <span>{t('composer.queue')}</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submit(undefined, true)}
+                  disabled={!canSend}
+                  title={t('composer.forceSend')}
+                  className={cn(
+                    'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30',
+                    isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
+                  )}
+                >
+                  <Zap className="h-3.5 w-3.5 fill-current" />
+                  {!isCompact && <span>{t('composer.force')}</span>}
                 </button>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="flex max-w-[min(100%,22rem)] flex-col items-end gap-1">
+                {knownTargets.length > 1 && !sendTarget && (
+                  <div
+                    role="group"
+                    aria-label={t('composer.chooseSendTo')}
+                    className="flex flex-wrap justify-end gap-1"
+                  >
+                    <span className="px-1 text-[11px] text-text-muted">
+                      {t('composer.chooseSendTo')}
+                    </span>
+                    {knownTargets.map((bot) => (
+                      <button
+                        key={bot.id}
+                        type="button"
+                        onClick={() => setPickedSendId(bot.id)}
+                        className="press-scale rounded-md bg-white/5 px-2 py-0.5 text-[11px] font-medium text-accent hover:bg-white/10"
+                      >
+                        @{bot.username}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  {sendTarget && (
+                    <button
+                      type="button"
+                      onClick={() => void submit(sendTarget.id)}
+                      disabled={!canSend || submitting}
+                      title={t('composer.sendToHint')}
+                      className="press-scale h-8 shrink-0 rounded-lg bg-accent/15 px-2.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:opacity-30"
+                    >
+                      {t('composer.sendTo', { username: sendTarget.username })}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => void submit()}
+                    disabled={!canSend || submitting}
+                    title={sending ? t('composer.addToQueue') : t('composer.send')}
+                    className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       {error && (
