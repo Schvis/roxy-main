@@ -13,6 +13,12 @@ import type {
 } from './voice'
 import type { CatalogApi } from './catalog'
 import type { BackgroundResult, BackgroundSettings, BackgroundState } from './background'
+import type {
+  WallpaperPage,
+  WallpaperQuery,
+  WallpaperSubmitRequest,
+  WallpaperResult
+} from './wallpapers'
 import type { Bot, BotJob, BotJobInput } from './bots'
 import type { MotionPreference } from './motion'
 import type {
@@ -1280,6 +1286,9 @@ export interface RoxyApi {
     remove(id: string): Promise<void>
   }
   background: {
+    search(input: WallpaperQuery): Promise<WallpaperResult<WallpaperPage>>
+    applyCatalog(id: string): Promise<WallpaperResult<BackgroundResult | null>>
+    submit(input: WallpaperSubmitRequest): Promise<WallpaperResult<{ id: string }>>
     get(): Promise<BackgroundState>
     /** Native picker; cancellation returns null without changing anything. */
     choose(): Promise<BackgroundResult | null>
