@@ -75,6 +75,8 @@ function harness(platform = 'win32', overlayMode = false) {
     join: (...parts) => parts.join('\\'),
     __dirname: '.',
     setMainWindow: () => {},
+    setToastWindow: () => {},
+    setVoiceWindow: () => {},
     flushAllActiveTurns: () => {
       flushes++
     },

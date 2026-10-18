@@ -225,6 +225,9 @@ export const CHANNELS = {
    * root element, which is what actually restyles the UI.
    */
   backgroundGet: 'background:get',
+  backgroundSearch: 'background:search',
+  backgroundApplyCatalog: 'background:apply-catalog',
+  backgroundSubmit: 'background:submit',
   backgroundChoose: 'background:choose',
   backgroundRemove: 'background:remove',
   backgroundUpdate: 'background:update',
