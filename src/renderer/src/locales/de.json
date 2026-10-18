@@ -419,9 +419,9 @@
     "newCookie": "Neues Cookie",
     "noMatch": "Keine Cookies stimmen mit der Suche überein.",
     "refresh": "Aktualisieren",
-    "sameSiteLax": "Lax",
-    "sameSiteNone": "None",
-    "sameSiteStrict": "Strict",
+    "sameSiteLax": "Locker",
+    "sameSiteNone": "Keine",
+    "sameSiteStrict": "Streng",
     "sameSiteUnspecified": "Nicht spezifiziert",
     "savedCookie": "{{name}} gespeichert",
     "searchAll": "Alle Cookies durchsuchen",
@@ -948,8 +948,8 @@
     "tools": "Tools"
   },
   "notifications": {
-    "responseReady": "Response ready.",
-    "responseReadyForSession": "Response ready: {{session}}"
+    "responseReady": "Antwort bereit.",
+    "responseReadyForSession": "Antwort bereit: {{session}}"
   },
   "onboarding": {
     "apiKey": "API-Schlüssel",
@@ -1071,7 +1071,7 @@
     "loading": "Nutzung wird geprüft...",
     "modelRate": "Dieses Modell",
     "modelRatePerM": "Dieses Modell, pro 1 Mio. Ein / Aus",
-    "noModelLimit": "No metered limit for this model",
+    "noModelLimit": "Keine verbrauchsabhängige Begrenzung für dieses Modell",
     "otherModels": "Andere Modelle",
     "overage": "Zusätzliche Nutzung diesen Monat",
     "perMillion": "{{rate}}",
@@ -1244,7 +1244,7 @@
       "completeDescription": "Erhalten Sie eine Benachrichtigung, wenn Roxy eine Antwort abgeschlossen hat. Nützlich für lang laufende Aufgaben. Wird nur ausgelöst, wenn Roxy nicht im Vordergrund ist; klicken Sie darauf, um zu dieser Sitzung zu springen.",
       "completeTitle": "Abgeschlossene Antworten",
       "heading": "Benachrichtigungen",
-      "testNotification": "Test notification"
+      "testNotification": "Testbenachrichtigung"
     },
     "overlay": {
       "heading": "Overlay",
@@ -1502,35 +1502,35 @@
       "prefixTitle": "Branch-Präfix"
     },
     "activity": {
-      "activeDays": "Active days",
-      "currentStreak": "Current streak",
-      "date": "Date",
-      "days_one": "day",
-      "days_other": "days",
-      "description": "One turn is one assistant reply. Your activity history stays here even when you delete a conversation.",
-      "failed": "Couldn't load your activity. Reopen Settings to try again.",
-      "longestStreak": "Longest streak",
-      "peak_one": "Busiest day in this period: {{value}} turn.",
-      "peak_other": "Busiest day in this period: {{value}} turns.",
-      "period": "{{start}} to {{end}}",
-      "recent": "Last 7 days",
-      "total": "Agent turns",
-      "turnCount_one": "{{value}} turn",
-      "turnCount_other": "{{value}} turns",
-      "turns_one": "turn in this period",
-      "turns_other": "turns in this period"
+      "activeDays": "Aktive Tage",
+      "currentStreak": "Aktuelle Serie",
+      "date": "Datum",
+      "days_one": "Tag",
+      "days_other": "Tage",
+      "description": "Eine Runde ist eine Assistentenantwort. Ihr Aktivitätsverlauf bleibt hier, auch wenn Sie eine Konversation löschen.",
+      "failed": "Ihre Aktivität konnte nicht geladen werden. Öffnen Sie die Einstellungen erneut, um es noch einmal zu versuchen.",
+      "longestStreak": "Längste Serie",
+      "peak_one": "Geschäftigster Tag in diesem Zeitraum: {{value}} Runde.",
+      "peak_other": "Geschäftigster Tag in diesem Zeitraum: {{value}} Runden.",
+      "period": "{{start}} bis {{end}}",
+      "recent": "Letzte 7 Tage",
+      "total": "Agentenrunden",
+      "turnCount_one": "{{value}} Runde",
+      "turnCount_other": "{{value}} Runden",
+      "turns_one": "Runde in diesem Zeitraum",
+      "turns_other": "Runden in diesem Zeitraum"
     },
     "navigation": {
-      "accounts": "Accounts",
-      "activity": "Activity",
-      "activityEmpty": "Your activity will appear here after your first agent response.",
+      "accounts": "Konten",
+      "activity": "Aktivität",
+      "activityEmpty": "Ihre Aktivität wird hier nach der ersten Agentenantwort angezeigt.",
       "addOns": "Add-Ons",
-      "colors": "Colors",
-      "general": "General",
-      "openRemote": "Manage remote access",
-      "section": "Settings section",
-      "theme": "Theme",
-      "worktrees": "Worktree configuration"
+      "colors": "Farben",
+      "general": "Allgemein",
+      "openRemote": "Fernzugriff verwalten",
+      "section": "Einstellungsbereich",
+      "theme": "Design",
+      "worktrees": "Worktree-Konfiguration"
     }
   },
   "sidebar": {
@@ -1739,14 +1739,14 @@
     "working": "arbeitet",
     "writingAs": "{{name}} schreibt…",
     "you": "Sie",
-    "deletePromptFailed": "Couldn't delete this prompt. Stop any running response, then try again.",
-    "deletePromptHint": "Delete this prompt and its failed response from the conversation and future model context",
-    "editPrompt": "Edit",
-    "promptFailed": "Failed",
-    "promptInterrupted": "Interrupted",
-    "promptStopped": "Stopped",
-    "resendPrompt": "Resend",
-    "retryConflict": "This request changed elsewhere. Your draft is kept here; close and reopen to retry."
+    "deletePromptFailed": "Diese Eingabeaufforderung konnte nicht gelöscht werden. Beenden Sie alle laufenden Antworten und versuchen Sie es dann erneut.",
+    "deletePromptHint": "Diese Eingabeaufforderung und ihre fehlgeschlagene Antwort aus der Konversation und dem zukünftigen Modellkontext löschen",
+    "editPrompt": "Bearbeiten",
+    "promptFailed": "Fehlgeschlagen",
+    "promptInterrupted": "Unterbrochen",
+    "promptStopped": "Gestoppt",
+    "resendPrompt": "Erneut senden",
+    "retryConflict": "Diese Anfrage wurde an anderer Stelle geändert. Ihr Entwurf wird hier gespeichert; schließen und erneut öffnen, um es erneut zu versuchen."
   },
   "usage": {
     "allProviders": "Alle Anbieter, letzte 30 Tage",
@@ -1895,17 +1895,17 @@
     "working": "Arbeitet…"
   },
   "subscription": {
-    "blurb": "Sign in with your {{provider}} account to use the models available to your plan through a local proxy. No API key required. Your provider's plan limits and charges still apply.",
-    "browser": "Finish signing in with {{provider}} in your browser.",
-    "continue": "Continue with {{provider}}",
-    "deviceCode": "If prompted, enter this code in your browser: <code>{{code}}</code>",
-    "downloading": "Downloading the local proxy...",
-    "failed": "Sign-in failed.",
-    "howItWorks": "Roxy includes <proxy>CLIProxyAPI v{{version}}</proxy> (checksum-verified during the build and validated before launch) and runs it on 127.0.0.1 while Roxy is open. It holds the login on this machine and exposes it to Roxy as a normal model endpoint. Your credentials never reach Roxy's servers, and the proxy is closed when you quit.",
-    "signOut": "Sign out",
-    "signingOut": "Signing out...",
-    "starting": "Starting the local proxy...",
-    "title": "Use your {{provider}} subscription",
-    "waiting": "Waiting for sign-in..."
+    "blurb": "Melden Sie sich mit Ihrem {{provider}}-Konto an, um die Modelle Ihres Plans über einen lokalen Proxy zu nutzen. Kein API-Schlüssel erforderlich. Die Planbeschränkungen und Gebühren Ihres Anbieters gelten weiterhin.",
+    "browser": "Schließen Sie die Anmeldung bei {{provider}} in Ihrem Browser ab.",
+    "continue": "Mit {{provider}} fortfahren",
+    "deviceCode": "Geben Sie bei Aufforderung diesen Code in Ihrem Browser ein: <code>{{code}}</code>",
+    "downloading": "Lokaler Proxy wird heruntergeladen...",
+    "failed": "Anmeldung fehlgeschlagen.",
+    "howItWorks": "Roxy enthält <proxy>CLIProxyAPI v{{version}}</proxy> (prüfsummengeprüft während des Builds und vor dem Start validiert) und führt es auf 127.0.0.1 aus, während Roxy geöffnet ist. Es speichert die Anmeldung auf diesem Computer und stellt sie Roxy als normalen Modell-Endpunkt zur Verfügung. Ihre Anmeldeinformationen erreichen niemals die Server von Roxy, und der Proxy wird geschlossen, wenn Sie die Anwendung beenden.",
+    "signOut": "Abmelden",
+    "signingOut": "Meldet sich ab...",
+    "starting": "Lokaler Proxy wird gestartet...",
+    "title": "Ihre {{provider}}-Abonnement nutzen",
+    "waiting": "Warten auf Anmeldung..."
   }
 }
