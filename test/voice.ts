@@ -1,12 +1,6 @@
 import assert from 'node:assert/strict'
-import {
-  DEFAULT_VOICE,
-  DEFAULT_WAKE_WORDS,
-  VOICE_MODELS,
-  matchWakeWord,
-  mergeVoiceDraft,
-  normalizeVoice
-} from '../src/shared/voice'
+import { DEFAULT_VOICE, VOICE_MODELS, mergeVoiceDraft, normalizeVoice } from '../src/shared/voice'
+import { DEFAULT_WAKE_WORDS, matchWakeWord } from '../src/shared/voice-handsfree'
 
 for (const value of [undefined, null, false, '', {}, { enabled: 'true' }, { enabled: 1 }]) {
   assert.equal(normalizeVoice(value).enabled, false)

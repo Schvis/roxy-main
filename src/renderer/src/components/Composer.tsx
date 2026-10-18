@@ -25,7 +25,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { useVoiceComposer } from '../lib/voice'
+import { useVoiceHandsFree } from '../lib/voice-handsfree'
 import { ModelPicker } from './ModelPicker'
 import {
   ContextMeter,
@@ -113,7 +113,7 @@ export function Composer({
   const ref = useRef<HTMLTextAreaElement>(null)
   // Auto-send and wake phrases submit the draft the voice hook just wrote.
   const sendRef = useRef<() => void>(() => {})
-  const voice = useVoiceComposer(chatId, ref, () => sendRef.current())
+  const voice = useVoiceHandsFree(chatId, ref, () => sendRef.current())
   const mirror = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)

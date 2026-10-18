@@ -8,9 +8,9 @@ import {
   systemPreferences,
   utilityProcess
 } from 'electron'
-import type { UtilityProcess, IpcMainInvokeEvent, WebContents } from 'electron'
+import type { UtilityProcess, IpcMainInvokeEvent } from 'electron'
 import type { Recorder } from '@handy-computer/recorder'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -23,10 +23,10 @@ import {
   type VoiceEvent,
   type VoiceResult,
   type VoiceSettings,
-  type VoiceStartOptions,
   type VoiceState
 } from '../../shared/voice'
 import { getChat, getVoiceSettings, setVoiceSettings } from '../db/repo'
+import { createHandsFree } from './voice-handsfree'
 
 let window: BrowserWindow | null = null
 let shortcuts: string[] = []
@@ -38,9 +38,6 @@ let publishRevision = 0
 type Recording = {
   id: string
   chatId: string
-  /** The window that started it; recording and transcript events go only there. */
-  sender: WebContents
-  autoStop?: { gate: SpeechGate; elapsed: number; heard: boolean }
   recorder?: Recorder
   worker?: UtilityProcess
   sequence: number
@@ -69,89 +66,9 @@ const supported = (): boolean =>
   (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)) ||
   (process.platform === 'linux' && ['arm64', 'x64'].includes(process.arch))
 
-/**
- * Hands-free listening. Only the newest listener holds the microphone, and only
- * while no dictation is active; the rest wait and resume in order.
- */
-type Listener = {
-  id: string
-  sender: WebContents
-  gate: SpeechGate
-  /** Audio just before speech crossed the gate, so first syllables are kept. */
-  preroll: Float32Array[]
-  worker?: UtilityProcess
-  recorder?: Recorder
-  utterance: {
-    id: string
-    text: string
-    pending: number
-    elapsed: number
-    finishing: boolean
-  } | null
-}
-let listeners: Listener[] = []
-let capture: Listener | null = null
-let listenerSync: Promise<void> = Promise.resolve()
-/** Suspended or locked: listeners keep their place but release the microphone. */
-let away = false
-
-/** Energy gate over 100 ms chunks with an adaptive noise floor. */
-class SpeechGate {
-  private floor = 0.003
-  private silence = 0
-  speaking = false
-  constructor(private readonly endMs: number) {}
-  push(samples: Float32Array): 'start' | 'end' | null {
-    let sum = 0
-    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
-    const rms = Math.sqrt(sum / Math.max(1, samples.length))
-    const threshold = Math.min(0.04, Math.max(0.006, this.floor * 2.5))
-    const ms = samples.length / 16
-    if (rms < threshold) this.floor = this.floor * 0.95 + rms * 0.05
-    if (rms >= threshold) {
-      this.silence = 0
-      if (!this.speaking) {
-        this.speaking = true
-        return 'start'
-      }
-    } else if (this.speaking) {
-      this.silence += ms
-      if (this.silence >= this.endMs) {
-        this.speaking = false
-        this.silence = 0
-        return 'end'
-      }
-    }
-    return null
-  }
-}
-
-function send(target: WebContents | undefined, event: VoiceEvent): void {
-  if (target && !target.isDestroyed()) target.send(CHANNELS.voiceEvent, event)
-}
-/** State reaches every app window (overlay and VTuber read it too); toggles go to main. */
 function emit(event: VoiceEvent): void {
-  if (event.type === 'state') {
-    for (const win of BrowserWindow.getAllWindows())
-      if (!win.isDestroyed()) send(win.webContents, event)
-  } else if (window && !window.isDestroyed()) send(window.webContents, event)
-}
-const watched = new WeakSet<WebContents>()
-/** Abandon a window's recording and listeners when it goes away or navigates. */
-function watchSender(target: WebContents): void {
-  if (watched.has(target)) return
-  watched.add(target)
-  const abandon = (): void => {
-    if (active?.sender === target) void stopVoice(false)
-    const before = listeners.length
-    listeners = listeners.filter((l) => l.sender !== target)
-    if (listeners.length !== before) syncListeners()
-  }
-  target.on('destroyed', abandon)
-  target.on('render-process-gone', abandon)
-  target.on('did-start-navigation', (_e, _url, inPlace, mainFrame) => {
-    if (mainFrame && !inPlace) abandon()
-  })
+  if (handsFree.route(event)) return // fork: per-window routing
+  if (window && !window.isDestroyed()) window.webContents.send(CHANNELS.voiceEvent, event)
 }
 function permission(): string {
   return process.platform === 'darwin' || process.platform === 'win32'
@@ -238,15 +155,7 @@ function loadEngine(modelId: string): Promise<UtilityProcess> {
           if (recording?.worker === worker) void stopVoice(false, 'engineFailed')
           return
         }
-        const utterance = capture?.worker === worker ? capture.utterance : null
-        if (utterance && message.recordingId === utterance.id) {
-          if (message.type === 'text' && typeof message.text === 'string')
-            utterance.text = message.text
-          else if (message.type === 'ack')
-            utterance.pending = Math.max(0, utterance.pending - message.frames)
-          else if (message.type === 'finished') finishUtterance(capture!, worker)
-          return
-        }
+        if (handsFree.onWorkerMessage(worker, message)) return // fork: listener utterance
         const recording = active
         if (
           !recording ||
@@ -257,7 +166,7 @@ function loadEngine(modelId: string): Promise<UtilityProcess> {
           return
         if (message.type === 'started') recording.begin?.()
         else if (message.type === 'text' && typeof message.text === 'string') {
-          send(recording.sender, {
+          emit({
             type: 'transcript',
             recordingId: recording.id,
             sequence: ++recording.sequence,
@@ -268,11 +177,8 @@ function loadEngine(modelId: string): Promise<UtilityProcess> {
         else if (message.type === 'finished') recording.finish?.()
       })
       worker.once('exit', () => {
+        handsFree.onWorkerExit(worker) // fork
         loading.reject?.()
-        if (capture?.worker === worker) {
-          void releaseCapture()
-          syncListeners()
-        }
         if (engine !== loading) return
         engine = null
         if (active?.worker === worker) void stopVoice(false, 'engineFailed')
@@ -332,215 +238,31 @@ function bindHotkeys(settings: VoiceSettings): VoiceError | null {
   return null
 }
 
+// fork: hands-free listeners, auto-stop and multi-window voice (voice-handsfree.ts)
+const handsFree = createHandsFree({
+  settings: getVoiceSettings,
+  supported,
+  busy: () => !!active || changing,
+  loadEngine,
+  unloadEngine,
+  cancel: (id) => {
+    if (active?.id === id) void stopVoice(false)
+  }
+})
+
 export function setVoiceWindow(target: BrowserWindow): void {
   window = target
-  watchSender(target.webContents)
+  const abandon = (): void => {
+    void stopVoice(false)
+  }
+  target.webContents.on('destroyed', abandon)
+  target.webContents.on('render-process-gone', abandon)
+  target.webContents.on('did-start-navigation', (_e, _url, inPlace, mainFrame) => {
+    if (mainFrame && !inPlace) abandon()
+  })
   target.on('closed', () => {
     if (window === target) window = null
   })
-}
-
-async function pickDevice(
-  native: typeof import('@handy-computer/recorder'),
-  settings: VoiceSettings
-): Promise<{ id?: string; fallback: boolean }> {
-  const devices = await native.listInputDevices()
-  const selected = settings.microphone
-  const device = selected
-    ? (devices.find((d) => d.id === selected.id) ??
-      devices.find((d) => d.name === selected.name && d.occurrence === selected.occurrence))
-    : undefined
-  return { id: device?.id, fallback: !!selected && !device }
-}
-
-async function micAllowed(): Promise<boolean> {
-  if (process.platform !== 'darwin') return true
-  const access = permission()
-  if (access === 'denied' || access === 'restricted') return false
-  return access === 'granted' || (await systemPreferences.askForMediaAccess('microphone'))
-}
-
-// ---- Hands-free listeners --------------------------------------------------
-
-function listenerReady(): boolean {
-  const settings = getVoiceSettings()
-  return supported() && settings.enabled && !!settings.modelId && !active && !changing && !away
-}
-
-/** Recompute which listener owns the microphone. Serialized; safe to call often. */
-function syncListeners(): void {
-  listenerSync = listenerSync
-    .then(async () => {
-      const wanted = listenerReady() ? (listeners.at(-1) ?? null) : null
-      if (capture === wanted) return
-      await releaseCapture()
-      if (wanted) await openCapture(wanted)
-    })
-    .catch(() => undefined)
-}
-
-function dropUtterance(listener: Listener): void {
-  const utterance = listener.utterance
-  listener.utterance = null
-  if (!utterance) return
-  try {
-    listener.worker?.postMessage({ type: 'reset', recordingId: utterance.id })
-  } catch {
-    unloadEngine()
-  }
-}
-
-async function releaseCapture(): Promise<void> {
-  const listener = capture
-  if (!listener) return
-  capture = null
-  dropUtterance(listener)
-  const recorder = listener.recorder
-  listener.recorder = undefined
-  listener.worker = undefined
-  listener.gate = new SpeechGate(700)
-  listener.preroll = []
-  await recorder?.close().catch(() => undefined)
-}
-
-async function openCapture(listener: Listener): Promise<void> {
-  const settings = getVoiceSettings()
-  const current = (): boolean => listeners.includes(listener) && listenerReady()
-  capture = listener
-  try {
-    const worker = await loadEngine(settings.modelId!)
-    if (capture !== listener || !current()) return
-    if (!(await micAllowed())) throw 'permissionDenied'
-    const native = await import('@handy-computer/recorder')
-    const { id } = await pickDevice(native, settings)
-    if (capture !== listener || !current()) return
-    listener.worker = worker
-    const options = {
-      sampleRate: 16000,
-      channels: 'mono' as const,
-      framesPerChunk: 1600,
-      collect: false,
-      onChunk: ({ samples }: { samples: Float32Array }): void => listenerChunk(listener, samples),
-      onFailure: (e: { code: string }): void => {
-        if (capture !== listener) return
-        failListener(listener, e.code === 'PermissionDenied' ? 'permissionDenied' : 'captureFailed')
-      }
-    }
-    let recorder: Recorder
-    try {
-      recorder = await native.Recorder.open({ ...options, device: id })
-    } catch (e) {
-      if (!id || (e as { code?: string }).code !== 'DeviceUnavailable') throw e
-      recorder = await native.Recorder.open(options)
-    }
-    if (capture !== listener || !current()) {
-      await recorder.close()
-      return
-    }
-    listener.recorder = recorder
-    recorder.start()
-    send(listener.sender, { type: 'listener', listenerId: listener.id, phase: 'listening' })
-  } catch (e) {
-    if (capture !== listener) return
-    failListener(
-      listener,
-      typeof e === 'string'
-        ? (e as VoiceError)
-        : (e as { code?: string }).code === 'PermissionDenied'
-          ? 'permissionDenied'
-          : 'captureFailed'
-    )
-  }
-}
-
-/** A listener that cannot capture is removed; its window decides whether to retry. */
-function failListener(listener: Listener, error: VoiceError): void {
-  listeners = listeners.filter((l) => l !== listener)
-  if (capture === listener) void releaseCapture()
-  send(listener.sender, { type: 'listener', listenerId: listener.id, phase: 'stopped', error })
-  syncListeners()
-}
-
-function listenerChunk(listener: Listener, samples: Float32Array): void {
-  if (capture !== listener || !listener.worker) return
-  const worker = listener.worker
-  const utterance = listener.utterance
-  if (utterance?.finishing) return
-  const edge = listener.gate.push(samples)
-  const post = (chunk: Float32Array, id: string): void => {
-    try {
-      worker.postMessage({ type: 'audio', recordingId: id, samples: chunk })
-    } catch {
-      unloadEngine()
-    }
-  }
-  if (!utterance) {
-    if (edge !== 'start') {
-      listener.preroll.push(samples)
-      if (listener.preroll.length > 4) listener.preroll.shift()
-      return
-    }
-    const next = {
-      id: randomUUID(),
-      text: '',
-      pending: 0,
-      elapsed: 0,
-      finishing: false
-    }
-    listener.utterance = next
-    worker.postMessage({ type: 'begin', recordingId: next.id })
-    for (const chunk of [...listener.preroll, samples]) {
-      next.pending += chunk.length
-      post(chunk, next.id)
-    }
-    listener.preroll = []
-    send(listener.sender, { type: 'listener', listenerId: listener.id, phase: 'speech' })
-    return
-  }
-  utterance.pending += samples.length
-  utterance.elapsed += samples.length
-  // Recognition falling behind: drop this utterance rather than queue audio.
-  if (utterance.pending > 16000 * 5) {
-    dropUtterance(listener)
-    send(listener.sender, { type: 'listener', listenerId: listener.id, phase: 'listening' })
-    return
-  }
-  post(samples, utterance.id)
-  if (edge === 'end' || utterance.elapsed > 16000 * 15) {
-    utterance.finishing = true
-    worker.postMessage({ type: 'finish', recordingId: utterance.id })
-    send(listener.sender, { type: 'listener', listenerId: listener.id, phase: 'processing' })
-  }
-}
-
-function finishUtterance(listener: Listener, worker: UtilityProcess): void {
-  const utterance = listener.utterance
-  if (!utterance) return
-  dropUtterance(listener)
-  listener.gate = new SpeechGate(700)
-  const text = utterance.text.trim()
-  if (text) send(listener.sender, { type: 'utterance', listenerId: listener.id, text })
-  if (capture === listener && listener.worker === worker)
-    send(listener.sender, { type: 'listener', listenerId: listener.id, phase: 'listening' })
-}
-
-function listen(sender: WebContents, id: string): VoiceResult {
-  if (typeof id !== 'string' || !id || id.length > 100) return fail('unknown')
-  if (!supported()) return fail('unsupported')
-  const settings = getVoiceSettings()
-  if (!settings.enabled) return fail('disabled')
-  if (!settings.modelId) return fail('modelRequired')
-  if (listeners.some((l) => l.id === id)) return { ok: true, value: undefined }
-  watchSender(sender)
-  listeners.push({ id, sender, gate: new SpeechGate(700), preroll: [], utterance: null })
-  syncListeners()
-  return { ok: true, value: undefined }
-}
-
-function unlisten(id: string): void {
-  const before = listeners.length
-  listeners = listeners.filter((l) => l.id !== id)
-  if (listeners.length !== before) syncListeners()
 }
 
 export async function stopVoice(finalize: boolean, error?: VoiceError): Promise<void> {
@@ -588,24 +310,13 @@ export async function stopVoice(finalize: boolean, error?: VoiceError): Promise<
         unloadEngine()
       }
       if (active === recording) active = null
-      send(recording.sender, {
-        type: 'recording',
-        recordingId: recording.id,
-        phase: 'stopped',
-        error
-      })
-      syncListeners()
+      emit({ type: 'recording', recordingId: recording.id, phase: 'stopped', error })
     }
   })()
   return recording.closing
 }
 
-async function startVoice(
-  sender: WebContents,
-  id: string,
-  chatId: string,
-  options?: VoiceStartOptions
-): Promise<VoiceResult> {
+async function startVoice(id: string, chatId: string): Promise<VoiceResult> {
   if (active || changing) return fail('busy')
   if (!supported()) return fail('unsupported')
   const settings = getVoiceSettings()
@@ -624,24 +335,25 @@ async function startVoice(
   const recording: Recording = {
     id,
     chatId,
-    sender,
-    autoStop: options?.autoStop
-      ? { gate: new SpeechGate(1500), elapsed: 0, heard: false }
-      : undefined,
     sequence: 0,
     pending: 0,
     stopping: false,
     cancelled: false
   }
   active = recording
-  watchSender(sender)
   try {
-    // A listener holding the microphone yields to dictation before it opens.
-    syncListeners()
-    await listenerSync
     const worker = await loadEngine(settings.modelId)
     if (active !== recording || recording.cancelled) return fail('busy')
-    if (!(await micAllowed())) throw 'permissionDenied'
+    if (process.platform === 'darwin') {
+      const access = permission()
+      if (
+        access === 'denied' ||
+        access === 'restricted' ||
+        (access !== 'granted' && !(await systemPreferences.askForMediaAccess('microphone')))
+      ) {
+        throw 'permissionDenied'
+      }
+    }
     if (active !== recording || recording.cancelled) return fail('busy')
     recording.worker = worker
     await new Promise<void>((resolve, reject) => {
@@ -661,10 +373,14 @@ async function startVoice(
     })
     if (active !== recording || recording.cancelled) return fail('busy')
     const native = await import('@handy-computer/recorder')
-    const picked = await pickDevice(native, settings)
+    const devices = await native.listInputDevices()
     if (active !== recording || recording.cancelled) return fail('busy')
-    const device = picked.id ? { id: picked.id } : undefined
-    let fallback = picked.fallback
+    const selected = settings.microphone
+    const device = selected
+      ? (devices.find((d) => d.id === selected.id) ??
+        devices.find((d) => d.name === selected.name && d.occurrence === selected.occurrence))
+      : undefined
+    let fallback = !!selected && !device
     let first = true
     const options = {
       sampleRate: 16000,
@@ -679,7 +395,7 @@ async function startVoice(
         }
         if (first) {
           first = false
-          send(sender, { type: 'recording', recordingId: id, phase: 'recording', fallback })
+          emit({ type: 'recording', recordingId: id, phase: 'recording', fallback })
         }
         recording.pending += samples.length
         if (recording.pending > 16000 * 5) {
@@ -690,16 +406,8 @@ async function startVoice(
           worker.postMessage({ type: 'audio', recordingId: id, samples })
         } catch {
           void stopVoice(false, 'engineFailed')
-          return
         }
-        const auto = recording.autoStop
-        if (auto && !recording.stopping) {
-          auto.elapsed += samples.length
-          const edge = auto.gate.push(samples)
-          if (edge === 'start') auto.heard = true
-          // Finish after a pause once speech was heard, or when nothing is said.
-          if (edge === 'end' || (!auto.heard && auto.elapsed > 16000 * 8)) void stopVoice(true)
-        }
+        if (handsFree.autoStop(id, samples)) void stopVoice(true) // fork: auto-stop
       },
       onFailure: (e: { code: string }): void => {
         if (active === recording && !recording.cancelled)
@@ -817,11 +525,10 @@ async function downloadModel(id: string): Promise<VoiceResult> {
 }
 
 export function shutdownVoice(): void {
+  handsFree.shutdown() // fork
   download?.controller.abort()
   shortcuts.forEach((key) => globalShortcut.unregister(key))
   shortcuts = []
-  listeners = []
-  void releaseCapture()
   void stopVoice(false)
   unloadEngine()
 }
@@ -837,24 +544,14 @@ export async function resetVoice(): Promise<void> {
 export function registerVoiceIpc(): void {
   lastError = bindHotkeys(getVoiceSettings())
   warmEngine()
-  // Asleep or locked, nobody is talking to Roxy: close the microphone until back.
-  const leave = (): void => {
-    away = true
+  powerMonitor.on('suspend', () => {
     void stopVoice(false)
-    listenerSync = listenerSync.then(releaseCapture).catch(() => undefined)
-  }
-  const back = (): void => {
-    away = false
-    syncListeners()
-  }
-  powerMonitor.on('suspend', leave)
-  powerMonitor.on('lock-screen', leave)
-  powerMonitor.on('resume', back)
-  powerMonitor.on('unlock-screen', back)
-  // Any app window (main, overlay, VTuber) may use voice; events go back to the sender.
+  })
+  powerMonitor.on('lock-screen', () => {
+    void stopVoice(false)
+  })
   const trusted = (e: IpcMainInvokeEvent): boolean =>
-    !!BrowserWindow.fromWebContents(e.sender) &&
-    !e.sender.isDestroyed() &&
+    handsFree.isAppWindow(e.sender) && // fork: any app window, not only main
     e.senderFrame === e.sender.mainFrame &&
     [
       process.env.ELECTRON_RENDERER_URL?.replace(/\/$/, '') + '/',
@@ -883,11 +580,6 @@ export function registerVoiceIpc(): void {
         return fail('unknown')
       }
       await stopVoice(false)
-      // Reopen listeners on the new engine or microphone; other fields don't touch capture.
-      const capturing = (s: VoiceSettings): string =>
-        JSON.stringify([s.enabled, s.modelId, s.microphone])
-      if (capturing(before) !== capturing(next))
-        listenerSync = listenerSync.then(releaseCapture).catch(() => undefined)
       warmEngine()
       if (!next.enabled) download?.controller.abort()
       lastError = null
@@ -895,7 +587,6 @@ export function registerVoiceIpc(): void {
       return { ok: true, value: next }
     } finally {
       changing = false
-      syncListeners()
     }
   })
   handle(CHANNELS.voiceDevices, async (): Promise<VoiceResult<VoiceDevice[]>> => {
@@ -947,17 +638,13 @@ export function registerVoiceIpc(): void {
       return fail('unknown')
     } finally {
       changing = false
-      syncListeners()
     }
   })
-  handle(CHANNELS.voiceStart, (e, id: string, chatId: string, options?: VoiceStartOptions) =>
-    startVoice(e.sender, id, chatId, { autoStop: options?.autoStop === true })
+  handle(CHANNELS.voiceStart, (e, id: string, chatId: string, options) =>
+    handsFree.dictate(e.sender, id, options, () => startVoice(id, chatId))
   )
-  handle(CHANNELS.voiceStop, async (e, id: string, finalize: boolean) => {
-    if (active?.id === id && active.sender === e.sender) await stopVoice(finalize === true)
+  handle(CHANNELS.voiceStop, async (_e, id: string, finalize: boolean) => {
+    if (active?.id === id) await stopVoice(finalize === true)
   })
-  handle(CHANNELS.voiceListen, (e, id: string) => listen(e.sender, id))
-  handle(CHANNELS.voiceUnlisten, (e, id: string) => {
-    if (listeners.some((l) => l.id === id && l.sender === e.sender)) unlisten(id)
-  })
+  handsFree.register(handle) // fork: listen/unlisten, suspend handling
 }

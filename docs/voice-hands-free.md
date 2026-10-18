@@ -33,10 +33,24 @@ speech and finishes an utterance after 700 ms of silence (15 s max); each
 utterance goes back to its window as text. Only the newest listener holds the mic,
 dictation preempts all of them, and they release it while suspended or locked.
 
-Wake phrases are matched in the renderer (`matchWakeWord` in `src/shared/voice.ts`):
+Wake phrases are matched in the renderer (`matchWakeWord` in `src/shared/voice-handsfree.ts`):
 a phrase followed by a request fills the draft, a bare phrase starts an
 auto-stopping dictation. The VTuber conversation submits each utterance and gives
 the microphone back while Roxy thinks or speaks.
 
 Recording events go to the window that started the recording, so the overlay can
 dictate too; upstream binds voice to the main window only.
+
+## Where the code lives
+
+Upstream's voice files carry only small hook lines marked `fork`:
+
+| Upstream file                   | Fork module                                      | Hooks                                                                                                  |
+| ------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `src/shared/voice.ts`           | `src/shared/voice-handsfree.ts`                  | `VoiceSettings extends HandsFreeSettings`, `normalizeHandsFree` spread, `HandsFreeEvent` union         |
+| `src/main/services/voice.ts`    | `src/main/services/voice-handsfree.ts`           | `createHandsFree(host)`; `route`, `onWorkerMessage`, `onWorkerExit`, `autoStop`, `dictate`, `register` |
+| `src/renderer/src/lib/voice.ts` | `src/renderer/src/lib/voice-handsfree.ts`        | `useVoiceComposer(…, extension)`: `routes`, `startOptions`, `onStopped`                                |
+| `VoiceSettings.tsx`             | `src/renderer/src/components/VoiceHandsFree.tsx` | one `<VoiceHandsFree/>` mount                                                                          |
+
+When an upstream merge conflicts in one of these files, take upstream's side and
+re-add the marked lines.

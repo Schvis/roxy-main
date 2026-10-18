@@ -1,12 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Mic, Plus, RotateCcw, X } from 'lucide-react'
-import {
-  DEFAULT_WAKE_WORDS,
-  type VoiceError,
-  type VoiceSettings as Preferences,
-  type VoiceState
-} from '@shared/voice'
+import type { VoiceError, VoiceSettings as Preferences, VoiceState } from '@shared/voice'
+import { DEFAULT_WAKE_WORDS } from '@shared/voice-handsfree'
 import { api } from '../lib/api'
 import { recordKeybindFromEvent } from '../lib/keybind'
 import { Button, Input, Switch } from './ui'
