@@ -24,9 +24,10 @@ export function normalizeVoice(value: unknown): VoiceSettings {
     return { ...DEFAULT_VOICE, hotkeys: ['', ''], ...normalizeHandsFree(null) }
   const v = value as Partial<VoiceSettings>
   const mic = v.microphone
+  const modelId = VOICE_MODELS.some((m) => m.id === v.modelId) ? v.modelId! : null
   return {
-    enabled: v.enabled === true,
-    modelId: VOICE_MODELS.some((m) => m.id === v.modelId) ? v.modelId! : null,
+    enabled: v.enabled === true && modelId !== null,
+    modelId,
     microphone:
       mic &&
       typeof mic.id === 'string' &&
@@ -60,38 +61,6 @@ export interface VoiceModel {
 // Only online exports. Ordinary Parakeet/Whisper files are not interchangeable.
 export const VOICE_MODELS: readonly VoiceModel[] = [
   {
-    id: 'parakeet-unified-en-streaming',
-    name: 'Parakeet Unified EN 0.6B',
-    description: 'parakeet',
-    multilingual: false,
-    repository: 'csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms',
-    revision: '7551fd26fc810cc1e4e043e608db4d13b59be31e',
-    license: 'NVIDIA Open Model License',
-    licenseUrl: 'https://huggingface.co/nvidia/parakeet-unified-en-0.6b',
-    files: [
-      {
-        name: 'encoder.int8.onnx',
-        bytes: 654046389,
-        sha256: 'e566c3f014598a41724f2df028779a2d4cf7943cbefa324964f6a72e8ee255fb'
-      },
-      {
-        name: 'decoder.int8.onnx',
-        bytes: 7257777,
-        sha256: '34fea72425d2506600772ba191a6d3f99c0710abdb68d9a3dc89fa8cb2aa473a'
-      },
-      {
-        name: 'joiner.int8.onnx',
-        bytes: 1735860,
-        sha256: '869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a'
-      },
-      {
-        name: 'tokens.txt',
-        bytes: 8952,
-        sha256: 'dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff'
-      }
-    ]
-  },
-  {
     id: 'nemotron-streaming-3.5',
     name: 'Nemotron Streaming 3.5',
     description: 'nemotron',
@@ -120,6 +89,38 @@ export const VOICE_MODELS: readonly VoiceModel[] = [
         name: 'tokens.txt',
         bytes: 131440,
         sha256: '729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a'
+      }
+    ]
+  },
+  {
+    id: 'parakeet-unified-en-streaming',
+    name: 'Parakeet Unified EN 0.6B',
+    description: 'parakeet',
+    multilingual: false,
+    repository: 'csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms',
+    revision: '7551fd26fc810cc1e4e043e608db4d13b59be31e',
+    license: 'NVIDIA Open Model License',
+    licenseUrl: 'https://huggingface.co/nvidia/parakeet-unified-en-0.6b',
+    files: [
+      {
+        name: 'encoder.int8.onnx',
+        bytes: 654046389,
+        sha256: 'e566c3f014598a41724f2df028779a2d4cf7943cbefa324964f6a72e8ee255fb'
+      },
+      {
+        name: 'decoder.int8.onnx',
+        bytes: 7257777,
+        sha256: '34fea72425d2506600772ba191a6d3f99c0710abdb68d9a3dc89fa8cb2aa473a'
+      },
+      {
+        name: 'joiner.int8.onnx',
+        bytes: 1735860,
+        sha256: '869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a'
+      },
+      {
+        name: 'tokens.txt',
+        bytes: 8952,
+        sha256: 'dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff'
       }
     ]
   }
