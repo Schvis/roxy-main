@@ -188,6 +188,7 @@ async function run() {
   await until(`return !!document.querySelector('.sidebar-rail')`)
   // The selection ring extends 4px past the avatar, including its offset.
   // Check both a scrolling list and a short list with no scrollbar.
+  // Scope to bot buttons: sidebar tools also expose aria-pressed.
   for (const count of [10, 2]) {
     await evaluate(`
       contract.bots = contract.bots.slice(0, ${count})
@@ -195,10 +196,10 @@ async function run() {
       contract.store.setState({ activeChatId: contract.bots[0].chatId })
     `)
     await until(
-      `return document.querySelectorAll('.sidebar-rail button[aria-pressed]').length === ${count}`
+      `return document.querySelectorAll('.sidebar-rail button[aria-pressed][aria-label^="@"]').length === ${count}`
     )
     const bounds = await evaluate(`
-      const bot = document.querySelector('.sidebar-rail button[aria-pressed="true"]')
+      const bot = document.querySelector('.sidebar-rail button[aria-pressed="true"][aria-label^="@"]')
       const list = bot.parentElement
       const rect = bot.getBoundingClientRect()
       const clip = list.getBoundingClientRect()
