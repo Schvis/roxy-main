@@ -185,6 +185,18 @@ async function run() {
       `return !document.body.textContent.includes('Built-in tools') && document.querySelectorAll('table').length===2 && document.querySelector('#skills-management button').textContent.includes('Add from URL') && document.querySelector('#mcp-management button').textContent.includes('Add MCP server')`
     )
   )
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    await evaluate(`document.documentElement.dataset.platform=${JSON.stringify(platform)};
+      [...document.querySelectorAll('#mcp-management button')].find(b=>b.textContent==='Refresh').click();`)
+    await wait()
+    check(
+      `MCP settings omit default desktop server promotions on ${platform}`,
+      await evaluate(
+        `const panel=document.querySelector('#mcp-management'); return !/Windows-MCP|ScreenHand/i.test(panel.textContent) && !!panel.querySelector('button[aria-label="Reconnect local-mcp"]')`
+      )
+    )
+  }
+  await evaluate(`delete document.documentElement.dataset.platform`)
   await evaluate(
     `document.querySelector('button[aria-label="Edit raw SKILL.md for local-workflow"]').click()`
   )
