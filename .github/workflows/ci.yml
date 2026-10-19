@@ -140,6 +140,9 @@ jobs:
         if: runner.os == 'Linux'
         env:
           ELECTRON_DISABLE_SANDBOX: '1'
+          # Avoid sharp/libvips GLib worker races under Electron on Ubuntu 24.04
+          # (lovell/sharp#4522). Inherited by the fresh-process reload checks.
+          UV_THREADPOOL_SIZE: '1'
         run: xvfb-run --auto-servernum npm run smoke:background
 
       - name: Background image persistence
@@ -180,6 +183,24 @@ jobs:
           ELECTRON_DISABLE_SANDBOX: '1'
         # The suite opens a 1440px window; Xvfb's default screen is only 1280px wide.
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke:background-ui
+
+      - name: Catalog browsing, search and installation UI
+        if: runner.os == 'Linux'
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke:catalog-ui
+
+      - name: Voice settings and transcription UI
+        if: runner.os == 'Linux'
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke:voice-ui
+
+      - name: Wallpaper Workshop browsing and submission UI
+        if: runner.os == 'Linux'
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke:wallpapers-ui
 
       - name: Bot strip ordering (real Chromium drag and keyboard)
         if: runner.os == 'Linux'

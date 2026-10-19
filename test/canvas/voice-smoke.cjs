@@ -4,7 +4,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const temp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'roxy-voice-ui-'))
 app.setPath('userData', temp)
-let win
+let win, server
 const errors = []
 const wait = (ms = 100) => new Promise((resolve) => setTimeout(resolve, ms))
 const evaluate = (code) => win.webContents.executeJavaScript(`(async () => { ${code} })()`, true)
@@ -43,6 +43,14 @@ const cleanup = () => {
 app
   .whenReady()
   .then(async () => {
+    if (!process.env.VOICE_UI_URL) {
+      const { createServer } = await import('vite')
+      server = await createServer({
+        configFile: path.join(__dirname, 'vite.config.mjs'),
+        server: { host: '127.0.0.1', port: 3105, strictPort: true }
+      })
+      await server.listen()
+    }
     win = new BrowserWindow({
       width: 1100,
       height: 820,
@@ -52,7 +60,7 @@ app
     win.webContents.on('console-message', (_event, level, text) => {
       if (level >= 3) errors.push(text)
     })
-    await win.loadURL(process.env.VOICE_UI_URL || 'http://localhost:3105/?voice')
+    await win.loadURL(process.env.VOICE_UI_URL || 'http://127.0.0.1:3105/?voice')
     await until(`!!document.querySelector('#voice-models-heading')`)
     assert.equal(
       await evaluate(
@@ -240,14 +248,16 @@ app
       'VOICE UI OK: catalog, streaming, isolation, quiet status, 2-second delayed status above input, rotating spinner, cancelled timer'
     )
   })
-  .then(() => {
+  .then(async () => {
     win?.destroy()
+    await server?.close()
     cleanup()
     app.exit(0)
   })
-  .catch((error) => {
+  .catch(async (error) => {
     console.error(error, errors)
     win?.destroy()
+    await server?.close()
     cleanup()
     app.exit(1)
   })
