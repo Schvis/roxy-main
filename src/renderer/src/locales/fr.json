@@ -846,10 +846,25 @@
       "worktrees": "Configuration de l'arborescence de travail"
     },
     "notifications": {
-      "completeDescription": "Recevez une notification lorsque Roxy a terminé une réponse. Utile pour les tâches longues. Ne se déclenche que lorsque Roxy n'est pas au premier plan ; cliquez dessus pour accéder à cette session.",
+      "completeHint": "Notify when a response is ready and Roxy isn't focused.",
       "completeTitle": "Réponses terminées",
+      "defaultSound": "Default",
+      "deleteSound": "Delete {{name}}",
       "heading": "Notifications",
-      "testNotification": "Notification de test"
+      "importSound": "Import sound",
+      "soundErrors": {
+        "duration": "Choose a sound between 0.1 and 5 seconds long.",
+        "invalidAudio": "This file could not be decoded. Choose an MP3 or a mono/stereo PCM WAV (16/24-bit, up to 48 kHz).",
+        "libraryFull": "Your library has 20 sounds. Delete one before importing another.",
+        "readFailed": "Roxy could not read this sound or load the library. Try again.",
+        "saveFailed": "Roxy could not save the change. Try again.",
+        "tooLarge": "Choose a file no larger than 2 MiB."
+      },
+      "soundHint": "MP3 or WAV, up to 5 seconds and 2 MiB.",
+      "soundLimits": "MP3 or PCM WAV (16/24-bit, up to 48 kHz), mono or stereo. 0.1 to 5 seconds, up to 2 MiB each.",
+      "soundsTitle": "Notification sound",
+      "testNotification": "Notification de test",
+      "testSound": "Test"
     },
     "privacy": {
       "description": "Comptes et chronométrages — lancements d'applications, tours terminés, nombre d'étapes et d'outils qu'un tour a pris, nombre de jetons utilisés et coût approximatif — liés à un identifiant aléatoire généré sur cette machine. Jamais vos invites, votre code, les chemins de fichiers, les noms de dépôts ou tout texte d'erreur.",

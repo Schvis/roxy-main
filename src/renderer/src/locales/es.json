@@ -846,10 +846,25 @@
       "worktrees": "Configuración de Worktree"
     },
     "notifications": {
-      "completeDescription": "Recibe una notificación cuando Roxy termine una respuesta. Útil para tareas largas. Solo se activa cuando Roxy no está en primer plano; haz clic para ir a esa sesión.",
+      "completeHint": "Notify when a response is ready and Roxy isn't focused.",
       "completeTitle": "Respuestas completadas",
+      "defaultSound": "Default",
+      "deleteSound": "Delete {{name}}",
       "heading": "Notificaciones",
-      "testNotification": "Notificación de prueba"
+      "importSound": "Import sound",
+      "soundErrors": {
+        "duration": "Choose a sound between 0.1 and 5 seconds long.",
+        "invalidAudio": "This file could not be decoded. Choose an MP3 or a mono/stereo PCM WAV (16/24-bit, up to 48 kHz).",
+        "libraryFull": "Your library has 20 sounds. Delete one before importing another.",
+        "readFailed": "Roxy could not read this sound or load the library. Try again.",
+        "saveFailed": "Roxy could not save the change. Try again.",
+        "tooLarge": "Choose a file no larger than 2 MiB."
+      },
+      "soundHint": "MP3 or WAV, up to 5 seconds and 2 MiB.",
+      "soundLimits": "MP3 or PCM WAV (16/24-bit, up to 48 kHz), mono or stereo. 0.1 to 5 seconds, up to 2 MiB each.",
+      "soundsTitle": "Notification sound",
+      "testNotification": "Notificación de prueba",
+      "testSound": "Test"
     },
     "privacy": {
       "description": "Recuentos y tiempos —arranques de la aplicación, turnos completados, cuántos pasos y herramientas necesitó un turno, cuántos tokens consumió y aproximadamente cuánto costó— asociados a un identificador aleatorio generado en este equipo. Nunca tus prompts, tu código, rutas de archivos, nombres de repositorios ni texto de errores.",
