@@ -1,3 +1,4 @@
+import type { CheatState } from '../shared/cheat'
 import type { EngineeringState } from '../shared/engineering-tools'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
@@ -54,6 +55,18 @@ const roxy: RoxyApi = {
       ipcRenderer.invoke(CHANNELS.filesSearch, sessionId, query, options),
     replace: (sessionId, query, replacement, options, paths) =>
       ipcRenderer.invoke(CHANNELS.filesReplace, sessionId, query, replacement, options, paths)
+  },
+  cheat: {
+    state: () => ipcRenderer.invoke(CHANNELS.cheatState),
+    update: (patch) => ipcRenderer.invoke(CHANNELS.cheatUpdate, patch),
+    download: (id) => ipcRenderer.invoke(CHANNELS.cheatDownload, id),
+    cancel: () => ipcRenderer.invoke(CHANNELS.cheatCancel),
+    onChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: CheatState): void =>
+        callback(state)
+      ipcRenderer.on(CHANNELS.cheatChanged, handler)
+      return () => ipcRenderer.removeListener(CHANNELS.cheatChanged, handler)
+    }
   },
   engineering: {
     state: () => ipcRenderer.invoke(CHANNELS.engineeringState),

@@ -1,4 +1,5 @@
 import { EngineeringTools } from '../components/EngineeringTools'
+import { CheatTools } from '../components/CheatTools'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useTranslation, Trans } from 'react-i18next'
@@ -6,6 +7,7 @@ import {
   Activity,
   ArrowUpDown,
   ScanEye,
+  ScanLine,
   Bell,
   ChevronDown,
   DatabaseBackup,
@@ -81,6 +83,7 @@ const SETTINGS_GROUPS = [
       { id: 'skills', label: 'sidebar.skills', icon: Lightbulb },
       { id: 'mcp', label: 'sidebar.mcpServers', icon: Plug },
       { id: 'engineering', label: 'engineering.heading', icon: ScanEye },
+      { id: 'cheat', label: 'cheat.title', icon: ScanLine },
       { id: 'backup', label: 'settings.backup.heading', icon: DatabaseBackup }
     ]
   },
@@ -901,6 +904,14 @@ export default function Settings(): JSX.Element {
         )}
       </div>
       <div
+        id="settings-cheat-panel"
+        role="region"
+        aria-labelledby="settings-cheat"
+        hidden={panel !== 'cheat'}
+      >
+        {(visited.has('cheat') || panel === 'cheat') && <CheatTools active={panel === 'cheat'} />}
+      </div>
+      <div
         id="settings-activity-panel"
         role="region"
         aria-labelledby="settings-activity"
@@ -1207,6 +1218,20 @@ export default function Settings(): JSX.Element {
               })}
             </p>
           )}
+        </div>
+      </section>
+
+      <section hidden={panel !== 'about'} className="mb-8">
+        <h2 className={SECTION_HEADING}>{t('settings.onboarding.heading')}</h2>
+        <div className="flex flex-col gap-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">{t('settings.onboarding.title')}</div>
+            <p className="mt-0.5 text-xs text-text-muted">{t('settings.onboarding.description')}</p>
+          </div>
+          <Button className="shrink-0" onClick={() => navigate('/onboarding')}>
+            <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+            {t('settings.onboarding.replay')}
+          </Button>
         </div>
       </section>
 

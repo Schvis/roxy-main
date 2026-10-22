@@ -1,3 +1,4 @@
+import { shutdownCheatTools } from './services/cheat'
 import { shutdownEngineeringTools } from './services/engineering-tools'
 import { app, shell, BrowserWindow, session, protocol, net, dialog } from 'electron'
 import { join } from 'path'
@@ -349,6 +350,7 @@ app.on('before-quit', (event) => {
   if (!engineeringQuit) {
     event.preventDefault()
     engineeringQuit = true
+    shutdownCheatTools()
     void shutdownEngineeringTools()
       .catch(console.error)
       .finally(() => app.quit())

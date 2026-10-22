@@ -1,3 +1,4 @@
+import type { CheatPreferences, CheatResult, CheatSource, CheatState } from './cheat'
 import type {
   EngineeringPreferences,
   EngineeringResult,
@@ -1044,6 +1045,13 @@ export interface RoxyApi {
       options?: WorkspaceFileSearchOptions,
       paths?: string[]
     ): Promise<WorkspaceFileReplaceResult>
+  }
+  cheat: {
+    state(): Promise<CheatState>
+    update(patch: Partial<CheatPreferences>): Promise<CheatResult>
+    download(id: CheatSource): Promise<CheatResult>
+    cancel(): Promise<void>
+    onChanged(callback: (state: CheatState) => void): () => void
   }
   engineering: {
     state(): Promise<EngineeringState>

@@ -6,6 +6,7 @@ import '@fontsource-variable/geist-mono/index.css'
 import '../../src/renderer/src/assets/main.css'
 import '../../src/renderer/src/i18n'
 import Settings from '../../src/renderer/src/routes/Settings'
+import Onboarding from '../../src/renderer/src/routes/Onboarding'
 import { ModelPicker } from '../../src/renderer/src/components/ModelPicker'
 import { QuotaMeter } from '../../src/renderer/src/components/QuotaMeter'
 import { ProviderAccount } from '../../src/renderer/src/components/ProviderAccount'
@@ -67,11 +68,12 @@ const testModels = Array.from({ length: 600 }, (_, i) => ({
   toolCall: true
 }))
 const settings = {
-  onboardingCompleted: true,
+  onboardingCompleted: !new URLSearchParams(location.search).has('first-run'),
   activeProviderId: providers[0].id,
   activeModel: 'test-model',
   language: 'en'
 }
+const onboardingCalls = { complete: 0, reset: 0, bootstrap: 0 }
 Object.assign(window.roxy, {
   cliproxy: {
     ...window.roxy.cliproxy,
@@ -130,6 +132,15 @@ Object.assign(window.roxy, {
     ...window.roxy.settings,
     get: async () => settings,
     getAll: async () => settings,
+    completeOnboarding: async () => {
+      onboardingCalls.complete++
+      settings.onboardingCompleted = true
+      return settings
+    },
+    reset: async () => {
+      onboardingCalls.reset++
+      throw new Error('Replay must never reset data')
+    },
     setActiveProvider: async () => settings
   },
   models: {
@@ -165,6 +176,11 @@ Object.assign(window.roxy, {
     onStatus: () => () => undefined
   },
   codeHosts: { list: async () => [] },
+  forge: { listHosts: async () => [] },
+  notifications: {
+    soundLibrary: async () => ({ selectedId: null, sounds: [] }),
+    onSoundsChanged: () => () => undefined
+  },
   mcp: { list: async () => [] },
   cookies: { list: async () => [] },
   browser: { getProxy: async () => ({ enabled: false }), onProxyChanged: () => () => undefined },
@@ -183,6 +199,11 @@ useRoxyStore.setState({
   providers,
   settings: settings as never,
   ready: true,
+  composerDrafts: { 'saved-chat': { value: 'Keep my draft', images: [] } },
+  bootstrap: async () => {
+    onboardingCalls.bootstrap++
+    useRoxyStore.setState({ settings: { ...settings } as never })
+  },
   modelCatalog: catalogFailure ? {} : Object.fromEntries(providers.map((p) => [p.id, testModels])),
   refreshProviders: async () => useRoxyStore.setState({ providers: [...providers] })
 })
@@ -195,6 +216,12 @@ Object.assign(window, {
     failVisibility = fail
   },
   accountState: () => ({ providers, hidden: [...useRoxyStore.getState().hiddenModels] }),
+  onboardingState: () => ({
+    calls: { ...onboardingCalls },
+    settings: useRoxyStore.getState().settings,
+    providers: useRoxyStore.getState().providers,
+    drafts: useRoxyStore.getState().composerDrafts
+  }),
   recoverCatalog: () => {
     catalogRecovered = true
   }
@@ -229,6 +256,7 @@ createRoot(document.getElementById('root')!).render(
       </div>
     ) : (
       <Routes>
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/settings/:section?" element={<Settings />} />
         <Route path="/" element={<Settings />} />
       </Routes>
