@@ -1,3 +1,4 @@
+import { runEngineeringTool, engineeringTurn } from '../services/engineering-tools'
 /**
  * The agent tool layer — the capabilities that make Roxy powerful. Each tool
  * runs in the context of a session's workspace (`ctx.cwd`). File tools are
@@ -215,6 +216,21 @@ async function executeTool(
         return await askUser(input, ctx)
       case 'update_plan':
         return await runSetSessionMetadata({ tasks: parsePlan(input.plan) }, ctx.sessionId)
+      case 'rea_tools': {
+        const { schemas } = await engineeringTurn()
+        const query = typeof input.query === 'string' ? input.query.toLowerCase() : ''
+        const names = Array.isArray(input.operations) ? input.operations : []
+        return {
+          ok: true,
+          output: JSON.stringify(
+            schemas.filter(({ function: f }) =>
+              names.length
+                ? names.includes(f.name)
+                : !query || `${f.name} ${f.description}`.toLowerCase().includes(query)
+            )
+          )
+        }
+      }
       case 'bash':
         return await runBash(str(input.command), ctx.cwd, ctx.onChunk, {
           timeout: num(input.timeout),
@@ -317,6 +333,8 @@ async function executeTool(
       case 'mcp':
         return await untilAborted(ctx.signal, () => runMcpTool(input, ctx.cwd))
       default:
+        if (name.startsWith('rea_'))
+          return await runEngineeringTool(name, input, ctx.sessionId, ctx.cwd, ctx.signal)
         // Tools contributed by connected MCP servers use namespaced names
         // (`mcp__<server>__<tool>`) — route them to the MCP pool. An MCP round
         // trip has its own 120s timeout and no signal, so the turn stops

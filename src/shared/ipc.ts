@@ -1,5 +1,11 @@
 /** IPC channel names shared by the preload bridge and the main-process handlers. */
 export const CHANNELS = {
+  engineeringState: 'engineering:state',
+  engineeringChanged: 'engineering:changed',
+  engineeringInstall: 'engineering:install',
+  engineeringInstallAll: 'engineering:installAll',
+  engineeringUpdate: 'engineering:update',
+  engineeringCancel: 'engineering:cancel',
   voiceState: 'voice:state',
   voiceEvent: 'voice:event',
   voiceUpdate: 'voice:update',
@@ -132,6 +138,12 @@ export const CHANNELS = {
    * a click can land with no renderer to push it to.
    */
   notifyTakePending: 'notify:takePending',
+  notifySoundsGet: 'notify:soundsGet',
+  notifySoundsImport: 'notify:soundsImport',
+  notifySoundsSelect: 'notify:soundsSelect',
+  notifySoundsDelete: 'notify:soundsDelete',
+  notifySoundsAudio: 'notify:soundsAudio',
+  notifySoundsChanged: 'notify:soundsChanged',
 
   providersList: 'providers:listConnected',
   providersConnect: 'providers:connect',

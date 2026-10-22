@@ -1,3 +1,9 @@
+import type {
+  EngineeringPreferences,
+  EngineeringResult,
+  EngineeringState,
+  EngineeringToolId
+} from './engineering-tools'
 /**
  * The typed contract exposed to the renderer as `window.roxy`.
  * Implemented in src/preload/index.ts, handled in src/main/ipc/*.
@@ -12,6 +18,7 @@ import type {
   VoiceState
 } from './voice'
 import type { CatalogApi } from './catalog'
+import type { NotificationSoundLibrary, NotificationSoundResult } from './notification-sounds'
 import type {
   BackgroundResult,
   BackgroundSettings,
@@ -1038,6 +1045,18 @@ export interface RoxyApi {
       paths?: string[]
     ): Promise<WorkspaceFileReplaceResult>
   }
+  engineering: {
+    state(): Promise<EngineeringState>
+    install(
+      id: EngineeringToolId,
+      systemConsent?: boolean,
+      repair?: boolean
+    ): Promise<EngineeringResult>
+    installAll(systemConsent?: boolean): Promise<EngineeringResult>
+    update(patch: Partial<EngineeringPreferences>): Promise<EngineeringResult>
+    cancel(): Promise<void>
+    onChanged(callback: (state: EngineeringState) => void): () => void
+  }
   voice: {
     state(): Promise<VoiceState>
     update(patch: Partial<VoiceSettings>): Promise<VoiceResult<VoiceSettings>>
@@ -1152,6 +1171,13 @@ export interface RoxyApi {
     setTelemetry(enabled: boolean): Promise<boolean>
   }
   notifications: {
+    soundLibrary(): Promise<NotificationSoundLibrary>
+    importSound(): Promise<NotificationSoundResult>
+    selectSound(id: string | null): Promise<NotificationSoundResult>
+    deleteSound(id: string): Promise<NotificationSoundResult>
+    /** Omit id for the saved selection; null explicitly requests the bundled sound. */
+    soundAudio(id?: string | null): Promise<string | null>
+    onSoundsChanged(callback: (state: NotificationSoundLibrary) => void): () => void
     /**
      * Post a native OS toast for session `chatId`. All strings arrive already
      * translated: main has no i18next instance, so the renderer resolves them

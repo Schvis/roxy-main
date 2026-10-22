@@ -25,6 +25,7 @@ const rendererBindings = {
   chime: 'chime.wav',
   NOTIFY_VOLUME: 0.7,
   Audio: class {
+    pause() {}
     async play() {}
   },
   document: { hasFocus: () => focused },
@@ -37,6 +38,8 @@ const rendererBindings = {
   },
   api: {
     notifications: {
+      soundAudio: async () => null,
+      onSoundsChanged: () => () => {},
       toast: async (...args) => {
         calls.push(args)
       }
