@@ -388,7 +388,7 @@ interface RoxyStore {
   cancelToolCall: (callId: string) => Promise<void>
   /** Cancel one detached background task launched by a session. */
   /** Start sharing the active session to a phone via the roxy.gg relay. */
-  startRemote: () => Promise<void>
+  startRemote: (scope?: 'session' | 'workspace' | 'all', relayBase?: string) => Promise<void>
   /** Stop sharing + revoke the room/token (Stop sharing). */
   stopRemote: () => Promise<void>
   /** Sync the current sharing status from main (e.g. after a window reload). */
@@ -1967,7 +1967,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     await get().refreshProviders()
   },
 
-  startRemote: async () => {
+  startRemote: async (scope = 'session', relayBase) => {
     const sessionId = get().activeChatId
     if (!sessionId) return
     const cur = get().remote
@@ -1979,7 +1979,7 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     // Clean 'starting' — never surface a previous share's stale url/pin/guests.
     set((s) => ({ remote: { phase: 'starting', sessionId, guests: 0, rev: s.remote.rev } }))
     try {
-      set({ remote: await api.remote.start({ sessionId }) })
+      set({ remote: await api.remote.start({ sessionId, scope, relayBase }) })
     } catch (err) {
       set((s) => ({
         remote: {

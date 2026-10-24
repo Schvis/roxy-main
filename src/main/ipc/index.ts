@@ -841,9 +841,12 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.chatsRename, (_e, id: string, title: string) =>
     repo.renameChat(id, title)
   )
-  ipcMain.handle(CHANNELS.chatsSetConfig, (_e, id: string, patch: SessionConfigPatch) =>
-    repo.setChatConfig(id, patch)
-  )
+  ipcMain.handle(CHANNELS.chatsSetConfig, (_e, id: string, patch: SessionConfigPatch) => {
+    const chat = repo.setChatConfig(id, patch)
+    // A phone viewing this session must not keep showing the old model.
+    remote.notifyConfigChanged(id)
+    return chat
+  })
   ipcMain.handle(CHANNELS.chatsRemove, (_e, id: string) => {
     if (bots.chatBot(id)) throw new Error('Delete bots from their settings, not from a project')
     abortSession(id)
@@ -2635,6 +2638,7 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.remoteStart, (_e, input: RemoteStartInput) => remote.start(input))
   ipcMain.handle(CHANNELS.remoteStop, () => remote.stop())
   ipcMain.handle(CHANNELS.remoteStatus, () => remote.status())
+  ipcMain.handle(CHANNELS.remoteRevokeDevice, (_e, id: string) => remote.revokeDevice(id))
 
   ipcMain.handle(CHANNELS.toggleOverlay, (_e, forceOpen?: boolean) => toggleOverlayState(forceOpen))
   ipcMain.handle(CHANNELS.terminalOpenWindow, (_e, sessionId?: string) => {

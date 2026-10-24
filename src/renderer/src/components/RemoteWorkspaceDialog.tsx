@@ -6,6 +6,26 @@ import { Check, Copy, Loader2, MonitorSmartphone, ShieldCheck, Smartphone, X } f
 import { useRoxyStore } from '../lib/store'
 import { writeClipboardText } from '../lib/clipboard'
 import { Button } from './ui'
+import { api } from '../lib/api'
+import { normalizeRelayBase, type RelayBaseReason } from '../../../shared/remote-base'
+
+const RELAY_BASE_KEY = 'roxy.remote.relayBase'
+
+const RELAY_ERROR_KEYS = {
+  invalid: 'remote.serverErrorInvalid',
+  protocol: 'remote.serverErrorProtocol',
+  insecure: 'remote.serverErrorInsecure',
+  credentials: 'remote.serverErrorCredentials',
+  query: 'remote.serverErrorQuery'
+} as const satisfies Record<RelayBaseReason, string>
+
+function loadRelayBase(): string {
+  try {
+    return localStorage.getItem(RELAY_BASE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 
 /**
  * Remote Workspace popup — take the running session to a phone.
@@ -24,7 +44,24 @@ export function RemoteWorkspaceDialog({ onClose }: { onClose: () => void }): JSX
   const stopRemote = useRoxyStore((s) => s.stopRemote)
   const refreshRemote = useRoxyStore((s) => s.refreshRemote)
   const [copied, setCopied] = useState(false)
+  const [scope, setScope] = useState<'session' | 'workspace' | 'all'>('session')
   const [stopping, setStopping] = useState(false)
+  const [relayBase, setRelayBase] = useState(loadRelayBase)
+
+  // Empty means "use the default"; anything else must pass the same check main applies.
+  const relayCheck = normalizeRelayBase(relayBase)
+  const customRelay = relayBase.trim().length > 0
+  const relayInvalid = !relayCheck.ok
+  const start = (): void => {
+    if (relayInvalid) return
+    try {
+      if (customRelay) localStorage.setItem(RELAY_BASE_KEY, relayBase.trim())
+      else localStorage.removeItem(RELAY_BASE_KEY)
+    } catch {
+      // Storage unavailable: the choice still applies to this share.
+    }
+    void startRemote(scope, customRelay ? relayBase.trim() : undefined)
+  }
 
   // The session the phone is currently viewing (it can switch between all of them).
   const viewingName =
@@ -37,8 +74,6 @@ export function RemoteWorkspaceDialog({ onClose }: { onClose: () => void }): JSX
     void (async () => {
       await refreshRemote()
       if (cancelled) return
-      const s = useRoxyStore.getState()
-      if (s.remote.phase === 'idle' && s.activeChatId) void s.startRemote()
     })()
     return () => {
       cancelled = true
@@ -112,12 +147,84 @@ export function RemoteWorkspaceDialog({ onClose }: { onClose: () => void }): JSX
 
         {/* Body */}
         <div className="px-5 py-5">
+          {sharing && (
+            <p className="mb-3 text-xs text-text-subtle">{t('remoteSessionCreation.revokeHint')}</p>
+          )}
+          {sharing && remote.relayBase && (
+            <p className="mb-3 truncate font-mono text-[11px] text-text-subtle">
+              {t('remote.serverUsing', { server: remote.relayBase })}
+            </p>
+          )}
+          {!sharing && remote.phase !== 'starting' && (
+            <div className="mb-4 text-xs text-text-muted">
+              <label htmlFor="remote-relay-base">{t('remote.serverLabel')}</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  id="remote-relay-base"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={relayBase}
+                  placeholder={t('remote.serverPlaceholder')}
+                  aria-invalid={relayInvalid}
+                  aria-describedby="remote-relay-help"
+                  onChange={(event) => setRelayBase(event.target.value)}
+                  className="min-w-0 flex-1 rounded border border-border bg-surface p-2 font-mono"
+                />
+                {customRelay && (
+                  <button
+                    type="button"
+                    onClick={() => setRelayBase('')}
+                    className="shrink-0 rounded border border-border px-2 py-2 hover:bg-white/5"
+                  >
+                    {t('remote.serverReset')}
+                  </button>
+                )}
+              </div>
+              <p
+                id="remote-relay-help"
+                role={relayCheck.ok ? undefined : 'alert'}
+                className={relayCheck.ok ? 'mt-1' : 'mt-1 text-danger'}
+              >
+                {relayCheck.ok ? t('remote.serverHint') : t(RELAY_ERROR_KEYS[relayCheck.reason])}
+              </p>
+              {customRelay && relayCheck.ok && (
+                <p className="mt-1 text-warning">{t('remote.serverCustomWarning')}</p>
+              )}
+            </div>
+          )}
+          {!sharing && remote.phase !== 'starting' && (
+            <label className="mb-4 block text-xs text-text-muted">
+              {t('remoteSessionCreation.shareScope')}
+              <select
+                value={scope}
+                onChange={(event) => setScope(event.target.value as typeof scope)}
+                className="mt-1 w-full rounded border border-border bg-surface p-2"
+              >
+                <option value="session">{t('remoteSessionCreation.scopeSession')}</option>
+                <option value="workspace">{t('remoteSessionCreation.scopeWorkspace')}</option>
+                <option value="all">{t('remoteSessionCreation.scopeAll')}</option>
+              </select>
+              <p className="mt-1">{t('remoteSessionCreation.scopeHint')}</p>
+            </label>
+          )}
+          {sharing &&
+            remote.devices?.map((device) => (
+              <button
+                key={device.id}
+                onClick={() => void api.remote.revokeDevice(device.id)}
+                className="mb-2 mr-2 rounded border border-border px-2 py-1 text-xs"
+              >
+                {t('remoteSessionCreation.revokeDevice', { id: device.id })}
+              </button>
+            ))}
           {!activeChatId && remote.phase === 'idle' ? (
             <EmptyState />
           ) : remote.phase === 'starting' ? (
             <StartingState />
           ) : remote.phase === 'error' ? (
-            <ErrorState message={remote.error} onRetry={() => void startRemote()} />
+            <ErrorState message={remote.error} onRetry={start} disabled={relayInvalid} />
           ) : sharing ? (
             <ShareView
               url={remote.url}
@@ -129,7 +236,7 @@ export function RemoteWorkspaceDialog({ onClose }: { onClose: () => void }): JSX
             />
           ) : (
             // phase === 'idle' with a session (e.g. after Stop) → offer to start.
-            <IdleState onStart={() => void startRemote()} />
+            <IdleState onStart={start} disabled={relayInvalid} />
           )}
         </div>
 
@@ -287,7 +394,13 @@ function StartingState(): JSX.Element {
   )
 }
 
-function IdleState({ onStart }: { onStart: () => void }): JSX.Element {
+function IdleState({
+  onStart,
+  disabled
+}: {
+  onStart: () => void
+  disabled?: boolean
+}): JSX.Element {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center gap-4 py-8 text-center">
@@ -295,7 +408,7 @@ function IdleState({ onStart }: { onStart: () => void }): JSX.Element {
         <MonitorSmartphone className="h-6 w-6" />
       </div>
       <p className="max-w-xs text-sm text-text-muted">{t('remote.idleBody')}</p>
-      <Button variant="primary" onClick={onStart}>
+      <Button variant="primary" onClick={onStart} disabled={disabled}>
         {t('remote.startSharing')}
       </Button>
     </div>
@@ -315,7 +428,15 @@ function EmptyState(): JSX.Element {
   )
 }
 
-function ErrorState({ message, onRetry }: { message?: string; onRetry: () => void }): JSX.Element {
+function ErrorState({
+  message,
+  onRetry,
+  disabled
+}: {
+  message?: string
+  onRetry: () => void
+  disabled?: boolean
+}): JSX.Element {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center gap-3 py-8 text-center">
@@ -324,7 +445,7 @@ function ErrorState({ message, onRetry }: { message?: string; onRetry: () => voi
       </div>
       <p className="text-sm font-medium">{t('remote.errorTitle')}</p>
       <p className="max-w-xs text-xs text-text-muted">{message ?? t('remote.errorFallback')}</p>
-      <Button variant="secondary" onClick={onRetry}>
+      <Button variant="secondary" onClick={onRetry} disabled={disabled}>
         {t('remote.tryAgain')}
       </Button>
     </div>

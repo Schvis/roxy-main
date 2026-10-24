@@ -5,6 +5,18 @@ directories:
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  # Keep development files and downloaded smoke-test models out of app.asar.
+  - '!test/**'
+  - '!remote-server/**'
+  - '!.roxy/**'
+  - '!docs/**'
+  - '!**/*.tsbuildinfo'
+  # These assets are already copied to resources by extraResources.
+  - '!RoxyMigurdia/**'
+  - '!resources/models/live2d/**'
+  - '!resources/voicelines/**'
+  - '!script/rvc_tts_server.py'
+  - '!script/setup_tts_env.py'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,bun.lockb}'
@@ -28,7 +40,6 @@ extraResources:
     to: script/setup_tts_env.py
 asarUnpack:
   - resources/**
-  - RoxyMigurdia/**
   - script/**
   - node_modules/sharp/**
   - node_modules/@img/**

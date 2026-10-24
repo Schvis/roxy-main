@@ -41,14 +41,70 @@ export interface SwitchFrame {
   sessionId: string
 }
 
+/** Create a normal session in an existing workspace (or with no folder). */
+export interface CreateSessionFrame {
+  t: 'create-session'
+  title?: string
+  workspacePath?: string | null
+}
+
 /** Remove a pending prompt from the shared queue (the phone's × on a queued item). */
 export interface DequeueFrame {
   t: 'dequeue'
   id: string
 }
 
+/** Ask us for the selectable models (we answer with `models`). */
+export interface ListModelsFrame {
+  t: 'list-models'
+}
+
+/**
+ * Change a session's model and/or reasoning effort from the phone. Applies to
+ * that session only, never to the desktop's default for new sessions. The mode
+ * (Build/Plan) is deliberately not settable here: it gates write tools.
+ */
+export interface SetConfigFrame {
+  t: 'set-config'
+  /** Session the phone was viewing when it picked; defaults to the current one. */
+  sessionId?: string
+  /** Provider + model move together (see shared/session-config.ts). */
+  providerId?: string
+  model?: string
+  reasoningEffort?: string
+}
+
 /** Frames a guest can send that the relay forwards to us. */
-export type GuestFrame = PromptFrame | AbortFrame | ListFrame | SwitchFrame | DequeueFrame
+export type GuestFrame =
+  | { t: 'hello' }
+  | {
+      t: 'request'
+      requestId: string
+      action:
+        | 'create-session'
+        | 'set-config'
+        | 'prompt'
+        | 'queue-edit'
+        | 'queue-move'
+        | 'queue-remove'
+      id?: string
+      direction?: 'up' | 'down'
+      sessionId?: string
+      text?: string
+      title?: string
+      workspacePath?: string | null
+      providerId?: string
+      model?: string
+      reasoningEffort?: string
+    }
+  | PromptFrame
+  | AbortFrame
+  | ListFrame
+  | SwitchFrame
+  | CreateSessionFrame
+  | DequeueFrame
+  | ListModelsFrame
+  | SetConfigFrame
 
 // --- Host (desktop) → Guest (phone), sent by us ---------------------------
 
@@ -57,6 +113,7 @@ export type GuestFrame = PromptFrame | AbortFrame | ListFrame | SwitchFrame | De
  * the workspace folder basename (mirrors the desktop sidebar); `cwd` is the path.
  */
 export interface RemoteSessionInfo {
+  activity?: 'running' | 'queued' | 'idle'
   id: string
   title: string
   project: string
@@ -124,8 +181,62 @@ export interface HostErrorFrame {
   message: string
 }
 
+/** One selectable model, trimmed to what the phone picker renders. */
+export interface RemoteModelInfo {
+  id: string
+  /** Display label (vendor prefix already stripped where the desktop strips it). */
+  name: string
+  reasoning: boolean
+  /** Effort levels the model accepts; absent = the standard Low..Max ladder. */
+  efforts?: string[]
+}
+
+/** One connected, enabled provider and its models. */
+export interface RemoteProviderModels {
+  id: string
+  name: string
+  models: RemoteModelInfo[]
+  /** True when the list was cut to fit the relay's frame cap. */
+  truncated?: boolean
+  /** Catalog couldn't be fetched (fixed code, never provider detail). */
+  error?: 'authentication' | 'unavailable'
+}
+
+/** Answer to `list-models`. */
+export interface ModelsFrame {
+  t: 'models'
+  providers: RemoteProviderModels[]
+}
+
+/** The model + effort a session will actually run its next turn with. */
+export interface ConfigFrame {
+  imageInput?: boolean
+  t: 'config'
+  sessionId: string
+  providerId: string | null
+  providerName?: string
+  model: string | null
+  modelName?: string
+  reasoning: boolean
+  /** Effective (already clamped) effort. */
+  reasoningEffort: string
+  /** Selectable effort levels for this model; empty = no effort control. */
+  efforts: string[]
+}
+
 /** Frames we send toward the guests. */
+export interface RemoteChangesData {
+  files?: { path: string; status: string; staged: boolean }[]
+  path?: string
+  diff?: string
+  truncated: boolean
+}
+
 export type HostFrame =
+  | { t: 'revoke-device'; deviceId: string }
+  | { t: 'workspaces'; paths: string[] }
+  | { t: 'capabilities'; features: string[] }
+  | { t: 'ack'; requestId: string; ok: boolean; message?: string; data?: RemoteChangesData }
   | SnapshotFrame
   | DeltaFrame
   | TurnFrame
@@ -133,6 +244,8 @@ export type HostFrame =
   | QueueFrame
   | SessionsFrame
   | HostErrorFrame
+  | ModelsFrame
+  | ConfigFrame
 
 // --- Relay (roxy.gg) → host (control) -------------------------------------
 

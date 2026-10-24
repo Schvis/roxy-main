@@ -499,6 +499,7 @@ export const CHANNELS = {
   remoteStart: 'remote:start',
   remoteStop: 'remote:stop',
   remoteStatus: 'remote:status',
+  remoteRevokeDevice: 'remote:revoke-device',
   /** main -> renderer: Remote Workspace sharing status changed */
   remoteState: 'remote:state',
   /** main -> renderer: a streamed event from a phone-driven turn (live desktop mirror) */

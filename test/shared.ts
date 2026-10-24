@@ -222,6 +222,7 @@ import {
 import { posix as posixPath, win32 as win32Path } from 'node:path'
 import type { Message, MessagePart, QueueItem } from '../src/shared/types'
 import { isVisibleQueueItem, moveVisibleQueueItem, queueOrigin } from '../src/shared/queue'
+import { DEFAULT_RELAY_BASE, normalizeRelayBase } from '../src/shared/remote-base'
 import type { ChatMessage } from '../src/shared/api'
 import {
   emptyUsage,
@@ -7131,6 +7132,62 @@ async function main(): Promise<void> {
     check(
       'color: unparseable input returns null instead of throwing',
       parseCssColor('nonsense') === null && parseCssColor('') === null
+    )
+  }
+
+  {
+    const base = (input: string | null | undefined): string => {
+      const r = normalizeRelayBase(input)
+      return r.ok ? r.base : `ERR:${r.reason}`
+    }
+    check(
+      'remote base: empty or blank input selects the default relay',
+      base('') === DEFAULT_RELAY_BASE &&
+        base('   ') === DEFAULT_RELAY_BASE &&
+        base(null) === DEFAULT_RELAY_BASE
+    )
+    check(
+      'remote base: https links keep their origin and lose trailing slashes',
+      base('https://relay.example.com/') === 'https://relay.example.com' &&
+        base('https://relay.example.com:8443///') === 'https://relay.example.com:8443'
+    )
+    check(
+      'remote base: a bare host is treated as https, a bare loopback host as http',
+      base('relay.example.com') === 'https://relay.example.com' &&
+        base('localhost:3000') === 'http://localhost:3000' &&
+        base('127.0.0.1:3000') === 'http://127.0.0.1:3000'
+    )
+    check(
+      'remote base: a reverse-proxy path prefix is preserved',
+      base('https://example.com/roxy/') === 'https://example.com/roxy'
+    )
+    check(
+      'remote base: plain http is refused anywhere but loopback',
+      base('http://relay.example.com') === 'ERR:insecure' &&
+        base('http://192.168.1.206:3000') === 'ERR:insecure' &&
+        base('http://localhost:3000') === 'http://localhost:3000' &&
+        base('http://[::1]:3000') === 'http://[::1]:3000'
+    )
+    check(
+      'remote base: a lookalike hostname does not pass the loopback exemption',
+      base('http://localhost.evil.com') === 'ERR:insecure' &&
+        base('http://evil-localhost') === 'ERR:insecure'
+    )
+    check(
+      'remote base: non-web schemes are refused',
+      base('ftp://relay.example.com') === 'ERR:protocol' &&
+        base('javascript:alert(1)') !== 'https://javascript:alert(1)' &&
+        base('file:///etc/passwd') === 'ERR:protocol'
+    )
+    check(
+      'remote base: embedded credentials, queries and fragments are refused',
+      base('https://user:pw@relay.example.com') === 'ERR:credentials' &&
+        base('https://relay.example.com?x=1') === 'ERR:query' &&
+        base('https://relay.example.com/#frag') === 'ERR:query'
+    )
+    check(
+      'remote base: garbage is reported as invalid rather than throwing',
+      base('https://') === 'ERR:invalid' && base('http://exa mple.com') === 'ERR:invalid'
     )
   }
 

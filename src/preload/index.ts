@@ -684,6 +684,7 @@ const roxy: RoxyApi = {
     setHostKind: (host, kind) => ipcRenderer.invoke(CHANNELS.forgeSetHostKind, host, kind)
   },
   remote: {
+    revokeDevice: (id) => ipcRenderer.invoke(CHANNELS.remoteRevokeDevice, id),
     start: (input) => ipcRenderer.invoke(CHANNELS.remoteStart, input),
     stop: () => ipcRenderer.invoke(CHANNELS.remoteStop),
     status: () => ipcRenderer.invoke(CHANNELS.remoteStatus),

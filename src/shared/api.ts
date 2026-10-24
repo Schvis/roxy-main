@@ -830,6 +830,9 @@ export type RemotePhase =
  * show, which session is live, and the current phone count.
  */
 export interface RemoteState {
+  devices?: { id: string }[]
+  /** Relay server this share was minted on (present once started). */
+  relayBase?: string
   phase: RemotePhase
   /** Room id on roxy.gg (present once minted). */
   brokerId?: string
@@ -855,6 +858,9 @@ export interface RemoteState {
 
 /** Which session to share when starting a Remote Workspace. */
 export interface RemoteStartInput {
+  scope?: 'session' | 'workspace' | 'all'
+  /** Custom relay base link. Empty/omitted uses the default relay. */
+  relayBase?: string
   sessionId: string
 }
 
@@ -1876,6 +1882,7 @@ export interface RoxyApi {
     ): Promise<{ ok: boolean; error?: string }>
   }
   remote: {
+    revokeDevice(id: string): Promise<void>
     /** Mint a room on roxy.gg + open the host relay socket for a session. */
     start(input: RemoteStartInput): Promise<RemoteState>
     /** Tear down the room + revoke the tokens (Stop sharing). */
