@@ -44,8 +44,6 @@ export const CHANNELS = {
   settingsSetContextLimit: 'settings:setContextLimit',
   settingsSetAutoWorkstream: 'settings:setAutoWorkstream',
   settingsSetOverlayMode: 'settings:setOverlayMode',
-  settingsSetIdeMode: 'settings:setIdeMode',
-  settingsSetIdeChatDock: 'settings:setIdeChatDock',
   filesWrite: 'files:write',
   filesDelete: 'files:delete',
   filesCreate: 'files:create',

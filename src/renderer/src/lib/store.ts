@@ -1,3 +1,4 @@
+import { requestWorkspaceFile } from './workspace-navigation'
 import { create } from 'zustand'
 import { DEFAULT_AGENT_ID, getAgent } from '@shared/agents'
 import type { Language } from '@shared/i18n'
@@ -119,10 +120,9 @@ interface RoxyStore {
   chats: Chat[]
   activeChatId: string | null
   commandsOpen: boolean
-  ideTab: 'files' | 'search' | 'git'
-  ideSelectedFile: WorkspaceFileEntry | null
-  ideSelectedLine: number | undefined
-  ideSelectedRoot: string | null
+  activeEditorFile: WorkspaceFileEntry | null
+  activeEditorLine: number | undefined
+  activeEditorRoot: string | null
   sidebarRailed: boolean
   /** Unsent text and image attachments, scoped to the chat they belong to. */
   composerDrafts: ComposerDrafts
@@ -285,7 +285,6 @@ interface RoxyStore {
   setContextLimit: (limit: number | null) => Promise<void>
   setAutoWorkstream: (enabled: boolean) => Promise<void>
   setOverlayMode: (enabled: boolean) => Promise<void>
-  setIdeMode: (enabled: boolean) => Promise<void>
   setOverlayKeybind: (keybind: string) => Promise<void>
   setUserProfile: (profile: { name: string; avatar: string }) => Promise<void>
   setActivePromptId: (id: string | null) => Promise<void>
@@ -457,8 +456,7 @@ interface RoxyStore {
   setCommandsOpen: (open: boolean) => void
   contextPickerOpen: boolean
   setContextPickerOpen: (open: boolean) => void
-  setIdeTab: (tab: 'files' | 'search' | 'git') => void
-  setIdeSelectedFile: (
+  setActiveEditorFile: (
     entry: WorkspaceFileEntry | null,
     line?: number,
     root?: string | null
@@ -1349,11 +1347,9 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
   setCommandsOpen: (open) => set({ commandsOpen: open }),
   contextPickerOpen: false,
   setContextPickerOpen: (open) => set({ contextPickerOpen: open }),
-  ideTab: 'files',
-  setIdeTab: (tab) => set({ ideTab: tab }),
-  ideSelectedFile: null,
-  ideSelectedLine: undefined,
-  ideSelectedRoot: null,
+  activeEditorFile: null,
+  activeEditorLine: undefined,
+  activeEditorRoot: null,
   sidebarRailed:
     typeof window !== 'undefined' && localStorage.getItem('roxy.sidebar.collapsed') === '1',
   setSidebarRailed: (railed) => {
@@ -1362,13 +1358,8 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     } catch {}
     set({ sidebarRailed: railed })
   },
-  setIdeSelectedFile: (entry, line, root) => {
+  setActiveEditorFile: (entry, line, root) => {
     const state = get()
-    const ideMode = Boolean(entry)
-    const modeChanged = ideMode !== Boolean(state.settings?.ideMode)
-    if (modeChanged) {
-      void api.settings.setIdeMode(ideMode)
-    }
     const currentChatId = state.activeChatId
     const filePayload = entry
       ? {
@@ -1382,58 +1373,16 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       saveActiveFile(root, filePayload)
     }
     set({
-      ideSelectedFile: entry,
-      ideSelectedLine: line,
-      ideSelectedRoot: entry ? (root ?? null) : null,
-      ...(modeChanged && state.settings
-        ? { settings: { ...state.settings, ideMode, ...(ideMode ? { ttsEnabled: false } : {}) } }
-        : {})
+      activeEditorFile: entry,
+      activeEditorLine: line,
+      activeEditorRoot: entry ? (root ?? null) : null
     })
   },
   openFileInEditor: (filePath, line) => {
     if (!filePath) return
     const state = get()
-    const chat = state.chats.find((c) => c.id === state.activeChatId)
-    const parentChat = chat?.parentId ? state.chats.find((c) => c.id === chat.parentId) : undefined
-    let root =
-      chat?.worktreePath ??
-      chat?.workspacePath ??
-      parentChat?.worktreePath ??
-      parentChat?.workspacePath ??
-      null
-
-    let normPath = filePath.replace(/\\/g, '/')
-    if (!root && (normPath.startsWith('/') || /^[a-zA-Z]:\//.test(normPath))) {
-      const candidates = [
-        ...state.projectOrder,
-        ...state.chats.map((c) => c.worktreePath || c.workspacePath).filter(Boolean)
-      ] as string[]
-      const matchingProj = candidates.find((p) => {
-        const normP = p.replace(/\\/g, '/').toLowerCase()
-        return normPath.toLowerCase().startsWith(normP.endsWith('/') ? normP : normP + '/')
-      })
-      if (matchingProj) {
-        root = matchingProj
-      }
-    }
-
-    if (root) {
-      const normRoot = root.replace(/\\/g, '/').replace(/\/+$/, '')
-      if (normPath.toLowerCase().startsWith(normRoot.toLowerCase() + '/')) {
-        normPath = normPath.slice(normRoot.length + 1)
-      }
-    }
-
-    const name = normPath.split('/').pop() || normPath
-    state.setIdeSelectedFile(
-      {
-        path: normPath,
-        name,
-        directory: false
-      },
-      line,
-      root
-    )
+    if (state.activeChatId)
+      requestWorkspaceFile({ sessionId: state.activeChatId, path: filePath, line })
   },
   pendingContextAttachments: {},
   addPendingContextAttachment: (chatId, item) => {
@@ -2323,11 +2272,6 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
     set({ settings })
   },
 
-  setIdeMode: async (enabled) => {
-    const settings = await api.settings.setIdeMode(enabled)
-    set({ settings })
-  },
-
   setOverlayKeybind: async (keybind) => {
     const settings = await api.settings.setOverlayKeybind(keybind)
     set({ settings })
@@ -2592,9 +2536,9 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       messagesError: false,
       queue: [],
       activeAgentId: chat?.agentId ?? DEFAULT_AGENT_ID,
-      ideSelectedFile: restoredEntry,
-      ideSelectedLine: restoredLine,
-      ideSelectedRoot: restoredRoot
+      activeEditorFile: restoredEntry,
+      activeEditorLine: restoredLine,
+      activeEditorRoot: restoredRoot
     }))
     const workspace = chat?.workspacePath
     if (workspace) void get().ensureProjectInstructions(workspace)

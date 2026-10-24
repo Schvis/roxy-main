@@ -13,6 +13,8 @@
     "node": ">=20"
   },
   "scripts": {
+    "smoke:workspace-navigation": "esbuild test/workspace-navigation.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/workspace-navigation.cjs && node test/.out/workspace-navigation.cjs",
+    "smoke:workspace-review": "esbuild test/workspace-review.ts --bundle --platform=node --format=cjs --packages=external --outfile=test/.out/workspace-review.cjs && node test/.out/workspace-review.cjs",
     "postinstall": "node script/rebuild-native.mjs",
     "predev": "node script/predev.mjs",
     "dev": "electron-vite dev",

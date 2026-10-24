@@ -1129,8 +1129,6 @@ export interface RoxyApi {
     setContextLimit(limit: number | null): Promise<AppSettings>
     setAutoWorkstream(enabled: boolean): Promise<AppSettings>
     setOverlayMode(enabled: boolean): Promise<AppSettings>
-    setIdeMode(enabled: boolean): Promise<AppSettings>
-    setIdeChatDock(dock: AppSettings['ideChatDock']): Promise<AppSettings>
     setOverlayKeybind(keybind: string): Promise<AppSettings>
     setUserProfile(profile: { name: string; avatar: string }): Promise<AppSettings>
     setActivePromptId(id: string | null): Promise<AppSettings>

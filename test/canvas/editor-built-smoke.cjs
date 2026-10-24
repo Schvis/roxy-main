@@ -52,6 +52,58 @@ app.whenReady().then(async () => {
       `window.__editor.getModel().setValue('const saved = true\\n'); document.querySelector('[aria-label="Save file"]').click()`
     )
     await until(`window.__editorRuntime.content() === 'const saved = true\\n'`)
+    assert(
+      await evaluate(`
+      const runtime = window.__editorRuntime;
+      const key = runtime.editorDocumentKey('fixture', 'fixture', 'draft.ts');
+      const first = runtime.openEditorDocument('fixture', 'fixture', 'draft.ts', 'original', 'revision');
+      first.model.setValue('draft text');
+      const stored = JSON.parse(localStorage.getItem('roxy:workspace-draft:' + key));
+      first.subscription.dispose(); first.model.dispose(); runtime.editorDocuments.delete(key);
+      const restored = runtime.openEditorDocument('fixture', 'fixture', 'draft.ts', 'external edit', 'new revision');
+      const valid = stored.content === 'draft text' && restored.model.getValue() === 'draft text' && restored.dirty && restored.error === 'changed' && restored.revision === 'revision';
+      restored.model.setValue(restored.baseline);
+      const cleared = localStorage.getItem('roxy:workspace-draft:' + key) === null;
+      restored.subscription.dispose(); restored.model.dispose(); runtime.editorDocuments.delete(key);
+      return valid && cleared;
+    `),
+      'draft restoration preserves edits and detects external changes'
+    )
+    await evaluate('window.__editorRuntime.setReview()')
+    await until(
+      `document.querySelectorAll('section[aria-label="View changes"] button').length === 6`
+    )
+    await evaluate(
+      `const button = [...document.querySelectorAll('section button')].find(button => button.textContent === 'Revert this change'); button.click()`
+    )
+    await until(
+      `window.__editor.getValue() === 'const a = 1;\\nconst stable = true;\\nconst b = 2;\\n'`
+    )
+    await evaluate(`window.__editor.trigger('test', 'undo', null)`)
+    await until(
+      `window.__editor.getValue() === 'const a = 2;\\nconst stable = true;\\nconst b = 2;\\n'`
+    )
+    await evaluate(`await window.__editorRuntime.discardWorkspaceDrafts('/fixture', 'example.ts')`)
+    await until(`window.__editor.getValue() === 'const saved = true\\n'`)
+    assert(
+      await evaluate(
+        `return localStorage.getItem('roxy:workspace-draft:' + window.__editorRuntime.editorDocumentKey('fixture', 'workspace', 'example.ts')) === null`
+      ),
+      'Git discard removes persisted drafts'
+    )
+    await evaluate(`window.__editorRuntime.changeDisk("external disk edit")`)
+    await until(`window.__editor.getValue() === 'external disk edit'`)
+    await evaluate(
+      `window.__editor.getModel().setValue("local draft"); window.__editorRuntime.changeDisk("second disk edit")`
+    )
+    await until(
+      `window.__editorRuntime.editorDocuments.get(window.__editorRuntime.editorDocumentKey('fixture', 'workspace', 'example.ts')).error === 'changed'`
+    )
+    assert.equal(
+      await evaluate(`return window.__editor.getValue()`),
+      'local draft',
+      'Disk refresh preserves dirty drafts'
+    )
     await evaluate(
       `window.__editor.getModel().setValue('unsaved'); window.__unload = new Event('beforeunload',{cancelable:true}); window.dispatchEvent(window.__unload)`
     )

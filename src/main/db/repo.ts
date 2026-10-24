@@ -118,7 +118,6 @@ export function getSettings(): AppSettings {
     value: string
   }[]
   const map = new Map(rows.map((r) => [r.key, r.value]))
-  const ideMode = map.get('ide_mode') === '1'
   return {
     onboardingCompleted: map.get('onboarding_completed') === '1',
     activeProviderId: map.get('active_provider_id') ?? null,
@@ -142,13 +141,6 @@ export function getSettings(): AppSettings {
     motion: normalizeMotion(map.get('motion')),
     activeThemeId: map.get('active_theme_id') ?? null,
     overlayMode: map.get('overlay_mode') === '1',
-    ideMode: map.get('ide_mode') === '1',
-    ideChatDock:
-      map.get('ide_chat_dock') === 'left'
-        ? 'left'
-        : map.get('ide_chat_dock') === 'bottom'
-          ? 'bottom'
-          : 'right',
     overlayKeybind: map.get('overlay_keybind') ?? 'CommandOrControl+Shift+Space',
     userProfileName: map.get('user_profile_name') ?? '',
     userProfileAvatar: map.get('user_profile_avatar') ?? '',
@@ -157,11 +149,7 @@ export function getSettings(): AppSettings {
         ? { x: Number(map.get('overlay_icon_x')), y: Number(map.get('overlay_icon_y')) }
         : null,
     activePromptId: map.get('active_prompt_id') ?? null,
-    ttsEnabled: ideMode
-      ? map.has('tts_enabled_ide')
-        ? map.get('tts_enabled_ide') === '1'
-        : false
-      : map.get('tts_enabled') === '1',
+    ttsEnabled: map.get('tts_enabled') === '1',
     ttsAutoStart: map.get('tts_auto_start') === '1',
     ttsModel: map.get('tts_model') ?? 'roxy_e660_s4620.pth',
     ttsIndex: map.get('tts_index') ?? 'auto',
@@ -399,19 +387,6 @@ export function setOverlayMode(enabled: boolean): AppSettings {
   return getSettings()
 }
 
-export function setIdeMode(enabled: boolean): AppSettings {
-  if (typeof enabled !== 'boolean') throw new Error('Invalid IDE mode')
-  setSetting('ide_mode', enabled ? '1' : '0')
-  return getSettings()
-}
-
-export function setIdeChatDock(dock: AppSettings['ideChatDock']): AppSettings {
-  if (dock !== 'left' && dock !== 'right' && dock !== 'bottom')
-    throw new Error('Invalid IDE chat dock')
-  setSetting('ide_chat_dock', dock)
-  return getSettings()
-}
-
 export function setOverlayKeybind(keybind: string): AppSettings {
   setSetting('overlay_keybind', keybind)
   return getSettings()
@@ -449,12 +424,7 @@ export function setAutoWorkstream(enabled: boolean): AppSettings {
 }
 
 export function setTtsEnabled(enabled: boolean): AppSettings {
-  const settings = getSettings()
-  if (settings.ideMode) {
-    setSetting('tts_enabled_ide', enabled ? '1' : '0')
-  } else {
-    setSetting('tts_enabled', enabled ? '1' : '0')
-  }
+  setSetting('tts_enabled', enabled ? '1' : '0')
   return getSettings()
 }
 

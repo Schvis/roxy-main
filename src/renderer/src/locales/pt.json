@@ -2313,6 +2313,13 @@
     "use": "Usar plano de fundo",
     "working": "Preparando..."
   },
+  "workspaceMigration": {
+    "destination": "Rename destination (workspace-relative)",
+    "path": "Path relative to the session workspace",
+    "replaceConfirm_one": "Replace {{count}} match on disk? Unsaved editor drafts are not included.",
+    "replaceConfirm_other": "Replace {{count}} matches on disk? Unsaved editor drafts are not included.",
+    "reviewDraft": "Reverts update your draft. Save to apply them to disk."
+  },
   "workstream": {
     "action": {
       "openPr": "Abrir um pull request",

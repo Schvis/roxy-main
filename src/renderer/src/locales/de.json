@@ -1700,13 +1700,6 @@
       "usageNone": "No tokens used in the last 30 days",
       "usageTitle": "{{used}} tokens used, {{cached}} of them read from the prompt cache, over {{calls}} calls in the last 30 days"
     },
-    "tabs": {
-      "general": "General",
-      "providers": "Providers & Models",
-      "voice": "Voice & Audio",
-      "vtuber": "VTuber",
-      "workspace": "Workspace"
-    },
     "search": {
       "clear": "Suche löschen",
       "empty": "Keine Einstellungen für {{query}} gefunden",
@@ -1716,6 +1709,13 @@
       "placeholder": "Einstellungen durchsuchen",
       "results_one": "{{count}} Einstellung gefunden",
       "results_other": "{{count}} Einstellungen gefunden"
+    },
+    "tabs": {
+      "general": "General",
+      "providers": "Providers & Models",
+      "voice": "Voice & Audio",
+      "vtuber": "VTuber",
+      "workspace": "Workspace"
     },
     "title": "Einstellungen",
     "tts": {
@@ -2312,6 +2312,13 @@
     "untitledCustom": "Mein Hintergrund",
     "use": "Hintergrund verwenden",
     "working": "Wird vorbereitet..."
+  },
+  "workspaceMigration": {
+    "destination": "Rename destination (workspace-relative)",
+    "path": "Path relative to the session workspace",
+    "replaceConfirm_one": "Replace {{count}} match on disk? Unsaved editor drafts are not included.",
+    "replaceConfirm_other": "Replace {{count}} matches on disk? Unsaved editor drafts are not included.",
+    "reviewDraft": "Reverts update your draft. Save to apply them to disk."
   },
   "workstream": {
     "action": {

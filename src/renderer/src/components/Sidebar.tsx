@@ -148,53 +148,48 @@ export function Sidebar({
 }: SidebarProps): JSX.Element {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
-  const setIdeTab = useRoxyStore((s) => s.setIdeTab)
   const tools = (rail: boolean): JSX.Element | null =>
     onToolChange ? (
       <div className={cn('flex gap-1', rail ? 'mt-2 flex-col' : 'px-3 pt-2')}>
-        {(['files', 'search', 'git'] as const)
-          .filter((tab) => ideMode || tab === 'git')
-          .map((tab) => {
-            const Icon = tab === 'files' ? FolderOpen : tab === 'search' ? Search : GitBranch
-            const label = t(
-              tab === 'files' ? 'ide.filesTab' : tab === 'search' ? 'ide.searchTab' : 'ide.gitTab'
-            )
-            return (
-              <button
-                key={tab}
-                type="button"
-                title={
-                  tab === 'git' && changedFileCount > 0 ? `${label} (${changedFileCount})` : label
-                }
-                aria-label={
-                  tab === 'git' && changedFileCount > 0 ? `${label} (${changedFileCount})` : label
-                }
-                aria-pressed={tool === tab}
-                onClick={() => {
-                  setIdeTab(tab)
-                  onToolChange(tool === tab ? null : tab)
-                }}
-                className={cn(
-                  'press-scale relative flex h-8 items-center justify-center rounded-lg',
-                  rail ? 'w-8' : 'flex-1',
-                  tool === tab
-                    ? 'bg-elevated text-accent'
-                    : 'text-text-muted hover:bg-white/5 hover:text-text'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {tab === 'git' && changedFileCount > 0 && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold leading-none text-white shadow-xs"
-                  >
-                    {changedFileCount > 99 ? '99+' : changedFileCount}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+        {(['files', 'search', 'git'] as const).map((tab) => {
+          const Icon = tab === 'files' ? FolderOpen : tab === 'search' ? Search : GitBranch
+          const label = t(
+            tab === 'files' ? 'ide.filesTab' : tab === 'search' ? 'ide.searchTab' : 'ide.gitTab'
+          )
+          return (
+            <button
+              key={tab}
+              type="button"
+              title={
+                tab === 'git' && changedFileCount > 0 ? `${label} (${changedFileCount})` : label
+              }
+              aria-label={
+                tab === 'git' && changedFileCount > 0 ? `${label} (${changedFileCount})` : label
+              }
+              aria-pressed={tool === tab}
+              onClick={() => {
+                onToolChange(tool === tab ? null : tab)
+              }}
+              className={cn(
+                'press-scale relative flex h-8 items-center justify-center rounded-lg',
+                rail ? 'w-8' : 'flex-1',
+                tool === tab
+                  ? 'bg-elevated text-accent'
+                  : 'text-text-muted hover:bg-white/5 hover:text-text'
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {tab === 'git' && changedFileCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold leading-none text-white shadow-xs"
+                >
+                  {changedFileCount > 99 ? '99+' : changedFileCount}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
     ) : null
   const chats = useRoxyStore((s) => s.chats)

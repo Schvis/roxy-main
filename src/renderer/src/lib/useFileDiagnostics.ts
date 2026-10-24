@@ -4,6 +4,7 @@ import { api } from './api'
 
 type Status = 'checking' | 'ready' | 'unsupported' | 'tooLarge' | 'failed'
 
+const NO_ISSUES: WorkspaceFileDiagnostic[] = []
 export function useFileDiagnostics(
   sessionId: string,
   path: string,
@@ -45,9 +46,9 @@ export function useFileDiagnostics(
     }
   }, [sessionId, path, text, enabled, supported, tooLarge])
 
-  if (!supported) return { status: 'unsupported', issues: [] }
-  if (tooLarge) return { status: 'tooLarge', issues: [] }
-  if (!enabled || result?.path !== path) return { status: 'checking', issues: [] }
+  if (!supported) return { status: 'unsupported', issues: NO_ISSUES }
+  if (tooLarge) return { status: 'tooLarge', issues: NO_ISSUES }
+  if (!enabled || result?.path !== path) return { status: 'checking', issues: NO_ISSUES }
   if (result.text !== text) return { status: 'checking', issues: result.issues }
   return result
 }

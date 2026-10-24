@@ -1,3 +1,11 @@
+import {
+  WORKSPACE_OPEN_FILE,
+  WORKSPACE_OPEN_TOOL,
+  type WorkspaceTab,
+  requestWorkspaceFile,
+  resolveWorkspaceFile,
+  type WorkspaceFileRequest
+} from '../lib/workspace-navigation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
@@ -12,7 +20,6 @@ import {
   Hammer,
   ListTree,
   Loader2,
-  MessageSquare,
   RotateCw,
   Settings,
   Square,
@@ -66,7 +73,6 @@ import {
   QueueSectionTrigger
 } from './Queue'
 import { Button } from './ui'
-import { IdeChatDrag, type ChatDragProps } from './IdeChatDock'
 import { extractTerminalInputOptions } from '../lib/agent-input-options'
 import roxy from '../assets/roxy.png'
 
@@ -220,13 +226,9 @@ function dismissCommandLineForSession(chatId: string): void {
 }
 
 export function ChatView({
-  isOverlay: propIsOverlay,
-  onCollapse,
-  chatDrag
+  isOverlay: propIsOverlay
 }: {
   isOverlay?: boolean
-  onCollapse?: () => void
-  chatDrag?: ChatDragProps
 } = {}): JSX.Element {
   const { pathname } = useLocation()
   const isOverlay = propIsOverlay ?? pathname === '/overlay'
@@ -282,7 +284,6 @@ export function ChatView({
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const activeChatId = useRoxyStore((s) => s.activeChatId)
-  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
   const chats = useRoxyStore((s) => s.chats)
   const bots = useRoxyStore((s) => s.bots)
   const settings = useRoxyStore((s) => s.settings)
@@ -377,7 +378,19 @@ export function ChatView({
   // IDE mode has its own file tree, editor and git views; the inspector is the
   // lightweight equivalent for the regular chat layout only.
   const [inspectorSession, setInspectorSession] = useState<string | null>(null)
-  const inspectorOpen = !ideMode && inspectorSession === activeChatId && !!activeChatId
+  const [requestedTab, setRequestedTab] = useState<{ tab: WorkspaceTab }>()
+  useEffect(() => {
+    const open = (event: Event): void => {
+      const detail = (event as CustomEvent<{ sessionId: string; tab: WorkspaceTab | null }>).detail
+      if (detail.sessionId !== activeChatId) return
+      setInspectorSession(detail.tab ? activeChatId : null)
+      if (detail.tab) setRequestedTab({ tab: detail.tab })
+      else setSelectedFile(null)
+    }
+    window.addEventListener(WORKSPACE_OPEN_TOOL, open)
+    return () => window.removeEventListener(WORKSPACE_OPEN_TOOL, open)
+  }, [activeChatId])
+  const inspectorOpen = inspectorSession === activeChatId && !!activeChatId
   const inspection = useWorkspaceInspection(activeChat, inspectorOpen)
   const [selectedFile, setSelectedFile] = useState<{
     sessionId: string
@@ -409,7 +422,6 @@ export function ChatView({
     previousFile.current = !!fileSelection
   }, [fileSelection])
   const addPendingContextAttachment = useRoxyStore((s) => s.addPendingContextAttachment)
-  const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
 
   const workspaceRoot =
     activeChat?.worktreePath ??
@@ -417,10 +429,40 @@ export function ChatView({
     parentChat?.worktreePath ??
     parentChat?.workspacePath ??
     null
-  const effectiveWorkspaceRoot = workspaceRoot || (ideMode ? ideSelectedRoot : null)
+  const effectiveWorkspaceRoot = workspaceRoot
 
   const activeBot = bots.find((bot) => bot.chatId === activeChatId)
   const botPaneOpen = !!activeBot && botSettings?.botId === activeBot.id
+  useEffect(() => {
+    let disposed = false
+    let requestVersion = 0
+    const open = (event: Event): void => {
+      const request = (event as CustomEvent<WorkspaceFileRequest>).detail
+      if (request.sessionId !== activeChatId || !workspaceRoot) return
+      const version = ++requestVersion
+      void resolveWorkspaceFile(request.sessionId, workspaceRoot, request.path)
+        .then((selection) => {
+          if (
+            !selection ||
+            disposed ||
+            version !== requestVersion ||
+            useRoxyStore.getState().activeChatId !== request.sessionId
+          )
+            return
+          setInspectorSession(request.sessionId)
+          setSelectedFile({
+            sessionId: request.sessionId,
+            selection: { ...selection, line: request.line, comparison: Boolean(request.comparison) }
+          })
+        })
+        .catch(console.error)
+    }
+    window.addEventListener(WORKSPACE_OPEN_FILE, open)
+    return () => {
+      disposed = true
+      window.removeEventListener(WORKSPACE_OPEN_FILE, open)
+    }
+  }, [activeChatId, workspaceRoot])
   const sessionTasks = activeChat?.tasks ?? []
   const tasksDone = sessionTasks.filter((t) => t.status === 'completed').length
   // Any session can carry a description + checklist: the Explore subagent has
@@ -452,7 +494,7 @@ export function ChatView({
             isOverlay && 'titlebar'
           )}
         >
-          {ideMode && chatDrag ? <IdeChatDrag {...chatDrag} /> : <div />}
+          <div />
           {isOverlay && (
             <button
               type="button"
@@ -585,17 +627,7 @@ export function ChatView({
             </div>
           ) : (
             <div className="flex min-w-0 items-center gap-2">
-              {ideMode && onCollapse ? (
-                <button
-                  type="button"
-                  onClick={onCollapse}
-                  title={t('ide.collapseChat')}
-                  aria-label={t('ide.collapseChat')}
-                  className="press-scale flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                </button>
-              ) : isSub ? (
+              {isSub ? (
                 <Hammer className="h-4 w-4 shrink-0 text-text-muted" />
               ) : (
                 <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
@@ -603,18 +635,20 @@ export function ChatView({
               <span className="min-w-0 truncate text-sm font-medium">{activeChat.title}</span>
               {/* A delegate's session is only legible in context — who sent it, and
                 a way back. The folder path is the parent's business. */}
-              {isSub
-                ? parentChat && (
-                    <button
-                      onClick={() => void selectChat(parentChat.id)}
-                      title={t('chat.backTo', { title: parentChat.title })}
-                      className="flex min-w-0 items-center gap-1 truncate text-xs text-text-subtle transition-colors hover:text-text"
-                    >
-                      <CornerUpLeft className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{parentChat.title}</span>
-                    </button>
-                  )
-                : !ideMode && <WorkspacePath chat={activeChat} />}
+              {isSub ? (
+                parentChat && (
+                  <button
+                    onClick={() => void selectChat(parentChat.id)}
+                    title={t('chat.backTo', { title: parentChat.title })}
+                    className="flex min-w-0 items-center gap-1 truncate text-xs text-text-subtle transition-colors hover:text-text"
+                  >
+                    <CornerUpLeft className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{parentChat.title}</span>
+                  </button>
+                )
+              ) : (
+                <WorkspacePath chat={activeChat} />
+              )}
               {subagentRunning && activeChatId && (
                 // Clickable, because this used to be the one running thing in the
                 // app with no way to stop it: a subagent's turn is driven by its
@@ -702,7 +736,6 @@ export function ChatView({
                 <Trash2 className="h-4 w-4" />
               </button>
             )}
-            {ideMode && chatDrag && <IdeChatDrag {...chatDrag} />}
             {/* Plan-billed (subscriptions, Copilot): remaining allowance. Per-token: recent spend. */}
             {activeChat && provider && selectedProvider ? (
               planSource(provider.seedId, upstreamFor) ? (
@@ -722,8 +755,7 @@ export function ChatView({
                 <AppWindow className="h-4 w-4" />
               </button>
             )}
-            {!ideMode &&
-              !activeBot &&
+            {!activeBot &&
               activeChat.kind !== 'bot' &&
               (activeChat.workspacePath || parentChat?.workspacePath) && (
                 <WorkspaceSummary
@@ -749,6 +781,14 @@ export function ChatView({
               messages={messages}
               streaming={streaming}
               wallpaper={wallpaper}
+              onOpenFile={(change) => {
+                if (activeChatId)
+                  requestWorkspaceFile({
+                    sessionId: activeChatId,
+                    path: change.path,
+                    comparison: change.isDeleted
+                  })
+              }}
             />
             {infoOpen && <SessionInfo chat={activeChat} />}
 
@@ -1067,6 +1107,7 @@ export function ChatView({
       </div>
       {inspectorOpen && (
         <WorkspaceInspector
+          requestedTab={requestedTab}
           key={activeChat.id + (inspection.snapshot?.roots.map((root) => root.id).join(',') ?? '')}
           sessionId={activeChat.id}
           snapshot={inspection.snapshot}
@@ -1079,7 +1120,7 @@ export function ChatView({
         />
       )}
 
-      {commandsOpen && !ideMode && activeChat && (
+      {commandsOpen && activeChat && (
         <CommandsDialog
           chat={activeChat}
           onClose={() => {

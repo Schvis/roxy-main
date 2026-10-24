@@ -1,3 +1,4 @@
+import { resolveWorkspaceFile } from '../lib/workspace-navigation'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -28,7 +29,12 @@ import { useRoxyStore } from '../lib/store'
 import { DiffViewer } from './diff/DiffViewer'
 import { FileIcon } from './FileIcon'
 import { WorkspaceMediaPreview } from './WorkspaceMediaPreview'
+import { WorkspaceSearch } from './WorkspaceSearch'
+import { WorkspaceFileActions } from './WorkspaceFileActions'
 const FileEditor = lazy(() => import('./WorkspaceFileEditor'))
+const GitRepositoriesView = lazy(() =>
+  import('./GitRepositoriesView').then((module) => ({ default: module.GitRepositoriesView }))
+)
 
 export function useWorkspaceInspection(
   chat: Chat | undefined,
@@ -59,10 +65,14 @@ export function useWorkspaceInspection(
     const refresh = (): void => {
       if (document.visibilityState === 'visible') setRevision((value) => value + 1)
     }
+    const stopFiles = api.files.onChanged((payload) => {
+      if (!payload.sessionId || payload.sessionId === sessionId) refresh()
+    })
     const timer = setInterval(refresh, 5000)
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
     return () => {
+      stopFiles()
       clearInterval(timer)
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)
@@ -164,7 +174,12 @@ export function WorkspaceSummary({
   )
 }
 
-export type WorkspaceSelection = { rootId: string; path: string; comparison: boolean }
+export type WorkspaceSelection = {
+  rootId: string
+  path: string
+  comparison: boolean
+  line?: number
+}
 const STATUS = {
   added: { letter: 'A', color: 'text-success' },
   modified: { letter: 'M', color: 'text-warning' },
@@ -492,8 +507,10 @@ export function WorkspaceInspector({
   snapshot,
   failed,
   onSelect,
-  onClose
+  onClose,
+  requestedTab
 }: {
+  requestedTab?: { tab: 'files' | 'search' | 'git' | 'changes' }
   sessionId: string
   snapshot: WorkspaceSnapshot | null
   failed: boolean
@@ -501,7 +518,24 @@ export function WorkspaceInspector({
   onClose: () => void
 }): JSX.Element {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<'changes' | 'files'>('files')
+  const [tab, setTab] = useState<'changes' | 'files' | 'git' | 'search'>('files')
+  useEffect(() => {
+    if (requestedTab) setTab(requestedTab.tab)
+  }, [requestedTab])
+  const [treeVersion, setTreeVersion] = useState(0)
+  const workspaceRoot = useRoxyStore((state) => {
+    const chat = state.chats.find((candidate) => candidate.id === sessionId)
+    const owner = chat?.parentId
+      ? state.chats.find((candidate) => candidate.id === chat.parentId)
+      : chat
+    return (
+      chat?.worktreePath ??
+      chat?.workspacePath ??
+      owner?.worktreePath ??
+      owner?.workspacePath ??
+      null
+    )
+  })
   const panel = useRef<HTMLElement>(null)
   const summary = totals(snapshot)
   const defaultWidth =
@@ -646,19 +680,19 @@ export function WorkspaceInspector({
             )
               return
             event.preventDefault()
+            const tabs = ['changes', 'files', 'git', 'search'] as const
+            const offset = event.key === 'ArrowLeft' ? -1 : 1
             const next =
               event.key === 'Home'
-                ? 'changes'
+                ? tabs[0]
                 : event.key === 'End'
-                  ? 'files'
-                  : tab === 'changes'
-                    ? 'files'
-                    : 'changes'
+                  ? tabs[tabs.length - 1]
+                  : tabs[(tabs.indexOf(tab) + offset + tabs.length) % tabs.length]
             setTab(next)
             panel.current?.querySelector<HTMLButtonElement>(`#inspector-tab-${next}`)?.focus()
           }}
         >
-          {(['changes', 'files'] as const).map((value) => (
+          {(['changes', 'files', 'git', 'search'] as const).map((value) => (
             <button
               type="button"
               role="tab"
@@ -675,7 +709,13 @@ export function WorkspaceInspector({
                 tab === value ? 'bg-elevated text-text' : 'text-text-subtle hover:text-text'
               )}
             >
-              <span className="truncate">{t(`inspector.${value}`)}</span>
+              <span className="truncate">
+                {value === 'git'
+                  ? t('ide.gitTab')
+                  : value === 'search'
+                    ? t('ide.searchTab')
+                    : t(`inspector.${value}`)}
+              </span>
               {value === 'changes' && (
                 <span className="text-[10px] tabular-nums text-text-subtle">{summary.count}</span>
               )}
@@ -694,56 +734,86 @@ export function WorkspaceInspector({
             {t('inspector.unavailable')}
           </p>
         )}
-        {snapshot?.roots.map((root) => (
-          <section key={root.id} className="mb-3">
-            <div className="flex h-8 items-center gap-1.5 px-2 text-[10px] text-text-subtle">
-              <ChevronRight className="h-3 w-3 rotate-90" />
-              <span className="min-w-0 truncate font-semibold uppercase tracking-wider text-text-muted">
-                {root.name}
-              </span>
-              {root.branch && (
-                <span
-                  title={root.branch}
-                  className="ml-auto flex min-w-0 items-center gap-1 truncate"
-                >
-                  <GitBranch className="h-3 w-3 shrink-0" />
-                  <span className="max-w-28 truncate">{root.branch}</span>
+        {tab === 'files' && (
+          <WorkspaceFileActions
+            sessionId={sessionId}
+            onChanged={() => {
+              setTreeVersion((value) => value + 1)
+            }}
+          />
+        )}
+        {tab === 'search' && snapshot?.roots[0] && (
+          <WorkspaceSearch
+            sessionId={sessionId}
+            onSelect={(path, line) => {
+              if (!workspaceRoot) return
+              void resolveWorkspaceFile(sessionId, workspaceRoot, path, snapshot)
+                .then((selection) => {
+                  if (selection) onSelect({ ...selection, line, comparison: false })
+                })
+                .catch(console.error)
+            }}
+          />
+        )}
+        {tab === 'git' && workspaceRoot && (
+          <Suspense
+            fallback={<div className="p-3 text-xs text-text-subtle">{t('inspector.loading')}</div>}
+          >
+            <GitRepositoriesView root={workspaceRoot} sessionId={sessionId} />
+          </Suspense>
+        )}
+        {tab !== 'git' &&
+          tab !== 'search' &&
+          snapshot?.roots.map((root) => (
+            <section key={root.id} className="mb-3">
+              <div className="flex h-8 items-center gap-1.5 px-2 text-[10px] text-text-subtle">
+                <ChevronRight className="h-3 w-3 rotate-90" />
+                <span className="min-w-0 truncate font-semibold uppercase tracking-wider text-text-muted">
+                  {root.name}
                 </span>
+                {root.branch && (
+                  <span
+                    title={root.branch}
+                    className="ml-auto flex min-w-0 items-center gap-1 truncate"
+                  >
+                    <GitBranch className="h-3 w-3 shrink-0" />
+                    <span className="max-w-28 truncate">{root.branch}</span>
+                  </span>
+                )}
+              </div>
+              {root.unavailable ? (
+                <p className="p-3 text-xs text-text-subtle">{t('inspector.unavailable')}</p>
+              ) : tab === 'files' ? (
+                <Directory key={`${root.id}:${treeVersion}`} {...{ sessionId, root, onSelect }} />
+              ) : (
+                <>
+                  {root.changes.map((change) => (
+                    <ChangeRow
+                      key={change.path}
+                      change={change}
+                      onSelect={() =>
+                        onSelect({ rootId: root.id, path: change.path, comparison: true })
+                      }
+                    />
+                  ))}
+                  {!root.changes.length && (
+                    <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                      <GitCompareArrows className="mb-1 h-5 w-5 text-text-subtle/60" />
+                      <span className="text-xs text-text-muted">
+                        {t(root.isRepo ? 'inspector.clean' : 'inspector.noGit')}
+                      </span>
+                      <span className="text-[11px] text-text-subtle">
+                        {t(root.isRepo ? 'inspector.cleanBody' : 'inspector.noGitBody')}
+                      </span>
+                    </div>
+                  )}
+                  {root.partial && (
+                    <p className="p-3 text-[11px] text-text-subtle">{t('inspector.partial')}</p>
+                  )}
+                </>
               )}
-            </div>
-            {root.unavailable ? (
-              <p className="p-3 text-xs text-text-subtle">{t('inspector.unavailable')}</p>
-            ) : tab === 'files' ? (
-              <Directory key={root.id} {...{ sessionId, root, onSelect }} />
-            ) : (
-              <>
-                {root.changes.map((change) => (
-                  <ChangeRow
-                    key={change.path}
-                    change={change}
-                    onSelect={() =>
-                      onSelect({ rootId: root.id, path: change.path, comparison: true })
-                    }
-                  />
-                ))}
-                {!root.changes.length && (
-                  <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-                    <GitCompareArrows className="mb-1 h-5 w-5 text-text-subtle/60" />
-                    <span className="text-xs text-text-muted">
-                      {t(root.isRepo ? 'inspector.clean' : 'inspector.noGit')}
-                    </span>
-                    <span className="text-[11px] text-text-subtle">
-                      {t(root.isRepo ? 'inspector.cleanBody' : 'inspector.noGitBody')}
-                    </span>
-                  </div>
-                )}
-                {root.partial && (
-                  <p className="p-3 text-[11px] text-text-subtle">{t('inspector.partial')}</p>
-                )}
-              </>
-            )}
-          </section>
-        ))}
+            </section>
+          ))}
       </div>
     </aside>
   )

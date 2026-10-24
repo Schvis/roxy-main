@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, Copy, Loader2, RotateCcw, Save } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  Copy,
+  Loader2,
+  Map,
+  MessageSquare,
+  RotateCcw,
+  Save
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { WorkspaceSnapshot } from '@shared/workspace-inspector'
+import { useFileDiagnostics } from '../lib/useFileDiagnostics'
 import { api } from '../lib/api'
+import { useRoxyStore } from '../lib/store'
 import { observeTheme, readTheme, type CanvasTheme } from '../canvas/theme'
 import {
   editorDocumentKey,
@@ -10,12 +22,14 @@ import {
   hasMixedEol,
   monaco,
   openEditorDocument,
+  persistEditorDraft,
   releaseEditorDocument,
   saveEditorDocument,
   type EditorDocument
 } from '../lib/workspace-editor'
 import type { WorkspaceSelection } from './WorkspaceInspector'
 import { FileIcon } from './FileIcon'
+import { WorkspaceAgentReview } from './WorkspaceAgentReview'
 
 export default function FileEditor({
   sessionId,
@@ -36,9 +50,99 @@ export default function FileEditor({
     null
   )
   const [copied, setCopied] = useState(false)
+  const [minimap, setMinimap] = useState(true)
+  const [showErrors, setShowErrors] = useState(false)
+  const [markers, setMarkers] = useState<monaco.editor.IMarker[]>([])
+  const [diagnosticPath, setDiagnosticPath] = useState<string | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const label = useRef(t('inspector.editorLabel', { path: selection.path }))
+  useEffect(() => {
+    if (!entry) return
+    let disposed = false
+    let running = false
+    const refresh = async (): Promise<void> => {
+      if (disposed || running || entry.saving || entry.reloading) return
+      running = true
+      const revision = entry.revision
+      try {
+        const result = await api.workspace.read(sessionId, selection.rootId, selection.path, false)
+        if (
+          disposed ||
+          !result.ok ||
+          !result.revision ||
+          result.revision === entry.revision ||
+          entry.revision !== revision ||
+          entry.saving ||
+          entry.reloading
+        )
+          return
+        if (entry.dirty) {
+          entry.error = 'changed'
+        } else {
+          const view = editor.current?.saveViewState()
+          entry.model.setValue(result.after)
+          entry.baseline = result.after
+          entry.revision = result.revision
+          entry.dirty = false
+          entry.error = null
+          entry.mixedEol = hasMixedEol(result.after)
+          persistEditorDraft(entry)
+          if (view) editor.current?.restoreViewState(view)
+        }
+        entry.changed()
+      } catch {
+        // Background refresh failures must not interrupt a draft.
+      } finally {
+        running = false
+      }
+    }
+    const onFocus = (): void => {
+      void refresh()
+    }
+    const stopFiles = api.files.onChanged?.((payload) => {
+      if (!payload.sessionId || payload.sessionId === sessionId) void refresh()
+    })
+    window.addEventListener('focus', onFocus)
+    return () => {
+      disposed = true
+      stopFiles?.()
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [entry, sessionId, selection.rootId, selection.path])
+  useEffect(() => {
+    let current = true
+    setDiagnosticPath(null)
+    if (selection.rootId === 'workspace') {
+      setDiagnosticPath(selection.path)
+      return
+    }
+    const state = useRoxyStore.getState()
+    const chat = state.chats.find((candidate) => candidate.id === sessionId)
+    const owner = chat?.parentId
+      ? state.chats.find((candidate) => candidate.id === chat.parentId)
+      : chat
+    const root =
+      chat?.worktreePath ?? chat?.workspacePath ?? owner?.worktreePath ?? owner?.workspacePath
+    if (!root) return
+    void api.git
+      .repositories(root)
+      .then((repositories) => {
+        const repository = repositories[Number(selection.rootId)]
+        if (current && repository)
+          setDiagnosticPath(`${repository.replace(/[\\/]$/, '')}/${selection.path}`)
+      })
+      .catch(console.error)
+    return () => {
+      current = false
+    }
+  }, [sessionId, selection.rootId, selection.path])
+  const diagnostics = useFileDiagnostics(
+    sessionId,
+    diagnosticPath ?? selection.path,
+    entry?.model.getValue(undefined, true) ?? '',
+    Boolean(entry) && Boolean(diagnosticPath)
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -103,7 +207,7 @@ export default function FileEditor({
       automaticLayout: true,
       fontSize: 12,
       lineHeight: 20,
-      minimap: { enabled: false },
+      minimap: { enabled: true },
       scrollBeyondLastLine: false,
       padding: { top: 12, bottom: 12 },
       autoIndent: 'full',
@@ -118,6 +222,28 @@ export default function FileEditor({
       bracketPairColorization: { enabled: true }
     })
     editor.current = instance
+    const updateContext = (): void => {
+      if (useRoxyStore.getState().activeChatId !== sessionId || !diagnosticPath) return
+      const state = useRoxyStore.getState()
+      const chats = state.chats
+      const chat = chats.find((candidate) => candidate.id === sessionId)
+      const owner = chat?.parentId
+        ? chats.find((candidate) => candidate.id === chat.parentId)
+        : chat
+      const root =
+        chat?.worktreePath ?? chat?.workspacePath ?? owner?.worktreePath ?? owner?.workspacePath
+      state.setActiveEditorFile(
+        {
+          path: diagnosticPath,
+          name: selection.path.split('/').pop() ?? selection.path,
+          directory: false
+        },
+        instance.getPosition()?.lineNumber,
+        root
+      )
+    }
+    updateContext()
+    const cursorSubscription = instance.onDidChangeCursorPosition(updateContext)
     const theme = (value: CanvasTheme): void => {
       const canvas = document
         .createElement('canvas')
@@ -154,22 +280,65 @@ export default function FileEditor({
     }
     theme(readTheme())
     const stopTheme = observeTheme(theme)
+    const refreshMarkers = (): void => {
+      setMarkers(monaco.editor.getModelMarkers({ resource: entry.model.uri }))
+    }
+    const markerSubscription = monaco.editor.onDidChangeMarkers(refreshMarkers)
+    refreshMarkers()
     instance.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => void saveEditorDocument(entry)
     )
     if (entry.viewState) instance.restoreViewState(entry.viewState)
+    if (selection.line) {
+      instance.setPosition({ lineNumber: selection.line, column: 1 })
+      instance.revealLineInCenter(selection.line)
+    }
     instance.focus()
     return () => {
       entry.viewState = instance.saveViewState()
       entry.changed = () => {}
       entry.mounted = false
       stopTheme()
+      cursorSubscription.dispose()
+      markerSubscription.dispose()
       instance.dispose()
       editor.current = null
       releaseEditorDocument(entry)
     }
-  }, [entry, key])
+  }, [entry, key, diagnosticPath])
+
+  useEffect(() => {
+    if (!entry || !selection.line) return
+    editor.current?.setPosition({ lineNumber: selection.line, column: 1 })
+    editor.current?.revealLineInCenter(selection.line)
+  }, [entry, selection.line])
+
+  useEffect(() => {
+    editor.current?.updateOptions({ minimap: { enabled: minimap } })
+  }, [minimap])
+
+  useEffect(() => {
+    if (!entry) return
+    monaco.editor.setModelMarkers(
+      entry.model,
+      'roxy-workspace',
+      diagnostics.issues.map((issue) => {
+        const start = entry.model.getPositionAt(issue.start)
+        const end = entry.model.getPositionAt(issue.start + Math.max(issue.length, 1))
+        return {
+          severity: monaco.MarkerSeverity.Error,
+          message: issue.message,
+          code: String(issue.code),
+          startLineNumber: start.lineNumber,
+          startColumn: start.column,
+          endLineNumber: end.lineNumber,
+          endColumn: end.column
+        }
+      })
+    )
+    return () => monaco.editor.setModelMarkers(entry.model, 'roxy-workspace', [])
+  }, [entry, diagnostics.issues])
 
   useEffect(() => {
     if (entry) editor.current?.updateOptions({ readOnly: entry.mixedEol || entry.reloading })
@@ -207,6 +376,7 @@ export default function FileEditor({
       entry.baseline = entry.model.getValue(undefined, true)
       entry.revision = result.revision
       entry.dirty = false
+      persistEditorDraft(entry)
       entry.error = null
       entry.mixedEol = hasMixedEol(result.after)
       editor.current?.updateOptions({ readOnly: entry.mixedEol })
@@ -263,6 +433,26 @@ export default function FileEditor({
         )}
         {entry && (
           <>
+            <button
+              type="button"
+              title={t('ide.toggleCodePreview')}
+              aria-label={t('ide.toggleCodePreview')}
+              aria-pressed={minimap}
+              onClick={() => setMinimap((value) => !value)}
+              className="shrink-0 rounded p-1 text-text-muted hover:bg-white/5"
+            >
+              <Map className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              title={t('ide.toggleErrors')}
+              aria-label={t('ide.toggleErrors')}
+              aria-pressed={showErrors}
+              onClick={() => setShowErrors((value) => !value)}
+              className="shrink-0 rounded p-1 text-text-muted hover:bg-white/5"
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+            </button>
             <button
               type="button"
               disabled={entry.saving || entry.reloading}
@@ -323,6 +513,48 @@ export default function FileEditor({
         <p className="p-4 text-xs text-text-subtle">{t('inspector.loading')}</p>
       )}
       <div ref={host} className="min-h-0 min-w-0 flex-1 overflow-hidden" />
+      {entry && diagnosticPath && (
+        <WorkspaceAgentReview key={key} entry={entry} filePath={diagnosticPath} />
+      )}
+      {showErrors && (
+        <div className="max-h-48 shrink-0 overflow-auto border-t border-border text-xs">
+          {markers.map((marker, index) => (
+            <div key={index} className="flex items-start gap-2 px-3 py-2">
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left text-text-muted hover:text-text"
+                onClick={() => {
+                  editor.current?.setPosition({
+                    lineNumber: marker.startLineNumber,
+                    column: marker.startColumn
+                  })
+                  editor.current?.revealLineInCenter(marker.startLineNumber)
+                  editor.current?.focus()
+                }}
+              >
+                {marker.startLineNumber}:{marker.startColumn} {marker.message}
+              </button>
+              <button
+                type="button"
+                title={t('ide.sendErrorToChat')}
+                aria-label={t('ide.sendErrorToChat')}
+                onClick={() => {
+                  const prompt = `Fix this error in ${selection.path}:${marker.startLineNumber}:${marker.startColumn}:\n\n${marker.message}\n\n\`\`\`\n${entry?.model.getLineContent(marker.startLineNumber) ?? ''}\n\`\`\``
+                  void (async () => {
+                    const store = useRoxyStore.getState()
+                    if (store.activeChatId !== sessionId) await store.selectChat(sessionId)
+                    await useRoxyStore.getState().submit(prompt)
+                  })().catch(console.error)
+                  onBack()
+                }}
+                className="shrink-0 rounded p-1 text-text-muted hover:text-text"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {entry && (
         <div className="flex h-6 shrink-0 items-center justify-between gap-2 border-t border-border px-3 text-[10px] text-text-subtle">
           <span className="min-w-0 truncate">

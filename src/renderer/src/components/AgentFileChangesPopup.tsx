@@ -28,12 +28,14 @@ export interface AgentFileChangesPopupProps {
   messages?: Message[]
   streaming?: MessagePart[] | null
   wallpaper?: boolean
+  onOpenFile?: (change: AgentFileChange) => void
 }
 
 export function AgentFileChangesPopup({
   messages: propsMessages,
   streaming: propsStreaming,
-  wallpaper
+  wallpaper,
+  onOpenFile
 }: AgentFileChangesPopupProps = {}): JSX.Element | null {
   const { t } = useTranslation()
   const storeMessages = useRoxyStore((s) => s.messages)
@@ -44,7 +46,7 @@ export function AgentFileChangesPopup({
   )
   const messages = propsMessages ?? storeMessages
   const streaming = propsStreaming !== undefined ? propsStreaming : storeStreaming
-  const setIdeSelectedFile = useRoxyStore((s) => s.setIdeSelectedFile)
+  const openFileInEditor = useRoxyStore((s) => s.openFileInEditor)
   const activeChat = chats.find((chat) => chat.id === activeChatId)
   const parentChat = activeChat?.parentId
     ? chats.find((chat) => chat.id === activeChat.parentId)
@@ -105,15 +107,11 @@ export function AgentFileChangesPopup({
 
   const handleOpenFile = (change: AgentFileChange): void => {
     setIsExpanded(false)
-    setIdeSelectedFile(
-      {
-        path: change.path,
-        name: change.fileName,
-        directory: false
-      },
-      undefined,
-      workspaceRoot
-    )
+    if (onOpenFile) {
+      onOpenFile(change)
+      return
+    }
+    openFileInEditor(change.path)
   }
 
   const handleKeepFile = (file: AgentFileChange): void => {

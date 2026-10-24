@@ -123,10 +123,9 @@ export function Composer({
   const overflowAnchor = useMenuAnchor(overflowMenuRef, overflowOpen, 240, { gap: 8 })
 
   const activeChatId = useRoxyStore((s) => s.activeChatId)
-  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
-  const ideSelectedFile = useRoxyStore((s) => s.ideSelectedFile)
-  const ideSelectedLine = useRoxyStore((s) => s.ideSelectedLine)
-  const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
+  const activeEditorFile = useRoxyStore((s) => s.activeEditorFile)
+  const activeEditorLine = useRoxyStore((s) => s.activeEditorLine)
+  const activeEditorRoot = useRoxyStore((s) => s.activeEditorRoot)
   const chats = useRoxyStore((s) => s.chats)
   const settings = useRoxyStore((s) => s.settings)
   const providers = useRoxyStore((s) => s.providers)
@@ -160,24 +159,24 @@ export function Composer({
     parentChat?.worktreePath ??
     parentChat?.workspacePath ??
     null
-  const effectiveRoot = ideSelectedRoot || workspaceRoot
+  const effectiveRoot = activeEditorRoot || workspaceRoot
 
   const currentFile = useMemo(() => {
-    if (!ideMode) return null
     const root = effectiveRoot
     const normRoot = root ? root.replace(/\\/g, '/').replace(/\/+$/, '') : ''
     if (
-      ideSelectedFile &&
-      !ideSelectedFile.directory &&
-      (!ideSelectedRoot || !root || normalizeRoot(ideSelectedRoot) === normalizeRoot(root))
+      activeEditorFile &&
+      !activeEditorFile.directory &&
+      (!activeEditorRoot || !root || normalizeRoot(activeEditorRoot) === normalizeRoot(root))
     ) {
-      const normPath = ideSelectedFile.path.replace(/\\/g, '/').replace(/^\/+/, '')
+      const normPath = activeEditorFile.path.replace(/\\/g, '/').replace(/^\/+/, '')
       const fullPath = normRoot ? `${normRoot}/${normPath}` : normPath
       return {
-        path: ideSelectedFile.path,
+        path: activeEditorFile.path,
         fullPath,
-        name: ideSelectedFile.name || ideSelectedFile.path.split('/').pop() || ideSelectedFile.path,
-        line: ideSelectedLine
+        name:
+          activeEditorFile.name || activeEditorFile.path.split('/').pop() || activeEditorFile.path,
+        line: activeEditorLine
       }
     }
     const saved = loadActiveFile(root)
@@ -192,7 +191,7 @@ export function Composer({
       }
     }
     return null
-  }, [ideMode, ideSelectedFile, ideSelectedLine, ideSelectedRoot, effectiveRoot])
+  }, [activeEditorFile, activeEditorLine, activeEditorRoot, effectiveRoot])
 
   const isCurrentFileAttached = Boolean(
     currentFile &&
@@ -597,9 +596,9 @@ export function Composer({
       >
         {(contextAttachments.length > 0 ||
           images.length > 0 ||
-          (ideMode && currentFile && !isCurrentFileAttached)) && (
+          (currentFile && !isCurrentFileAttached)) && (
           <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
-            {ideMode && currentFile && !isCurrentFileAttached && (
+            {currentFile && !isCurrentFileAttached && (
               <button
                 type="button"
                 onClick={handleAttachCurrentFile}
@@ -801,49 +800,47 @@ export function Composer({
                     className="animate-pop-in absolute bottom-full left-0 z-50 mb-2 flex min-w-[220px] flex-col sq-frame sq-xl sq-fill-elevated sq-ring edge edge-strong edge-panel rounded-xl border border-border bg-elevated shadow-float p-1 text-xs"
                     style={contextMenuAnchor}
                   >
-                    {ideMode && (
-                      <>
-                        {currentFile ? (
-                          <button
-                            type="button"
-                            disabled={isCurrentFileAttached}
-                            onClick={handleAttachCurrentFile}
-                            className={cn(
-                              'press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                              isCurrentFileAttached
-                                ? 'opacity-50 cursor-not-allowed text-text-subtle'
-                                : 'text-text hover:bg-white/5'
-                            )}
-                            title={t('composer.attachCurrentFile', {
-                              path: currentFile.fullPath || currentFile.path
-                            })}
-                          >
-                            <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
-                            <div className="flex flex-col min-w-0 flex-1">
-                              <span className="truncate font-mono text-xs font-medium">
-                                {currentFile.fullPath || currentFile.path}
-                              </span>
-                              <span className="truncate text-[10px] text-text-subtle">
-                                {currentFile.name}
-                                {currentFile.line ? `:${currentFile.line}` : ''}
-                              </span>
-                            </div>
-                            {isCurrentFileAttached && (
-                              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                            )}
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-2 px-2.5 py-1.5 text-text-subtle">
-                            <FileCode className="h-3.5 w-3.5 shrink-0 opacity-40" />
-                            <span className="truncate text-[11px]">
-                              {t('composer.noCurrentFile')}
+                    <>
+                      {currentFile ? (
+                        <button
+                          type="button"
+                          disabled={isCurrentFileAttached}
+                          onClick={handleAttachCurrentFile}
+                          className={cn(
+                            'press-scale flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                            isCurrentFileAttached
+                              ? 'opacity-50 cursor-not-allowed text-text-subtle'
+                              : 'text-text hover:bg-white/5'
+                          )}
+                          title={t('composer.attachCurrentFile', {
+                            path: currentFile.fullPath || currentFile.path
+                          })}
+                        >
+                          <FileCode className="h-3.5 w-3.5 shrink-0 text-accent" />
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="truncate font-mono text-xs font-medium">
+                              {currentFile.fullPath || currentFile.path}
+                            </span>
+                            <span className="truncate text-[10px] text-text-subtle">
+                              {currentFile.name}
+                              {currentFile.line ? `:${currentFile.line}` : ''}
                             </span>
                           </div>
-                        )}
+                          {isCurrentFileAttached && (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                          )}
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 px-2.5 py-1.5 text-text-subtle">
+                          <FileCode className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                          <span className="truncate text-[11px]">
+                            {t('composer.noCurrentFile')}
+                          </span>
+                        </div>
+                      )}
 
-                        <div className="my-1 border-t border-border/40" />
-                      </>
-                    )}
+                      <div className="my-1 border-t border-border/40" />
+                    </>
 
                     <button
                       type="button"

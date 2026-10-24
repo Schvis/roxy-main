@@ -45,6 +45,8 @@ async function main(): Promise<void> {
     pathsMatch,
     stripWorkspaceRoot,
     setFileReviewStatus,
+    registerDraftReverter,
+    revertEditorDraft,
     undoFileChange
   } = await import('../src/renderer/src/lib/agent-file-changes')
 
@@ -56,6 +58,15 @@ async function main(): Promise<void> {
     ],
     null
   )
+  const reverted: string[] = []
+  const stopFirst = registerDraftReverter(() => reverted.push('first'))
+  const stopSecond = registerDraftReverter(() => reverted.push('second'))
+  revertEditorDraft('test', 'test.ts')
+  assert.deepEqual(reverted, ['first', 'second'])
+  stopFirst()
+  revertEditorDraft('test', 'test.ts')
+  assert.deepEqual(reverted, ['first', 'second', 'second'])
+  stopSecond()
   assert.equal(createdThenDeleted.files.length, 0)
   assert.equal(createdThenDeleted.pendingCount, 0)
 

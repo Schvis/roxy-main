@@ -118,8 +118,6 @@ function load(path, extra = '', overrides = {}) {
     './WindowControls': { WindowControls: () => null },
     '../components/Sidebar': { Sidebar: () => null },
     '../components/ChatView': { ChatView: () => null },
-    '../components/IdeWorkspace': { IdeWorkspace: () => null },
-    '../components/IdeModeToggle': { IdeModeToggle: () => null },
     '../components/TopNavbar': { TopNavbar: () => null },
     '../lib/background': {
       useBackground: () => ({
@@ -128,7 +126,7 @@ function load(path, extra = '', overrides = {}) {
       })
     },
     '../components/BackgroundFrame': { BackgroundFrame: () => null },
-    '../lib/chat-dock': { chatDockAtPoint: () => null },
+    '../lib/workspace-navigation': { WORKSPACE_OPEN_TOOL: 'roxy:workspace-open-tool' },
     './ui': { Button: () => null },
     '../lib/cn': { cn: (...parts) => parts.filter(Boolean).join(' ') }
   }
@@ -562,53 +560,14 @@ special.context.effects[0]()
 windowEvents.get('keydown')({ key: 'Escape', preventDefault() {} })
 assert.equal(consumed, 1)
 assert.equal(backs, 1)
-const ideUI = load('src/renderer/src/components/IdeModeToggle.tsx')
-let finishIdeSave
-const ideSaves = []
-state.settings = { ideMode: false }
-state.setIdeMode = (enabled) => {
-  ideSaves.push(enabled)
-  return new Promise((resolve) => {
-    finishIdeSave = () => {
-      state.settings = { ...state.settings, ideMode: enabled }
-      resolve()
-    }
-  })
+const workspaceToolEvents = []
+window.dispatchEvent = (event) => workspaceToolEvents.push(event)
+globalThis.CustomEvent = class {
+  constructor(type, init) {
+    this.type = type
+    this.detail = init?.detail
+  }
 }
-let ide = render(ideUI.IdeModeToggle, {})
-let toggle = find(ide.tree, 'button')
-assert.equal(toggle.props.role, 'switch')
-assert.equal(toggle.props['aria-checked'], false)
-const savingIde = toggle.props.onClick()
-await toggle.props.onClick()
-assert.deepEqual(ideSaves, [true], 'Rapid clicks save only once')
-ide = render(ideUI.IdeModeToggle, {}, ide.context)
-assert.equal(find(ide.tree, 'button').props.disabled, true)
-assert.equal(find(ide.tree, 'button').props['aria-busy'], true)
-finishIdeSave()
-await savingIde
-ide = render(ideUI.IdeModeToggle, {}, ide.context)
-toggle = find(ide.tree, 'button')
-assert.equal(toggle.props['aria-checked'], true)
-assert.equal(toggle.props.disabled, false)
-const disablingIde = toggle.props.onClick()
-finishIdeSave()
-await disablingIde
-assert.deepEqual(ideSaves, [true, false], 'Toggle saves both modes')
-state.setIdeMode = async () => {
-  throw new Error('save failed')
-}
-ide = render(ideUI.IdeModeToggle, {}, ide.context)
-await find(ide.tree, 'button').props.onClick()
-ide = render(ideUI.IdeModeToggle, {}, ide.context)
-assert.equal(find(ide.tree, 'button').props['aria-checked'], false)
-assert.equal(find(ide.tree, 'button').props.disabled, false)
-assert.equal(find(ide.tree, 'button').props.title, 'ide.saveError')
-assert.ok(nodes(ide.tree).some((node) => node.props?.role === 'alert'))
-state.settings = null
-ide = render(ideUI.IdeModeToggle, {}, ide.context)
-assert.equal(find(ide.tree, 'button').props.disabled, true)
-
 const chatUI = load('src/renderer/src/routes/Chat.tsx')
 state.chats = []
 state.activeChatId = null
@@ -620,10 +579,8 @@ assert.ok(!nodes(chat.tree).some((node) => node.props?.className?.includes('invi
 state.settings = { ideMode: true }
 chat = render(chatUI.default, {}, chat.context)
 assert.equal(nodes(chat.tree).filter((node) => node.type?.name === 'IdeModeToggle').length, 0)
-assert.equal(nodes(chat.tree).filter((node) => node.type?.name === 'IdeWorkspace').length, 1)
-assert.ok(nodes(chat.tree).some((node) => node.props?.className?.includes('invisible')))
-const ideSource = readFileSync('src/renderer/src/components/IdeWorkspace.tsx', 'utf8')
-assert.ok(!ideSource.includes('<IdeModeToggle />'), 'IDE activity bar has no duplicate toggle')
+assert.equal(nodes(chat.tree).filter((node) => node.type?.name === 'IdeWorkspace').length, 0)
+assert.ok(!nodes(chat.tree).some((node) => node.props?.className?.includes('invisible')))
 const sidebarUI = load('src/renderer/src/components/Sidebar.tsx', '', {
   'react-router-dom': { useNavigate: () => () => {} },
   'morphicons/react': { MorphIcon: () => null },
@@ -634,8 +591,7 @@ const sidebarUI = load('src/renderer/src/components/Sidebar.tsx', '', {
   '../lib/lifecycle': { TONE_BG: {}, TONE_TEXT_STATIC: {} },
   './BotsSection': { BotsSection: () => null },
   './ThinkingIndicator': { BrailleSpinner: () => null },
-  './UpdateCard': { UpdateCard: () => null },
-  './IdeModeToggle': ideUI
+  './UpdateCard': { UpdateCard: () => null }
 })
 state.projectOrder = []
 state.bots = []
@@ -645,20 +601,13 @@ for (const enabled of [false, true]) {
   state.settings = { ideMode: enabled }
   const sidebar = render(sidebarUI.Sidebar, {})
   const railNodes = nodes(sidebar.tree)
-  const toggleIndex = railNodes.findIndex((node) => node.type === ideUI.IdeModeToggle)
   const folderIndex = railNodes.findIndex(
     (node) => node.type === 'button' && node.props.title === 'sidebar.newProject'
   )
-  assert.equal(toggleIndex, -1, 'IDE opens from file links, without a manual toggle')
   assert.ok(folderIndex >= 0, 'New-project button remains available')
 }
 state.sidebarRailed = false
-assert.ok(
-  !nodes(render(sidebarUI.Sidebar, {}).tree).some((node) => node.type === ideUI.IdeModeToggle)
-)
 const toolSelections = []
-const tabSelections = []
-state.setIdeTab = (tab) => tabSelections.push(tab)
 state.setSidebarRailed = (value) => {
   state.sidebarRailed = value
 }
@@ -672,13 +621,12 @@ for (const rail of [false, true]) {
     })
     const buttons = nodes(sidebar.tree).filter((node) => node.type === 'button')
     const toolButton = (label) => buttons.find((node) => node.props['aria-label'] === label)
-    assert.equal(Boolean(toolButton('ide.filesTab')), enabled)
-    assert.equal(Boolean(toolButton('ide.searchTab')), enabled)
+    assert.equal(Boolean(toolButton('ide.filesTab')), true)
+    assert.equal(Boolean(toolButton('ide.searchTab')), true)
     const gitButton = toolButton('ide.gitTab')
     assert.ok(gitButton, 'Git workflow is available in both modes')
     assert.equal(gitButton.props['aria-pressed'], true)
     gitButton.props.onClick()
-    assert.equal(tabSelections.at(-1), 'git')
     assert.equal(toolSelections.at(-1), null)
     if (rail) assert.equal(state.sidebarRailed, true, 'Git does not expand the main sidebar')
     if (!rail) {
@@ -712,91 +660,18 @@ for (const rail of [false, true]) {
 }
 state.settings = { ideMode: false }
 chat = render(chatUI.default, {}, chat.context)
-nodes(chat.tree)
-  .find((node) => node.type?.name === 'IdeWorkspace')
-  .props.onChangedFileCount(9)
-chat = render(chatUI.default, {}, chat.context)
-assert.equal(
-  nodes(chat.tree).find((node) => node.type?.name === 'Sidebar').props.changedFileCount,
-  9
-)
-let chatSidebar = nodes(chat.tree).find((node) => node.type?.name === 'Sidebar')
-chatSidebar.props.onToolChange('files')
-chat = render(chatUI.default, {}, chat.context)
-chatSidebar = nodes(chat.tree).find((node) => node.type?.name === 'Sidebar')
-assert.equal(chatSidebar.props.tool, null, 'File tools cannot remain visible outside IDE mode')
-chatSidebar.props.onToolChange('git')
-chat = render(chatUI.default, {}, chat.context)
-chatSidebar = nodes(chat.tree).find((node) => node.type?.name === 'Sidebar')
-assert.equal(chatSidebar.props.tool, 'git')
-const workspace = nodes(chat.tree).find((node) => node.type?.name === 'IdeWorkspace')
-assert.equal(workspace.props.sidebarTab, 'git')
-assert.equal(workspace.props.ideMode, false)
-const gitPanel = nodes(chat.tree).find(
-  (node) => node.type === 'aside' && node.props['aria-label'] === 'ide.gitTab'
-)
-assert.ok(gitPanel, 'Git opens in an independent panel beside the sidebar')
-const gitHost = nodes(gitPanel).find((node) => node.ref)
-const gitPortalTarget = {}
-gitHost.ref(gitPortalTarget)
-chat = render(chatUI.default, {}, chat.context)
-assert.equal(
-  nodes(chat.tree).find((node) => node.type?.name === 'IdeWorkspace').props.sidebarTarget,
-  gitPortalTarget
-)
-find(gitPanel, 'button').props.onClick()
-chat = render(chatUI.default, {}, chat.context)
-assert.ok(
-  !nodes(chat.tree).some((node) => node.type === 'aside'),
-  'Git panel close button dismisses it'
-)
-state.settings = { ideMode: true }
-for (const tool of ['files', 'search']) {
-  const label = tool === 'files' ? 'ide.filesTab' : 'ide.searchTab'
-  chatSidebar.props.onToolChange(tool)
+for (const tool of ['files', 'search', 'git']) {
+  nodes(chat.tree)
+    .find((node) => node.type?.name === 'Sidebar')
+    .props.onToolChange(tool)
   chat = render(chatUI.default, {}, chat.context)
-  const panel = nodes(chat.tree).find(
-    (node) => node.type === 'aside' && node.props['aria-label'] === label
-  )
-  assert.ok(panel, `${tool} opens independently beside the sidebar`)
-  const host = {}
-  nodes(panel)
-    .find((node) => node.ref)
-    .ref(host)
-  chat = render(chatUI.default, {}, chat.context)
-  const editor = nodes(chat.tree).find((node) => node.type?.name === 'IdeWorkspace')
-  assert.equal(editor.props.sidebarTarget, host)
-  assert.equal(editor.props.sidebarTab, tool)
-  for (const rail of [false, true]) {
-    state.sidebarRailed = rail
-    const sidebar = render(sidebarUI.Sidebar, {
-      tool,
-      onToolChange: (next) => toolSelections.push(next)
-    })
-    const button = nodes(sidebar.tree).find(
-      (node) => node.type === 'button' && node.props['aria-label'] === label
-    )
-    button.props.onClick()
-    assert.equal(toolSelections.at(-1), null, 'Active tool button closes independent panel')
-    assert.equal(state.sidebarRailed, rail, 'File tools preserve sidebar collapse state')
-    if (!rail)
-      assert.ok(
-        nodes(sidebar.tree).some(
-          (node) =>
-            node.props?.className?.includes('overflow-y-auto') &&
-            !node.props.className.includes('hidden')
-        ),
-        'Session list remains visible'
-      )
-  }
-  find(panel, 'button').props.onClick()
-  chat = render(chatUI.default, {}, chat.context)
-  assert.ok(!nodes(chat.tree).some((node) => node.type === 'aside'))
+  assert.equal(nodes(chat.tree).find((node) => node.type?.name === 'Sidebar').props.tool, tool)
+  assert.ok(!nodes(chat.tree).some((node) => node.type?.name === 'IdeWorkspace'))
 }
 const openedChanges = []
 state.messages = []
 state.streamingChats = {}
-state.setIdeSelectedFile = (...args) => openedChanges.push(args)
+state.openFileInEditor = (...args) => openedChanges.push(args)
 const changedFile = {
   path: 'src/example.ts',
   fileName: 'example.ts',
@@ -831,7 +706,7 @@ assert.ok(
 nodes(changes.tree)
   .find((node) => node.props?.role === 'button')
   .props.onClick()
-assert.equal(openedChanges.at(-1)[0].path, changedFile.path)
+assert.equal(openedChanges.at(-1)[0], changedFile.path)
 changes = render(changesUI.AgentFileChangesPopup, {}, changes.context)
 assert.ok(
   !nodes(changes.tree).some((node) => node.props?.role === 'dialog'),
@@ -839,7 +714,7 @@ assert.ok(
 )
 const storeSource = readFileSync('src/renderer/src/lib/store.ts', 'utf8')
 const fileActionsSource = storeSource.slice(
-  storeSource.indexOf('  setIdeSelectedFile: (entry, line, root) => {'),
+  storeSource.indexOf('  setActiveEditorFile: (entry, line, root) => {'),
   storeSource.indexOf('  pendingContextAttachments: {},')
 )
 let editorState = {
@@ -848,43 +723,39 @@ let editorState = {
   activeChatId: 'chat',
   projectOrder: []
 }
-const persistedModes = []
+const workspaceRequests = []
 const editorActions = new Function(
   'get',
   'set',
-  'api',
   'saveSessionActiveFile',
   'saveActiveFile',
+  'requestWorkspaceFile',
   transformSync(`return ({${fileActionsSource}})`, { loader: 'ts' }).code
 )(
   () => editorState,
   (update) => {
     editorState = { ...editorState, ...update }
   },
-  { settings: { setIdeMode: async (enabled) => persistedModes.push(enabled) } },
   () => {},
-  () => {}
+  () => {},
+  (request) => workspaceRequests.push(request)
 )
-Object.assign(editorState, editorActions)
 editorActions.openFileInEditor('src/main.ts', 12)
-assert.equal(editorState.settings.ideMode, true, 'Chat file mention opens IDE')
-assert.equal(editorState.ideSelectedLine, 12)
-assert.equal(editorState.settings.ttsEnabled, false)
-assert.deepEqual(persistedModes, [true])
-editorActions.setIdeSelectedFile(null, undefined, 'D:\\project')
-assert.equal(editorState.settings.ideMode, false, 'Closing last file closes IDE')
-assert.equal(editorState.ideSelectedFile, null)
-assert.deepEqual(persistedModes, [true, false], 'Closing IDE persists the disabled state')
-editorActions.setIdeSelectedFile(
+assert.deepEqual(workspaceRequests, [{ sessionId: 'chat', path: 'src/main.ts', line: 12 }])
+assert.equal(editorState.settings.ttsEnabled, true, 'File navigation preserves speech preferences')
+editorActions.setActiveEditorFile(null, undefined, 'D:\\project')
+assert.equal(editorState.activeEditorFile, null)
+assert.equal(editorState.settings.ttsEnabled, true)
+editorActions.setActiveEditorFile(
   { path: 'changed.ts', name: 'changed.ts', directory: false },
-  undefined,
+  7,
   'D:\\project'
 )
-assert.equal(editorState.settings.ideMode, true, 'File change selection reopens IDE')
-assert.deepEqual(persistedModes, [true, false, true])
-assert.ok(
-  ideSource.includes('if (selected && ideMode)'),
-  'Restored files do not reopen a closed IDE on mount'
+assert.equal(editorState.activeEditorLine, 7)
+assert.equal(
+  editorState.settings.ttsEnabled,
+  true,
+  'Active-file context preserves speech preferences'
 )
 // Chat route supplies shared wallpaper for translucent/hidden sidebars, but
 // overlays render ChatView directly and must keep their own background layer.
@@ -908,5 +779,5 @@ for (const condition of localBackgroundConditions) {
   }
 }
 console.log(
-  'UI PREFERENCES OK: quota ordering, bot drag/keyboard/RTL/click isolation, alert color, storage, menus, Escape lifecycle and automatic IDE lifecycle'
+  'UI PREFERENCES OK: quota ordering, bot drag/keyboard/RTL/click isolation, alert color, storage, menus, Escape lifecycle and Monaco navigation and active-file context'
 )

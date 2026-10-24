@@ -410,11 +410,6 @@ export function registerIpc(): void {
       return renameWorkspaceFile(sessionCwd(sessionId), oldPath, newPath)
     }
   )
-  ipcMain.handle(CHANNELS.settingsSetIdeChatDock, (_e, dock: AppSettings['ideChatDock']) => {
-    const settings = repo.setIdeChatDock(dock)
-    broadcastSettings(settings)
-    return settings
-  })
   ipcMain.handle(CHANNELS.filesList, (_e, sessionId: string, path: string) => {
     if (typeof sessionId !== 'string') throw new Error('Invalid session')
     const cwd = sessionCwd(sessionId)
@@ -464,14 +459,6 @@ export function registerIpc(): void {
       return replaceWorkspaceFiles(sessionCwd(sessionId), query, replacement, options, paths)
     }
   )
-  ipcMain.handle(CHANNELS.settingsSetIdeMode, (_e, enabled: boolean) => {
-    const settings = repo.setIdeMode(enabled)
-    if (enabled && !settings.ttsEnabled) {
-      void stopTts()
-    }
-    broadcastSettings(settings)
-    return settings
-  })
   registerVoiceIpc()
   registerNotificationSoundIpc()
   registerEngineeringIpc()

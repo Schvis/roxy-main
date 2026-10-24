@@ -38,9 +38,13 @@ import { cn } from '../lib/cn'
 import { Button, Input } from './ui'
 import { FileDiffView } from './diff/FileDiffView'
 import { MergeConflictSolver } from './MergeConflictSolver'
-import { clearDraftForPath, clearDraftsForRoot } from './FileEditor'
 import { useRoxyStore } from '../lib/store'
 import { subscribeFileReviews } from '../lib/agent-file-changes'
+
+async function discardMonacoDrafts(root: string, path?: string): Promise<void> {
+  const { discardWorkspaceDrafts } = await import('../lib/workspace-editor')
+  await discardWorkspaceDrafts(root, path)
+}
 
 const LANE_COLORS = [
   '#3b82f6', // blue
@@ -1323,7 +1327,7 @@ export function GitActionsView({
     try {
       const res = await api.git.revertFile(root, filePath)
       if (res.ok) {
-        clearDraftForPath(filePath, root)
+        await discardMonacoDrafts(root, filePath)
         await refreshAll(root)
       } else {
         setError(res.error || 'Failed to revert file')
@@ -1375,7 +1379,7 @@ export function GitActionsView({
     try {
       const res = await api.git.revertAll(root)
       if (res.ok) {
-        clearDraftsForRoot(root)
+        await discardMonacoDrafts(root)
         await refreshAll(root)
       } else {
         setError(res.error || 'Failed to revert all changes')
@@ -1395,7 +1399,7 @@ export function GitActionsView({
     try {
       const res = await api.git.abortMerge(root)
       if (res.ok) {
-        clearDraftsForRoot(root)
+        await discardMonacoDrafts(root)
         await refreshAll(root)
       } else {
         setError(res.error || 'Failed to abort merge')

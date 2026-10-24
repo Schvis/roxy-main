@@ -537,10 +537,6 @@ export interface AppSettings {
   activeThemeId: string | null
   /** Whether the app runs in the background and can be invoked via a global shortcut. */
   overlayMode: boolean
-  /** Whether the workspace IDE layout is enabled. Defaults to false. */
-  ideMode: boolean
-  /** Persisted IDE chat position. Defaults to right. */
-  ideChatDock: 'left' | 'right' | 'bottom'
   /** The global shortcut to invoke the overlay (e.g. 'CommandOrControl+Shift+Space'). */
   overlayKeybind: string
   /** Display name in transcript; empty uses localized default. */

@@ -1,366 +1,40 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useState } from 'react'
 import { BackgroundFrame } from '../components/BackgroundFrame'
-import { useTranslation } from 'react-i18next'
-import { MessageSquare, X } from 'lucide-react'
 import { Sidebar, type SidebarTool } from '../components/Sidebar'
 import { ChatView } from '../components/ChatView'
-import { IdeWorkspace } from '../components/IdeWorkspace'
 import { TopNavbar } from '../components/TopNavbar'
+import { useBackground } from '../lib/background'
 import { useRoxyStore } from '../lib/store'
-import { api } from '../lib/api'
-import type { ChatDragProps } from '../components/IdeChatDock'
-
-import { chatDockAtPoint, type ChatDock } from '../lib/chat-dock'
-
-const IDE_CHAT_SIZES_KEY = 'roxy.ide.chatSizes.v1'
-const IDE_CHAT_COLLAPSED_KEY = 'roxy.ide.chatCollapsed.v1'
-const DEFAULT_IDE_CHAT_SIZES = { left: 42, right: 42, bottom: 42 }
-const MIN_CHAT_WIDTH_PX = 380
-const MIN_CHAT_HEIGHT_PX = 300
-const MIN_IDE_WORKSPACE_WIDTH_PX = 380
-const MIN_IDE_WORKSPACE_HEIGHT_PX = 220
-
-function clampChatSize(value: number): number {
-  return Math.max(20, Math.min(75, value))
-}
-
-function loadChatSizes(): typeof DEFAULT_IDE_CHAT_SIZES {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(IDE_CHAT_SIZES_KEY) ?? '{}') as Record<
-      string,
-      unknown
-    >
-    return {
-      left: typeof parsed.left === 'number' ? clampChatSize(parsed.left) : 42,
-      right: typeof parsed.right === 'number' ? clampChatSize(parsed.right) : 42,
-      bottom: typeof parsed.bottom === 'number' ? clampChatSize(parsed.bottom) : 42
-    }
-  } catch {
-    return DEFAULT_IDE_CHAT_SIZES
-  }
-}
+import { WORKSPACE_OPEN_TOOL } from '../lib/workspace-navigation'
 
 function Chat(): JSX.Element {
-  const { t } = useTranslation()
-  const dock = useRoxyStore((s) => s.settings?.ideChatDock ?? 'right')
-  const [sizes, setSizes] = useState(loadChatSizes)
-  const [chatCollapsed, setChatCollapsed] = useState(
-    () => localStorage.getItem(IDE_CHAT_COLLAPSED_KEY) === 'true'
-  )
-  useEffect(() => {
-    try {
-      localStorage.setItem(IDE_CHAT_SIZES_KEY, JSON.stringify(sizes))
-    } catch {}
-  }, [sizes])
-  useEffect(() => {
-    localStorage.setItem(IDE_CHAT_COLLAPSED_KEY, String(chatCollapsed))
-  }, [chatCollapsed])
-  const pane = useRef<HTMLDivElement>(null)
-  const dragging = useRef<number | null>(null)
-  const dockDrag = useRef<{ pointerId: number; x: number; y: number } | null>(null)
-  const [dropDock, setDropDock] = useState<ChatDock | null>(null)
-  const dropDockRef = useRef<ChatDock | null>(null)
-  const savingDock = useRef(false)
-  const [dockStatus, setDockStatus] = useState({ pending: false, error: false })
-  const clearDockDrag = (): void => {
-    dockDrag.current = null
-    dropDockRef.current = null
-    setDropDock(null)
+  const [selection, setSelection] = useState<{
+    sessionId: string | null
+    tool: SidebarTool | null
+  } | null>(null)
+  const activeChatId = useRoxyStore((state) => state.activeChatId)
+  const background = useBackground()
+  const shared = !!background.rendered && background.settings.sidebarStyle !== 'default'
+  const tool = selection?.sessionId === activeChatId ? selection.tool : null
+  const changeTool = (next: SidebarTool | null): void => {
+    setSelection({ sessionId: activeChatId, tool: next })
+    window.dispatchEvent(
+      new CustomEvent(WORKSPACE_OPEN_TOOL, { detail: { sessionId: activeChatId, tab: next } })
+    )
   }
-  const saveDock = async (next: ChatDock): Promise<void> => {
-    if (savingDock.current || next === dock) return
-    savingDock.current = true
-    setDockStatus({ pending: true, error: false })
-    try {
-      const result = await api.settings.setIdeChatDock(next)
-      useRoxyStore.setState((current) => ({
-        settings: current.settings
-          ? { ...current.settings, ideChatDock: result.ideChatDock }
-          : result
-      }))
-      setDockStatus({ pending: false, error: false })
-    } catch {
-      setDockStatus({ pending: false, error: true })
-    } finally {
-      savingDock.current = false
-    }
-  }
-  const chatDrag: ChatDragProps = {
-    ...dockStatus,
-    disabled: dockStatus.pending,
-    onPointerDown: (event) => {
-      if (event.button !== 0 || savingDock.current) return
-      event.preventDefault()
-      dockDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
-      event.currentTarget.setPointerCapture(event.pointerId)
-    },
-    onPointerMove: (event) => {
-      const start = dockDrag.current
-      if (!start || start.pointerId !== event.pointerId || !pane.current) return
-      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 6) {
-        dropDockRef.current = null
-        setDropDock(null)
-        return
-      }
-      const rect = pane.current.getBoundingClientRect()
-      const next = chatDockAtPoint(rect, event.clientX, event.clientY)
-      dropDockRef.current = next
-      setDropDock(next)
-    },
-    onPointerUp: (event) => {
-      if (dockDrag.current?.pointerId !== event.pointerId) return
-      const next = dropDockRef.current
-      clearDockDrag()
-      event.currentTarget.releasePointerCapture(event.pointerId)
-      if (next) void saveDock(next)
-    },
-    onLostPointerCapture: clearDockDrag,
-    onKeyDown: (event) => {
-      if (event.key === 'Escape') {
-        const pointerId = dockDrag.current?.pointerId
-        clearDockDrag()
-        if (pointerId !== undefined && event.currentTarget.hasPointerCapture(pointerId)) {
-          event.currentTarget.releasePointerCapture(pointerId)
-        }
-        return
-      }
-      const next = { ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'bottom' } as const
-      const target = next[event.key as keyof typeof next]
-      if (target) {
-        event.preventDefault()
-        void saveDock(target)
-      }
-    }
-  }
-  const bottom = dock === 'bottom'
-  const size = sizes[dock]
-  const resize = (value: number, rect?: DOMRect): void => {
-    let clamped = clampChatSize(value)
-    if (rect) {
-      if (bottom) {
-        const minPct = (MIN_CHAT_HEIGHT_PX / Math.max(rect.height, 1)) * 100
-        const maxPct = 100 - (MIN_IDE_WORKSPACE_HEIGHT_PX / Math.max(rect.height, 1)) * 100
-        if (maxPct >= minPct) {
-          clamped = Math.max(minPct, Math.min(maxPct, clamped))
-        }
-      } else {
-        const minPct = (MIN_CHAT_WIDTH_PX / Math.max(rect.width, 1)) * 100
-        const maxPct = 100 - (MIN_IDE_WORKSPACE_WIDTH_PX / Math.max(rect.width, 1)) * 100
-        if (maxPct >= minPct) {
-          clamped = Math.max(minPct, Math.min(maxPct, clamped))
-        }
-      }
-    }
-    setSizes((current) => ({ ...current, [dock]: Math.round(clamped * 10) / 10 }))
-  }
-  const [changedFileCount, setChangedFileCount] = useState(0)
-  const [sidebarTool, setSidebarTool] = useState<SidebarTool | null>(null)
-  const [toolTarget, setToolTarget] = useState<HTMLDivElement | null>(null)
-  const ideMode = useRoxyStore((s) => s.settings?.ideMode ?? false)
-  const visibleSidebarTool = ideMode || sidebarTool === 'git' ? sidebarTool : null
-  const activeChatId = useRoxyStore((s) => s.activeChatId)
-  const chats = useRoxyStore((s) => s.chats)
-  const activeChat = chats.find((chat) => chat.id === activeChatId)
-  const parentChat = chats.find((chat) => chat.id === activeChat?.parentId)
-  const root =
-    activeChat?.worktreePath ??
-    activeChat?.workspacePath ??
-    parentChat?.worktreePath ??
-    parentChat?.workspacePath ??
-    null
   return (
-    <BackgroundFrame className="min-w-0 flex-col overflow-hidden">
+    <BackgroundFrame className="relative flex h-full flex-col overflow-hidden bg-bg">
       <TopNavbar />
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <Sidebar
-          changedFileCount={changedFileCount}
-          tool={visibleSidebarTool}
-          onToolChange={setSidebarTool}
-        />
-        {visibleSidebarTool && (
-          <aside
-            aria-label={t(
-              visibleSidebarTool === 'files'
-                ? 'ide.filesTab'
-                : visibleSidebarTool === 'search'
-                  ? 'ide.searchTab'
-                  : 'ide.gitTab'
-            )}
-            className="flex h-full min-h-0 w-80 max-w-[45vw] shrink-0 flex-col border-r border-border bg-surface"
-          >
-            <div className="flex items-center justify-between border-b border-border px-3 py-2">
-              <span className="text-xs font-semibold text-text">
-                {t(
-                  visibleSidebarTool === 'files'
-                    ? 'ide.filesTab'
-                    : visibleSidebarTool === 'search'
-                      ? 'ide.searchTab'
-                      : 'ide.gitTab'
-                )}
-              </span>
-              <button
-                type="button"
-                aria-label={t('common.close')}
-                title={t('common.close')}
-                onClick={() => setSidebarTool(null)}
-                className="rounded p-1 text-text-muted hover:bg-surface-2 hover:text-text"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div ref={setToolTarget} className="min-h-0 flex-1 overflow-hidden" />
-          </aside>
-        )}
-        <div
-          ref={pane}
-          className={`relative flex min-h-0 min-w-0 flex-1 overflow-auto ${ideMode && bottom ? 'flex-col' : ''}`}
+      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
+        <Sidebar tool={tool} onToolChange={changeTool} />
+        <main
+          className={`flex min-h-0 min-w-0 flex-1 overflow-hidden ${shared ? 'bg-transparent' : 'bg-bg'}`}
         >
-          {ideMode && dropDock && (
-            <div
-              className={`pointer-events-none absolute z-40 flex items-center justify-center rounded-lg border-2 border-accent bg-accent/15 text-sm font-medium text-text ${
-                dropDock === 'bottom'
-                  ? 'bottom-0 left-0 right-0 h-1/4'
-                  : dropDock === 'left'
-                    ? 'bottom-0 left-0 top-0 w-1/3'
-                    : 'bottom-0 right-0 top-0 w-1/3'
-              }`}
-              role="status"
-            >
-              {t(
-                dropDock === 'left'
-                  ? 'ide.dockLeft'
-                  : dropDock === 'right'
-                    ? 'ide.dockRight'
-                    : 'ide.dockBottom'
-              )}
-            </div>
-          )}
-          {ideMode && chatCollapsed && (
-            <button
-              type="button"
-              onClick={() => setChatCollapsed(false)}
-              title={t('ide.expandChat')}
-              aria-label={t('ide.expandChat')}
-              aria-expanded={false}
-              className={`absolute z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-muted shadow-sm transition-colors hover:bg-elevated hover:text-text ${
-                bottom ? 'bottom-2 right-2' : dock === 'left' ? 'left-2 top-2' : 'right-2 top-2'
-              }`}
-            >
-              <MessageSquare className="h-4 w-4" />
-            </button>
-          )}
-          <div
-            className={
-              ideMode
-                ? `flex min-h-0 min-w-0 flex-1 ${bottom ? 'w-full min-h-[220px]' : 'min-w-[380px]'}`
-                : 'contents'
-            }
-            style={ideMode ? { order: dock === 'left' ? 2 : 0 } : undefined}
-          >
-            <IdeWorkspace
-              key={JSON.stringify([activeChatId, root])}
-              onChangedFileCount={setChangedFileCount}
-              sessionId={activeChatId}
-              root={root}
-              sidebarTarget={visibleSidebarTool ? toolTarget : null}
-              sidebarTab={visibleSidebarTool}
-              ideMode={ideMode}
-            />
-          </div>
-          {ideMode && !chatCollapsed ? (
-            <div
-              role="separator"
-              tabIndex={0}
-              aria-label={t('ide.resizeChat')}
-              aria-orientation={bottom ? 'horizontal' : 'vertical'}
-              aria-valuemin={20}
-              aria-valuemax={75}
-              aria-valuenow={Math.round(size)}
-              className={`relative z-10 shrink-0 touch-none bg-border hover:bg-accent focus-visible:bg-accent focus-visible:outline-none after:absolute after:inset-0 ${bottom ? 'h-px cursor-row-resize after:-top-1 after:-bottom-1' : 'w-px cursor-col-resize after:-left-1 after:-right-1'}`}
-              style={{ order: 1 }}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return
-                dragging.current = event.pointerId
-                event.currentTarget.setPointerCapture(event.pointerId)
-              }}
-              onPointerMove={(event) => {
-                if (dragging.current !== event.pointerId || !pane.current) return
-                const rect = pane.current.getBoundingClientRect()
-                const raw = bottom
-                  ? ((rect.bottom - event.clientY) / rect.height) * 100
-                  : dock === 'left'
-                    ? ((event.clientX - rect.left) / rect.width) * 100
-                    : ((rect.right - event.clientX) / rect.width) * 100
-                resize(raw, rect)
-              }}
-              onPointerUp={(event) => {
-                dragging.current = null
-                event.currentTarget.releasePointerCapture(event.pointerId)
-              }}
-              onLostPointerCapture={() => {
-                dragging.current = null
-              }}
-              onKeyDown={(event) => {
-                const delta = bottom
-                  ? { ArrowUp: 2, ArrowDown: -2 }
-                  : dock === 'left'
-                    ? { ArrowLeft: -2, ArrowRight: 2 }
-                    : { ArrowLeft: 2, ArrowRight: -2 }
-                const step = delta[event.key as keyof typeof delta]
-                if (step !== undefined || event.key === 'Home' || event.key === 'End') {
-                  event.preventDefault()
-                  const rect = pane.current?.getBoundingClientRect()
-                  resize(
-                    event.key === 'Home' ? 20 : event.key === 'End' ? 75 : size + (step ?? 0),
-                    rect
-                  )
-                }
-              }}
-            />
-          ) : null}
-          {/* Fixed sibling slot and wrapper preserve transcript/composer state on toggles. */}
-          <div
-            className={`relative flex min-h-0 min-w-0 shrink-0 ${
-              ideMode
-                ? chatCollapsed
-                  ? bottom
-                    ? 'h-0 w-full overflow-hidden'
-                    : 'h-full w-0 overflow-hidden'
-                  : bottom
-                    ? 'w-full min-h-[300px]'
-                    : 'min-w-[380px] min-h-[300px]'
-                : 'h-full flex-1 min-h-[300px]'
-            }`}
-            style={
-              ideMode
-                ? {
-                    order: dock === 'left' ? 0 : 2,
-                    flex: `0 0 ${chatCollapsed ? '0px' : `${size}%`}`
-                  }
-                : undefined
-            }
-          >
-            <div
-              className={
-                ideMode && chatCollapsed
-                  ? 'invisible h-full w-full overflow-hidden'
-                  : 'flex h-full min-h-0 w-full min-w-0'
-              }
-            >
-              <ChatView
-                onCollapse={() => setChatCollapsed(true)}
-                chatDrag={ideMode ? chatDrag : undefined}
-              />
-            </div>
-          </div>
-        </div>
+          <ChatView />
+        </main>
       </div>
     </BackgroundFrame>
   )
 }
 
-/* App keeps this route mounted behind secondary screens. Without memo, every
-   location change would still walk the expensive transcript even though the
-   component instance survived; Chat has no props, so only its own store
-   subscriptions should make it render. */
 export default memo(Chat)

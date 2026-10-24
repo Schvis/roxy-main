@@ -10,7 +10,6 @@ import {
   resolveAllConflictHunks,
   type ConflictHunk
 } from '../lib/conflict-solver'
-import { clearDraftForPath } from './FileEditor'
 
 export interface MergeConflictSolverProps {
   root: string
@@ -88,7 +87,8 @@ export function MergeConflictSolver({
     try {
       const res = await api.git.resolveConflict(root, filePath, currentContent)
       if (res.ok) {
-        clearDraftForPath(filePath, root)
+        const { discardWorkspaceDrafts } = await import('../lib/workspace-editor')
+        await discardWorkspaceDrafts(root, filePath)
         setSuccessMsg(t('git.allConflictsResolved'))
         setTimeout(() => {
           onResolved()

@@ -261,17 +261,17 @@ const reviewStatusMap = loadPersistedReviews()
 const reviewListeners = new Set<() => void>()
 
 type DraftReverter = (sessionId: string, path: string, content?: string) => void
-let draftReverter: DraftReverter | null = null
+const draftReverters = new Set<DraftReverter>()
 
 export function registerDraftReverter(fn: DraftReverter): () => void {
-  draftReverter = fn
+  draftReverters.add(fn)
   return () => {
-    if (draftReverter === fn) draftReverter = null
+    draftReverters.delete(fn)
   }
 }
 
 export function revertEditorDraft(sessionId: string, path: string, content?: string): void {
-  draftReverter?.(sessionId, path, content)
+  draftReverters.forEach((revert) => revert(sessionId, path, content))
 }
 
 export function getPersistedReview(
