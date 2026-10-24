@@ -48,6 +48,13 @@ import { WorkstreamStrip } from './WorkstreamStrip'
 import { QueuedMessage } from './QueuedMessage'
 import { UsageMeter } from './UsageMeter'
 import { QuotaMeter } from './QuotaMeter'
+import {
+  useWorkspaceInspection,
+  WorkspaceFileCanvas,
+  WorkspaceInspector,
+  WorkspaceSummary,
+  type WorkspaceSelection
+} from './WorkspaceInspector'
 import { upstreamFor } from '@shared/cliproxy'
 import { planSource } from '@shared/quota'
 import {
@@ -367,6 +374,21 @@ export function ChatView({
     setInfoOpen(false)
   }, [activeChatId])
   const activeChat = chats.find((c) => c.id === activeChatId)
+  // IDE mode has its own file tree, editor and git views; the inspector is the
+  // lightweight equivalent for the regular chat layout only.
+  const [inspectorSession, setInspectorSession] = useState<string | null>(null)
+  const inspectorOpen = !ideMode && inspectorSession === activeChatId && !!activeChatId
+  const inspection = useWorkspaceInspection(activeChat, inspectorOpen)
+  const [selectedFile, setSelectedFile] = useState<{
+    sessionId: string
+    selection: WorkspaceSelection
+  } | null>(null)
+  const fileSelection =
+    inspectorOpen &&
+    selectedFile?.sessionId === activeChatId &&
+    inspection.snapshot?.roots.some((root) => root.id === selectedFile.selection.rootId)
+      ? selectedFile.selection
+      : null
   const queueHasUserRequests = queue.some(
     (item) => !item.scheduleId && (item.fromUser || !item.sourceChatId)
   )
@@ -379,6 +401,13 @@ export function ChatView({
   const parentChat = activeChat?.parentId
     ? chats.find((c) => c.id === activeChat.parentId)
     : undefined
+  const previousFile = useRef(false)
+  useLayoutEffect(() => {
+    if (previousFile.current && !fileSelection) {
+      document.querySelector<HTMLButtonElement>('[data-workspace-toggle]')?.focus()
+    }
+    previousFile.current = !!fileSelection
+  }, [fileSelection])
   const addPendingContextAttachment = useRoxyStore((s) => s.addPendingContextAttachment)
   const ideSelectedRoot = useRoxyStore((s) => s.ideSelectedRoot)
 
@@ -455,6 +484,8 @@ export function ChatView({
   return (
     <div
       className="@container/chat relative flex h-full min-w-0 flex-1 bg-bg"
+      data-inspector-open={inspectorOpen || undefined}
+      data-file-open={!!fileSelection || undefined}
       data-shared-pane={
         (background.settings.sidebarStyle !== 'default' && !!background.rendered) || undefined
       }
@@ -543,7 +574,10 @@ export function ChatView({
         {wallpaper && (isOverlay || background.settings.sidebarStyle === 'default') && (
           <ChatBackground empty={isEmpty} />
         )}
-        <header className="titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4">
+        <header
+          {...(fileSelection ? { inert: '' } : {})}
+          className="titlebar flex h-12 shrink-0 items-center justify-between gap-3 px-4"
+        >
           {activeBot ? (
             <div className="flex min-w-0 items-center gap-2">
               <BotAvatar username={activeBot.username} size={28} />
@@ -566,7 +600,7 @@ export function ChatView({
               ) : (
                 <FolderOpen className="h-4 w-4 shrink-0 text-text-muted" />
               )}
-              <span className="shrink-0 text-sm font-medium">{activeChat.title}</span>
+              <span className="min-w-0 truncate text-sm font-medium">{activeChat.title}</span>
               {/* A delegate's session is only legible in context — who sent it, and
                 a way back. The folder path is the parent's business. */}
               {isSub
@@ -688,307 +722,362 @@ export function ChatView({
                 <AppWindow className="h-4 w-4" />
               </button>
             )}
+            {!ideMode &&
+              !activeBot &&
+              activeChat.kind !== 'bot' &&
+              (activeChat.workspacePath || parentChat?.workspacePath) && (
+                <WorkspaceSummary
+                  snapshot={inspection.snapshot}
+                  failed={inspection.failed}
+                  open={inspectorOpen}
+                  onToggle={() => {
+                    setInspectorSession(inspectorOpen ? null : activeChat.id)
+                    if (inspectorOpen) setSelectedFile(null)
+                  }}
+                />
+              )}
           </div>
         </header>
 
-        <AgentFileChangesPopup
-          key={`file-changes-${activeChatId}`}
-          messages={messages}
-          streaming={streaming}
-          wallpaper={wallpaper}
-        />
-        {infoOpen && <SessionInfo chat={activeChat} />}
+        <div className="relative isolate flex min-h-0 min-w-0 flex-1">
+          <div
+            {...(fileSelection ? { inert: '' } : {})}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+          >
+            <AgentFileChangesPopup
+              key={`file-changes-${activeChatId}`}
+              messages={messages}
+              streaming={streaming}
+              wallpaper={wallpaper}
+            />
+            {infoOpen && <SessionInfo chat={activeChat} />}
 
-        {messagesError ? (
-          // A failed load used to be indistinguishable from an empty session:
-          // silent, blank, and with no way back other than clicking away and
-          // returning. Name it and make it recoverable.
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-            <p className="max-w-xs text-sm text-text-muted">{t('chat.loadFailed')}</p>
-            <Button variant="ghost" onClick={() => void selectChat(activeChat.id)}>
-              <RotateCw className="h-4 w-4" /> {t('common.retry')}
-            </Button>
-          </div>
-        ) : loading ? (
-          // Deliberately blank: a transcript read is a local SQLite query, so it
-          // resolves within a frame or two and a spinner would be a flash of
-          // chrome rather than information. This branch exists to stop the EMPTY
-          // state from claiming the session has no messages
-          // before we know that.
-          <div className="min-h-0 flex-1" />
-        ) : isEmpty ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-            {activeBot ? (
-              <div className="flex flex-col items-center gap-4">
-                <BotAvatar username={activeBot.username} size={56} />
-                <div className="flex max-w-xs flex-col gap-2">
-                  <p className="text-sm font-medium text-text">
-                    {t('bots.talkingTo', { username: activeBot.username })}
-                  </p>
-                  <p className="text-sm text-text-muted">{t('bots.intro')}</p>
-                </div>
+            {messagesError ? (
+              // A failed load used to be indistinguishable from an empty session:
+              // silent, blank, and with no way back other than clicking away and
+              // returning. Name it and make it recoverable.
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <p className="max-w-xs text-sm text-text-muted">{t('chat.loadFailed')}</p>
+                <Button variant="ghost" onClick={() => void selectChat(activeChat.id)}>
+                  <RotateCw className="h-4 w-4" /> {t('common.retry')}
+                </Button>
               </div>
-            ) : (
-              <p className="text-sm text-text-muted"></p>
-            )}
-          </div>
-        ) : (
-          <CanvasTranscript
-            transparent={wallpaper}
-            messages={messages}
-            streaming={streaming}
-            chatId={activeChatId}
-            workspacePath={
-              activeChat?.worktreePath ??
-              activeChat?.workspacePath ??
-              parentChat?.worktreePath ??
-              parentChat?.workspacePath ??
-              null
-            }
-            pinSignal={sentMessageSignal}
-            onCancelSubagent={(subChatId) => void cancelSubagent(subChatId)}
-            onCancelTool={(callId) => void cancelToolCall(callId)}
-          />
-        )}
-        {/* The fade overlaps the scroller without adding layout space. The last
-          message's own bottom padding keeps its text clear of the fade, and
-          mr-2.5 leaves the scrollbar uncovered. */}
-        <div
-          aria-hidden
-          className={cn(
-            'pointer-events-none relative z-10 -mt-2 mr-2.5 h-2 shrink-0',
-            !wallpaper && 'bg-gradient-to-b from-transparent to-bg'
-          )}
-        />
-
-        {deliveryIssues.length > 0 && (
-          <div className={cn('px-4 pt-2', !wallpaper && 'bg-bg')}>
-            <div className="mx-auto max-w-3xl">
-              <p className="mb-1 text-xs text-danger">{t('queue.deliveryIssues')}</p>
-              <QueueList>
-                {deliveryIssues.map((item, i) => (
-                  <QueuedMessage
-                    key={item.id}
-                    item={item}
-                    index={i}
-                    total={deliveryIssues.length}
-                  />
-                ))}
-              </QueueList>
-            </div>
-          </div>
-        )}
-        {queue.length > 0 && (
-          <div data-waiting-queue className={cn('px-4 pt-2', !wallpaper && 'bg-bg')}>
-            <div className="mx-auto max-w-3xl">
-              <Queue>
-                <QueueSection defaultOpen>
-                  <QueueSectionTrigger>
-                    <QueueSectionLabel
-                      label={t('chat.queued')}
-                      count={queue.length}
-                      icon={<ListTree className="h-3.5 w-3.5 text-text-subtle" />}
-                    />
-                    {sending && queueHasUserRequests && (
-                      <span className="ml-auto text-[10px] text-text-subtle">
-                        {t('chat.runsAfterReply')}
-                      </span>
-                    )}
-                  </QueueSectionTrigger>
-                  <QueueSectionContent>
-                    <QueueList>
-                      {queue.map((item, i) => (
-                        <QueuedMessage
-                          key={item.id}
-                          item={item}
-                          index={i}
-                          total={queue.length}
-                          pending={!!optimisticQueue?.some((entry) => entry.id === item.id)}
-                        />
-                      ))}
-                    </QueueList>
-                  </QueueSectionContent>
-                </QueueSection>
-              </Queue>
-            </div>
-          </div>
-        )}
-
-        {provider?.seedId === 'github-copilot' && (
-          <CopilotReconnect
-            key={provider.id}
-            connectionId={provider.id}
-            needed={copilotNeedsReauthentication[provider.id] ?? false}
-            onConnected={refreshProviders}
-            wallpaper={wallpaper}
-          />
-        )}
-
-        {/* A subagent's session can now be stopped from its own composer: the Stop
-          cancels the DELEGATE (there is no local request here to abort), which
-          is what the button visibly means in this view. */}
-        {latestCommand && !isSessionDismissed && dismissedCommand !== latestCommand.title && (
-          <div className={cn('command-line-gutter px-4 pb-1.5', !wallpaper && 'bg-bg')}>
-            <div className="mx-auto max-w-3xl">
-              <div
-                className={cn(
-                  'command-line-panel flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs backdrop-blur-md shadow-sm transition-colors',
-                  runningCommand
-                    ? 'border-accent/30 bg-surface/90 text-accent'
-                    : 'border-border bg-surface-2/80 text-text-muted hover:bg-surface-2 hover:text-text'
-                )}
-              >
-                {askingSessionDismiss ? (
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Terminal className="h-3.5 w-3.5 shrink-0 text-accent" />
-                      <span className="truncate text-xs font-medium text-text">
-                        {t('commands.dontShowAgainSession')}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (activeChatId) {
-                            dismissCommandLineForSession(activeChatId)
-                            setSessionDismissNonce((n) => n + 1)
-                          }
-                          setAskingSessionDismiss(false)
-                        }}
-                        className="press-scale rounded px-2 py-0.5 text-[11px] font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
-                      >
-                        {t('commands.dontShowAgain')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDismissedCommand(latestCommand.title)
-                          setAskingSessionDismiss(false)
-                        }}
-                        className="press-scale rounded px-2 py-0.5 text-[11px] font-medium text-text-muted hover:bg-white/5 hover:text-text transition-colors"
-                      >
-                        {t('commands.justOnce')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAskingSessionDismiss(false)}
-                        title={t('common.cancel')}
-                        className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+            ) : loading ? (
+              // Deliberately blank: a transcript read is a local SQLite query, so it
+              // resolves within a frame or two and a spinner would be a flash of
+              // chrome rather than information. This branch exists to stop the EMPTY
+              // state from claiming the session has no messages
+              // before we know that.
+              <div className="min-h-0 flex-1" />
+            ) : isEmpty ? (
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
+                {activeBot ? (
+                  <div className="flex flex-col items-center gap-4">
+                    <BotAvatar username={activeBot.username} size={56} />
+                    <div className="flex max-w-xs flex-col gap-2">
+                      <p className="text-sm font-medium text-text">
+                        {t('bots.talkingTo', { username: activeBot.username })}
+                      </p>
+                      <p className="text-sm text-text-muted">{t('bots.intro')}</p>
                     </div>
                   </div>
                 ) : (
-                  <>
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCommandsInitialTab(runningCommand ? 'agent' : 'user')
-                          setCommandsOpen(true)
-                        }}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      >
-                        <Terminal
-                          className={cn(
-                            'h-3.5 w-3.5 shrink-0',
-                            runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
-                          )}
-                        />
-                        <span className="shrink-0 font-medium">
-                          {runningCommand
-                            ? `${t('commands.runningNow')}:`
-                            : latestCommand.state === 'done'
-                              ? `${t('commands.completed')}:`
-                              : `${t('commands.error')}:`}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
-                          {latestCommand.title}
-                        </span>
-                        {runningCommand ? (
-                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
-                        ) : (
-                          <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
-                            {t('commands.openCommandLine')}
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openIndependentTerminal}
-                        title={t('commands.popOut')}
-                        className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </button>
-                      {!runningCommand && (
-                        <button
-                          type="button"
-                          onClick={() => setAskingSessionDismiss(true)}
-                          title={t('common.close')}
-                          className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-                    {runningCommand && runningCommandOptions.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-accent/20 w-full">
-                        <span className="text-[11px] font-medium text-text-subtle mr-0.5 select-none">
-                          {t('commands.suggestedOptions')}:
-                        </span>
-                        {runningCommandOptions.map((opt) => (
-                          <button
-                            key={opt.id || opt.value}
-                            type="button"
-                            onClick={() => void sendRunningCommandInput(opt.value)}
-                            className="press-scale flex items-center gap-1 rounded bg-surface border border-accent/40 px-2 py-0.5 text-[11px] font-mono text-text hover:bg-accent/20 hover:text-accent transition-colors"
-                          >
-                            <span>{opt.label}</span>
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCommandsInitialTab('agent')
-                            setCommandsOpen(true)
-                          }}
-                          className="press-scale flex items-center gap-1 rounded bg-surface/60 border border-border px-2 py-0.5 text-[11px] text-text-subtle hover:text-text transition-colors"
-                        >
-                          <Edit3 className="h-2.5 w-2.5" />
-                          <span>{t('commands.customInput')}</span>
-                        </button>
-                      </div>
-                    )}
-                  </>
+                  <p className="text-sm text-text-muted"></p>
                 )}
               </div>
-            </div>
+            ) : (
+              <CanvasTranscript
+                transparent={wallpaper}
+                messages={messages}
+                streaming={streaming}
+                chatId={activeChatId}
+                workspacePath={
+                  activeChat?.worktreePath ??
+                  activeChat?.workspacePath ??
+                  parentChat?.worktreePath ??
+                  parentChat?.workspacePath ??
+                  null
+                }
+                pinSignal={sentMessageSignal}
+                onCancelSubagent={(subChatId) => void cancelSubagent(subChatId)}
+                onCancelTool={(callId) => void cancelToolCall(callId)}
+              />
+            )}
+            {/* The fade overlaps the scroller without adding layout space. The last
+              message's own bottom padding keeps its text clear of the fade, and
+              mr-2.5 leaves the scrollbar uncovered. */}
+            <div
+              aria-hidden
+              className={cn(
+                'pointer-events-none relative z-10 -mt-2 mr-2.5 h-2 shrink-0',
+                !wallpaper && 'bg-gradient-to-b from-transparent to-bg'
+              )}
+            />
+
+            {deliveryIssues.length > 0 && (
+              <div className={cn('px-4 pt-2', !wallpaper && 'bg-bg')}>
+                <div className="mx-auto max-w-3xl">
+                  <p className="mb-1 text-xs text-danger">{t('queue.deliveryIssues')}</p>
+                  <QueueList>
+                    {deliveryIssues.map((item, i) => (
+                      <QueuedMessage
+                        key={item.id}
+                        item={item}
+                        index={i}
+                        total={deliveryIssues.length}
+                      />
+                    ))}
+                  </QueueList>
+                </div>
+              </div>
+            )}
+            {queue.length > 0 && (
+              <div data-waiting-queue className={cn('px-4 pt-2', !wallpaper && 'bg-bg')}>
+                <div className="mx-auto max-w-3xl">
+                  <Queue>
+                    <QueueSection defaultOpen>
+                      <QueueSectionTrigger>
+                        <QueueSectionLabel
+                          label={t('chat.queued')}
+                          count={queue.length}
+                          icon={<ListTree className="h-3.5 w-3.5 text-text-subtle" />}
+                        />
+                        {sending && queueHasUserRequests && (
+                          <span className="ml-auto text-[10px] text-text-subtle">
+                            {t('chat.runsAfterReply')}
+                          </span>
+                        )}
+                      </QueueSectionTrigger>
+                      <QueueSectionContent>
+                        <QueueList>
+                          {queue.map((item, i) => (
+                            <QueuedMessage
+                              key={item.id}
+                              item={item}
+                              index={i}
+                              total={queue.length}
+                              pending={!!optimisticQueue?.some((entry) => entry.id === item.id)}
+                            />
+                          ))}
+                        </QueueList>
+                      </QueueSectionContent>
+                    </QueueSection>
+                  </Queue>
+                </div>
+              </div>
+            )}
+
+            {provider?.seedId === 'github-copilot' && (
+              <CopilotReconnect
+                key={provider.id}
+                connectionId={provider.id}
+                needed={copilotNeedsReauthentication[provider.id] ?? false}
+                onConnected={refreshProviders}
+                wallpaper={wallpaper}
+              />
+            )}
+
+            {/* A subagent's session can now be stopped from its own composer: the Stop
+              cancels the DELEGATE (there is no local request here to abort), which
+              is what the button visibly means in this view. */}
+            {latestCommand && !isSessionDismissed && dismissedCommand !== latestCommand.title && (
+              <div className={cn('command-line-gutter px-4 pb-1.5', !wallpaper && 'bg-bg')}>
+                <div className="mx-auto max-w-3xl">
+                  <div
+                    className={cn(
+                      'command-line-panel flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs backdrop-blur-md shadow-sm transition-colors',
+                      runningCommand
+                        ? 'border-accent/30 bg-surface/90 text-accent'
+                        : 'border-border bg-surface-2/80 text-text-muted hover:bg-surface-2 hover:text-text'
+                    )}
+                  >
+                    {askingSessionDismiss ? (
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Terminal className="h-3.5 w-3.5 shrink-0 text-accent" />
+                          <span className="truncate text-xs font-medium text-text">
+                            {t('commands.dontShowAgainSession')}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (activeChatId) {
+                                dismissCommandLineForSession(activeChatId)
+                                setSessionDismissNonce((n) => n + 1)
+                              }
+                              setAskingSessionDismiss(false)
+                            }}
+                            className="press-scale rounded px-2 py-0.5 text-[11px] font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+                          >
+                            {t('commands.dontShowAgain')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDismissedCommand(latestCommand.title)
+                              setAskingSessionDismiss(false)
+                            }}
+                            className="press-scale rounded px-2 py-0.5 text-[11px] font-medium text-text-muted hover:bg-white/5 hover:text-text transition-colors"
+                          >
+                            {t('commands.justOnce')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAskingSessionDismiss(false)}
+                            title={t('common.cancel')}
+                            className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex w-full items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCommandsInitialTab(runningCommand ? 'agent' : 'user')
+                              setCommandsOpen(true)
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            <Terminal
+                              className={cn(
+                                'h-3.5 w-3.5 shrink-0',
+                                runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
+                              )}
+                            />
+                            <span className="shrink-0 font-medium">
+                              {runningCommand
+                                ? `${t('commands.runningNow')}:`
+                                : latestCommand.state === 'done'
+                                  ? `${t('commands.completed')}:`
+                                  : `${t('commands.error')}:`}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
+                              {latestCommand.title}
+                            </span>
+                            {runningCommand ? (
+                              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
+                            ) : (
+                              <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
+                                {t('commands.openCommandLine')}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openIndependentTerminal}
+                            title={t('commands.popOut')}
+                            className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </button>
+                          {!runningCommand && (
+                            <button
+                              type="button"
+                              onClick={() => setAskingSessionDismiss(true)}
+                              title={t('common.close')}
+                              className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                        {runningCommand && runningCommandOptions.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-accent/20 w-full">
+                            <span className="text-[11px] font-medium text-text-subtle mr-0.5 select-none">
+                              {t('commands.suggestedOptions')}:
+                            </span>
+                            {runningCommandOptions.map((opt) => (
+                              <button
+                                key={opt.id || opt.value}
+                                type="button"
+                                onClick={() => void sendRunningCommandInput(opt.value)}
+                                className="press-scale flex items-center gap-1 rounded bg-surface border border-accent/40 px-2 py-0.5 text-[11px] font-mono text-text hover:bg-accent/20 hover:text-accent transition-colors"
+                              >
+                                <span>{opt.label}</span>
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCommandsInitialTab('agent')
+                                setCommandsOpen(true)
+                              }}
+                              className="press-scale flex items-center gap-1 rounded bg-surface/60 border border-border px-2 py-0.5 text-[11px] text-text-subtle hover:text-text transition-colors"
+                            >
+                              <Edit3 className="h-2.5 w-2.5" />
+                              <span>{t('commands.customInput')}</span>
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <AgentStepsPopup wallpaper={wallpaper} />
+            <AgentQuestionPopup wallpaper={wallpaper} />
+
+            <Composer
+              key={activeChatId}
+              chatId={activeChat.id}
+              onSend={submit}
+              variant={activeChat.kind === 'bot' ? 'bot' : 'session'}
+              sending={sending || subagentRunning}
+              onStop={
+                subagentRunning && activeChatId
+                  ? () => void cancelSubagent(activeChatId)
+                  : () => stop()
+              }
+              onOpenCommands={() => {
+                setCommandsInitialTab('user')
+                setCommandsOpen(true)
+              }}
+            />
+
+            {!activeBot && activeChat.kind !== 'bot' && <WorkstreamStrip />}
           </div>
+        </div>
+        {fileSelection && (
+          <WorkspaceFileCanvas
+            key={
+              activeChat.id + fileSelection.rootId + fileSelection.path + fileSelection.comparison
+            }
+            sessionId={activeChat.id}
+            selection={fileSelection}
+            snapshot={inspection.snapshot}
+            onEdit={() =>
+              setSelectedFile({
+                sessionId: activeChat.id,
+                selection: { ...fileSelection, comparison: false }
+              })
+            }
+            onBack={() => {
+              setSelectedFile(null)
+            }}
+          />
         )}
-
-        <AgentStepsPopup wallpaper={wallpaper} />
-        <AgentQuestionPopup wallpaper={wallpaper} />
-
-        <Composer
-          key={activeChatId}
-          chatId={activeChat.id}
-          onSend={submit}
-          variant={activeChat.kind === 'bot' ? 'bot' : 'session'}
-          sending={sending || subagentRunning}
-          onStop={
-            subagentRunning && activeChatId ? () => void cancelSubagent(activeChatId) : () => stop()
-          }
-          onOpenCommands={() => {
-            setCommandsInitialTab('user')
-            setCommandsOpen(true)
+      </div>
+      {inspectorOpen && (
+        <WorkspaceInspector
+          key={activeChat.id + (inspection.snapshot?.roots.map((root) => root.id).join(',') ?? '')}
+          sessionId={activeChat.id}
+          snapshot={inspection.snapshot}
+          failed={inspection.failed}
+          onSelect={(selection) => setSelectedFile({ sessionId: activeChat.id, selection })}
+          onClose={() => {
+            setInspectorSession(null)
+            setSelectedFile(null)
           }}
         />
-
-        {!activeBot && activeChat.kind !== 'bot' && <WorkstreamStrip />}
-      </div>
+      )}
 
       {commandsOpen && !ideMode && activeChat && (
         <CommandsDialog

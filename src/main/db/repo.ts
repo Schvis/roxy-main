@@ -10,6 +10,7 @@ import type { Language } from '../../shared/i18n'
 import { DEFAULT_MOTION, normalizeMotion, type MotionPreference } from '../../shared/motion'
 import { DEFAULT_DISCORD_CLIENT_ID } from '../../shared/discord'
 import { isVisibleQueueItem } from '../../shared/queue'
+import { normalizeMessageParts } from '../../shared/parts'
 import { sessionBusy } from '../services/turn-state'
 import type {
   AddMessageInput,
@@ -129,6 +130,8 @@ export function getSettings(): AppSettings {
     // someone turns it OFF ('0'), which keeps existing installs opted in
     // without a migration.
     autoWorkstream: map.get('auto_workstream') !== '0',
+    freshWorkstream: map.get('fresh_workstream') === '1',
+    worktreeSetupCommand: map.get('worktree_setup_command') ?? '',
     // `?? DEFAULT` and not `|| DEFAULT`: an EMPTY string is a deliberate
     // "no prefix", and must survive a round trip through settings.
     branchPrefix: map.get('branch_prefix') ?? DEFAULT_BRANCH_PREFIX,
@@ -358,6 +361,12 @@ export function setContextLimit(limit: number | null): AppSettings {
 export function setBranchPrefix(prefix: string): AppSettings {
   // Store even the empty string, so "no prefix" is distinguishable from unset.
   setSetting('branch_prefix', normalizeBranchPrefix(prefix))
+  return getSettings()
+}
+
+export function setWorktreeSetupCommand(command: string): AppSettings {
+  if (typeof command !== 'string') throw new Error('Expected a worktree setup command string.')
+  setSetting('worktree_setup_command', command.trim() || null)
   return getSettings()
 }
 
@@ -622,6 +631,11 @@ export function setDiscordRpcEnabled(enabled: boolean): AppSettings {
 
 export function setDiscordRpcClientId(clientId: string): AppSettings {
   setSetting('discord_rpc_client_id', clientId.trim() || DEFAULT_DISCORD_CLIENT_ID)
+  return getSettings()
+}
+
+export function setFreshWorkstream(enabled: boolean): AppSettings {
+  setSetting('fresh_workstream', enabled ? '1' : null)
   return getSettings()
 }
 
@@ -1727,8 +1741,7 @@ export function reorderProjects(orderedPaths: string[]): void {
 function parseParts(raw: string | null, content: string): MessagePart[] {
   if (raw) {
     try {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed as MessagePart[]
+      return normalizeMessageParts(JSON.parse(raw), content)
     } catch {
       // corrupt JSON — fall through to the text fallback
     }
@@ -1759,7 +1772,7 @@ export function listMessages(chatId: string): Message[] {
 export function addMessage(input: AddMessageInput): Message {
   const id = input.id ?? randomUUID()
   const now = Date.now()
-  const parts: MessagePart[] = input.parts ?? [{ type: 'text', text: input.content }]
+  const parts = normalizeMessageParts(input.parts, input.content)
   const partsJson = JSON.stringify(parts)
   const db = getDb()
   const tx = db.transaction(() => {

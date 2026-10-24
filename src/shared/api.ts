@@ -1,3 +1,4 @@
+import type { WorkspaceInspectorApi } from './workspace-inspector'
 import type { CheatPreferences, CheatResult, CheatSource, CheatState } from './cheat'
 import type {
   EngineeringPreferences,
@@ -1133,6 +1134,8 @@ export interface RoxyApi {
     setOverlayKeybind(keybind: string): Promise<AppSettings>
     setUserProfile(profile: { name: string; avatar: string }): Promise<AppSettings>
     setActivePromptId(id: string | null): Promise<AppSettings>
+    setFreshWorkstream(enabled: boolean): Promise<AppSettings>
+    setWorktreeSetupCommand(command: string): Promise<AppSettings>
     setBranchPrefix(prefix: string): Promise<AppSettings>
     /** Notify when a turn finishes: chime + OS toast, or nothing. */
     setNotifyOnComplete(enabled: boolean): Promise<AppSettings>
@@ -1336,6 +1339,8 @@ export interface RoxyApi {
     deleteCustom(id: string): Promise<BackgroundResult>
     renameCustom(id: string, title: string): Promise<BackgroundResult>
     thumbnail(id: string, sha256: string): Promise<WallpaperResult<string>>
+    preview(id: string): Promise<WallpaperResult<string | null>>
+    previewCustom(id: string): Promise<WallpaperResult<string | null>>
     search(input: WallpaperQuery): Promise<WallpaperResult<WallpaperPage>>
     applyCatalog(id: string): Promise<WallpaperResult<BackgroundResult | null>>
     submit(input: WallpaperSubmitRequest): Promise<WallpaperResult<{ id: string }>>
@@ -1527,6 +1532,7 @@ export interface RoxyApi {
     /** Import a config bundle chosen via an open dialog (overwrites by name/id). */
     import(): Promise<ConfigImportResult>
   }
+  workspace: WorkspaceInspectorApi
   tools: {
     run(
       sessionId: string,

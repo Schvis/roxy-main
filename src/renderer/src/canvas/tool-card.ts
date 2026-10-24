@@ -12,9 +12,8 @@
  *   task        → a nested transcript   (the subagent's own steps) + its report
  *   otherwise   → plain monospace output
  *
- * with an inline image (a browser screenshot) drawn under whichever body ran, in
- * both the collapsed and the expanded state — a screenshot IS the result, so
- * hiding it behind a disclosure was never right.
+ * An inline image (a browser screenshot) is part of the expanded body and
+ * follows the same disclosure state as the tool's text output.
  */
 
 import type { TFunction } from 'i18next'
@@ -55,6 +54,11 @@ const TOOL_ICON: Record<string, IconName> = {
   browser_screenshot: 'camera',
   browser_read: 'scanText',
   browser_console: 'terminal',
+  browser_network: 'network',
+  browser_network_request: 'network',
+  browser_evaluate: 'code',
+  browser_devtools: 'wrench',
+  browser_debug_events: 'terminal',
   browser_close: 'globe',
   browser_click: 'globe',
   browser_scroll: 'globe',
@@ -181,7 +185,7 @@ export function layoutToolCard(
     }
   }
 
-  if (part.image) {
+  if (open && part.image) {
     cursor += layoutImageBody(builder, part.image, x + 1, cursor, contentWidth)
   }
 
@@ -494,7 +498,10 @@ function activity(parts: MessagePart[], t: TFunction): { label: string; step: nu
   if (last.type === 'image') return { label: t('transcript.activityImage'), step }
   // Prose: the delegate is writing its report — show its last line so the
   // conclusion can be watched forming rather than a static "writing…".
-  const line = last.text.trim().split('\n').filter(Boolean).pop()
+  const line =
+    last.type === 'text' && typeof last.text === 'string'
+      ? last.text.trim().split('\n').filter(Boolean).pop()
+      : undefined
   return { label: line ? line.slice(0, 120) : t('transcript.activityWriting'), step }
 }
 

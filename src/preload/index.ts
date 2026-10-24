@@ -146,6 +146,10 @@ const roxy: RoxyApi = {
     setOverlayKeybind: (keybind) => ipcRenderer.invoke(CHANNELS.settingsSetOverlayKeybind, keybind),
     setUserProfile: (profile) => ipcRenderer.invoke(CHANNELS.settingsSetUserProfile, profile),
     setActivePromptId: (id) => ipcRenderer.invoke(CHANNELS.settingsSetActivePromptId, id),
+    setFreshWorkstream: (enabled) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetFreshWorkstream, enabled),
+    setWorktreeSetupCommand: (command) =>
+      ipcRenderer.invoke(CHANNELS.settingsSetWorktreeSetupCommand, command),
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
     setNotifyOnComplete: (enabled) =>
       ipcRenderer.invoke(CHANNELS.settingsSetNotifyOnComplete, enabled),
@@ -344,6 +348,8 @@ const roxy: RoxyApi = {
     deleteCustom: (id) => ipcRenderer.invoke(CHANNELS.backgroundDeleteCustom, id),
     renameCustom: (id, title) => ipcRenderer.invoke(CHANNELS.backgroundRenameCustom, id, title),
     thumbnail: (id, sha256) => ipcRenderer.invoke(CHANNELS.backgroundThumbnail, id, sha256),
+    preview: (id) => ipcRenderer.invoke(CHANNELS.backgroundPreview, id),
+    previewCustom: (id) => ipcRenderer.invoke(CHANNELS.backgroundPreviewCustom, id),
     search: (input) => ipcRenderer.invoke(CHANNELS.backgroundSearch, input),
     applyCatalog: (id) => ipcRenderer.invoke(CHANNELS.backgroundApplyCatalog, id),
     submit: (input) => ipcRenderer.invoke(CHANNELS.backgroundSubmit, input),
@@ -487,6 +493,26 @@ const roxy: RoxyApi = {
   config: {
     export: () => ipcRenderer.invoke(CHANNELS.configExport),
     import: () => ipcRenderer.invoke(CHANNELS.configImport)
+  },
+  workspace: {
+    preview: (sessionId, rootId, file) =>
+      ipcRenderer.invoke(CHANNELS.workspacePreview, sessionId, rootId, file),
+    inspect: (sessionId) => ipcRenderer.invoke(CHANNELS.workspaceInspect, sessionId),
+    list: (sessionId, rootId, directory) =>
+      ipcRenderer.invoke(CHANNELS.workspaceList, sessionId, rootId, directory),
+    read: (sessionId, rootId, file, comparison) =>
+      ipcRenderer.invoke(CHANNELS.workspaceRead, sessionId, rootId, file, comparison),
+    write: (sessionId, rootId, file, content, expectedRevision) =>
+      ipcRenderer.invoke(
+        CHANNELS.workspaceWrite,
+        sessionId,
+        rootId,
+        file,
+        content,
+        expectedRevision
+      ),
+    confirmDiscard: (message, discard, cancel) =>
+      ipcRenderer.invoke(CHANNELS.workspaceConfirmDiscard, message, discard, cancel)
   },
   tools: {
     run: (sessionId, name, input, callId) =>

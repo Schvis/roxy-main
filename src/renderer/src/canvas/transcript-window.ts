@@ -153,6 +153,11 @@ export class TranscriptWindow {
           )
         } else {
           message.parts.forEach((part, i) => {
+            if (
+              (part.type === 'text' || part.type === 'reasoning') &&
+              typeof part.text !== 'string'
+            )
+              return
             if (part.type === 'text' && part.text.length > 12000) {
               const id = `${message.id}/${i}`
               let parsed = this.markdown.get(id)
@@ -185,9 +190,7 @@ export class TranscriptWindow {
                     ? 30
                     : part.type === 'image'
                       ? 292
-                      : part.image
-                        ? 442
-                        : 40
+                      : 40
               )
           })
         }

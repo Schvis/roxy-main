@@ -289,6 +289,8 @@ interface RoxyStore {
   setOverlayKeybind: (keybind: string) => Promise<void>
   setUserProfile: (profile: { name: string; avatar: string }) => Promise<void>
   setActivePromptId: (id: string | null) => Promise<void>
+  setFreshWorkstream: (enabled: boolean) => Promise<void>
+  setWorktreeSetupCommand: (command: string) => Promise<void>
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
   setBranchPrefix: (prefix: string) => Promise<void>
   setNotifyOnComplete: (enabled: boolean) => Promise<void>
@@ -2487,6 +2489,16 @@ export const useRoxyStore = create<RoxyStore>((set, get) => ({
       delete next[providerId]
       return { modelCatalog: next }
     })
+  },
+
+  setFreshWorkstream: async (enabled) => {
+    const settings = await api.settings.setFreshWorkstream(enabled)
+    set({ settings })
+  },
+
+  setWorktreeSetupCommand: async (command) => {
+    const settings = await api.settings.setWorktreeSetupCommand(command)
+    set({ settings })
   },
 
   setTelemetryEnabled: async (enabled) => {

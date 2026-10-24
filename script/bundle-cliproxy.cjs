@@ -3,8 +3,8 @@ const { createHash } = require('node:crypto')
 const { promises: fs } = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { promisify } = require('node:util')
 const { setTimeout: delay } = require('node:timers/promises')
+const { promisify } = require('node:util')
 
 const execFileAsync = promisify(execFile)
 const REPO = 'router-for-me/CLIProxyAPI'
@@ -32,33 +32,47 @@ function archName(arch) {
 }
 
 async function fetchBytes(url, label) {
-  const attempts = 4
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'roxy-build'
+  }
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+  // Authenticate metadata requests without sending CI credentials to asset hosts.
+  if (new URL(url).origin === 'https://api.github.com' && token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const attempts = 5
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let response
     try {
       response = await fetch(url, {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'roxy-build'
-        },
+        headers,
         redirect: 'follow',
         signal: AbortSignal.timeout(180_000)
       })
-      if (!response.ok) throw new Error(`Couldn't download ${label} (${response.status}).`)
+      if (!response.ok) {
+        await response.body?.cancel()
+        throw new Error(`Couldn't download ${label} (${response.status}).`)
+      }
       return Buffer.from(await response.arrayBuffer())
     } catch (error) {
       const retryable =
         !response ||
         response.ok ||
-        response.status === 408 ||
-        response.status === 429 ||
+        [403, 408, 429].includes(response.status) ||
         response.status >= 500
-      if (!retryable || attempt === attempts) throw error
-      const waitMs = 1_000 * 2 ** (attempt - 1)
+      if (!retryable) throw error
+      if (attempt === attempts) {
+        throw new Error(`Couldn't download ${label} after ${attempts} attempts: ${error.message}`, {
+          cause: error
+        })
+      }
+      const wait = 2000 * 2 ** (attempt - 1)
       console.warn(
-        `  - retrying ${label} in ${waitMs}ms (${attempt}/${attempts}): ${error.message}`
+        `  - ${label}: attempt ${attempt}/${attempts} failed (${error.message}); retrying in ${wait / 1000}s`
       )
-      await delay(waitMs)
+      await delay(wait)
     }
   }
 }

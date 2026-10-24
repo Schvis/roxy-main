@@ -570,6 +570,142 @@ const longInput = (messages: Message[], state = view()) => ({
   viewport: { top: 0, height: 600, tail: true, targetId: undefined as string | undefined }
 })
 
+check('tool images follow disclosure state in retained and windowed transcripts', () => {
+  for (const tool of ['browser_screenshot', 'mcp__example__screenshot']) {
+    const image = 'data:image/png;base64,screenshot-fixture'
+    const message: Message = {
+      id: 'screenshot',
+      chatId: 'test',
+      role: 'assistant',
+      content: '',
+      parts: [{ type: 'tool', tool, state: 'done', output: 'Screenshot metadata', image }],
+      createdAt: 0
+    }
+    for (const messages of [[message], [...longMessages, message]]) {
+      const input = longInput(messages)
+      const cache = new BlockCache()
+      const closed = layoutTranscript(input, cache)
+      const collapsedHeight = closed.height
+      const block = closed.blocks.at(-1)!
+      assert.deepEqual(
+        block.regions.map((region) => region.action.type),
+        ['toggle']
+      )
+      assert.equal(block.selectable.length, 0)
+      assert.ok(!visibleImages(closed, 0, closed.height).has(image))
+
+      input.view.open.add('screenshot/0')
+      const opened = layoutTranscript(input, cache)
+      assert.ok(opened.height > collapsedHeight)
+      assert.ok(visibleImages(opened, 0, opened.height).has(image))
+      assert.ok(
+        opened.blocks.at(-1)!.selectable.some((line) => line.text === 'Screenshot metadata')
+      )
+      const preview = opened.blocks
+        .at(-1)!
+        .regions.find((region) => region.action.type === 'image')!
+      assert.deepEqual(hitTest(opened, preview.x + 1, preview.y + 1)?.action, {
+        type: 'image',
+        src: image
+      })
+
+      input.view.open.delete('screenshot/0')
+      const closedAgain = layoutTranscript(input, cache)
+      assert.equal(closedAgain.height, collapsedHeight)
+      assert.deepEqual(
+        closedAgain.blocks.at(-1)!.regions.map((region) => region.action.type),
+        ['toggle']
+      )
+      assert.ok(!visibleImages(closedAgain, 0, closedAgain.height).has(image))
+    }
+  }
+})
+
+check('unmeasured collapsed screenshots reserve no extra image space', () => {
+  const messages: Message[] = longMessages.map((message) => ({
+    ...message,
+    role: 'assistant',
+    parts: [
+      { type: 'tool', tool: 'browser_screenshot', state: 'done', image: 'screenshot-fixture' }
+    ]
+  }))
+  const withImages = layoutTranscript(longInput(messages), new BlockCache())
+  const withoutImages = layoutTranscript(
+    longInput(
+      messages.map((message) => ({
+        ...message,
+        parts: [{ type: 'tool', tool: 'browser_screenshot', state: 'done' }]
+      }))
+    ),
+    new BlockCache()
+  )
+  assert.ok(withImages.window)
+  assert.equal(withImages.height, withoutImages.height)
+})
+
+check('invalid prose and unknown parts cannot blank retained or windowed transcripts', () => {
+  const invalid = [
+    { type: 'text' },
+    { type: 'text', text: null },
+    { type: 'text', text: 42 },
+    { type: 'reasoning' },
+    { type: 'future-part', text: 'Not prose.' },
+    { type: 'future-part' }
+  ] as unknown as MessagePart[]
+  const message: Message = {
+    id: 'invalid-parts',
+    chatId: 'test',
+    role: 'assistant',
+    content: 'Still readable.',
+    parts: [...invalid, { type: 'text', text: 'Still readable.' }],
+    createdAt: 0
+  }
+  for (const messages of [[message], [...longMessages, message]]) {
+    const input = longInput(messages)
+    const scene = layoutTranscript(
+      { ...input, viewport: messages.length === 1 ? undefined : input.viewport },
+      new BlockCache()
+    )
+    assert.ok(Number.isFinite(scene.height))
+    assert.ok(scene.blocks.at(-1)!.selectable.some((line) => line.text === 'Still readable.'))
+    assert.ok(!scene.blocks.at(-1)!.selectable.some((line) => line.text === 'Not prose.'))
+    assert.equal(!!scene.window, messages.length > 1)
+  }
+  const scene = layoutTranscript(
+    {
+      ...longInput([]),
+      streaming: [
+        {
+          type: 'tool',
+          tool: 'task',
+          state: 'running',
+          input: { tasks: [] },
+          children: [...invalid, { type: 'text', text: 'Delegate survived.' }]
+        }
+      ]
+    },
+    new BlockCache()
+  )
+  assert.ok(scene.blocks[0].selectable.some((line) => line.text === 'Delegate survived.'))
+  for (const last of invalid) {
+    const nested = layoutTranscript(
+      {
+        ...longInput([]),
+        streaming: [
+          {
+            type: 'tool',
+            tool: 'task',
+            state: 'running',
+            children: [{ type: 'text', text: 'Working.' }, last]
+          }
+        ]
+      },
+      new BlockCache()
+    )
+    assert.ok(Number.isFinite(nested.height))
+  }
+})
+
 check('transcript tails add no extra space after the last message', () => {
   for (const messages of [longMessages.slice(0, 2), longMessages]) {
     for (const streaming of [null, [], [{ type: 'text', text: 'Still writing.' }]] satisfies (

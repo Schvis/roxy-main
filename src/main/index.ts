@@ -1,6 +1,7 @@
 import { shutdownCheatTools } from './services/cheat'
 import { shutdownEngineeringTools } from './services/engineering-tools'
 import { app, shell, BrowserWindow, session, protocol, net, dialog } from 'electron'
+import { serveWorkspaceMedia } from './services/workspace-inspector'
 import { join } from 'path'
 import { pathToFileURL } from 'node:url'
 import { optimizer, is } from '@electron-toolkit/utils'
@@ -37,10 +38,9 @@ import { PROMPT_TEXT, AGENT_PROMPT_TEXT } from '../shared/prompt-text'
 import { applyWindowChrome, chromePlatform, initialBackgroundColor } from './services/window-chrome'
 import { resolveThemeById } from './services/themes'
 import * as repo from './db/repo'
-import { setMainWindow, focusMainWindow } from './services/main-window'
+import { setMainWindow, getMainWindow, focusMainWindow } from './services/main-window'
 import {
   updateOverlayShortcut,
-  isOverlayWindow,
   setMainWindowVisibility,
   openVtuberWindow
 } from './services/overlay'
@@ -180,6 +180,21 @@ function createWindow(): BrowserWindow {
 }
 
 /**
+ * Raise the main Roxy window on app activation, recreating it when closed.
+ * Never raises the agent browser, overlay, VTuber or terminal windows instead.
+ */
+function raiseMainWindow(): void {
+  const win = getMainWindow()
+  if (!win) {
+    createWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+/**
  * Warm the models.dev catalog for each connected provider (so `modelCost` can
  * price rows), then run the one-time history backfill. Fully best-effort — any
  * failure just leaves backfilled rows unpriced, which real turns fill in later.
@@ -199,6 +214,10 @@ async function warmCatalogThenBackfill(): Promise<void> {
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'roxy-media',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  },
   {
     scheme: 'roxy-local',
     privileges: {
@@ -288,6 +307,7 @@ if (!gotTheLock) {
 
     // Open the database (runs migrations) and wire up IPC before the first window.
     getDb()
+    protocol.handle('roxy-media', serveWorkspaceMedia)
     registerIpc()
     // Anonymous usage tracking (opt-out in Settings). Deliberately after the DB
     // and IPC are up so nothing here can delay the first window, and it owns its
@@ -317,17 +337,10 @@ if (!gotTheLock) {
     initAutoUpdater(mainWindow)
     initDiscordRpc()
 
-    app.on('activate', () => {
-      const windows = BrowserWindow.getAllWindows().filter((w) => !isOverlayWindow(w))
-      if (windows.length === 0) {
-        createWindow()
-      } else {
-        const win = windows[0]
-        if (win.isMinimized()) win.restore()
-        if (!win.isVisible()) win.show()
-        win.focus()
-      }
-    })
+    app.on('activate', raiseMainWindow)
+    // Unlike activate (Dock/reopen), this also fires for macOS app switching.
+    // Always prefer Roxy itself over the agent's separate browser windows.
+    if (process.platform === 'darwin') app.on('did-become-active', raiseMainWindow)
   })
 }
 
@@ -340,13 +353,15 @@ app.on('window-all-closed', () => {
 // Kill any agent-started background processes (dev servers/watchers) on quit,
 // cancel any in-flight background subagent tasks (Phase 11), and shut down any
 // warm language servers (Phase 12).
-// Last chance to send the queued events: 'before-quit' fires before windows
-// start tearing down, which gives the final flush a real (if not guaranteed)
-// window to reach the network. Losing it costs one app_close, nothing more.
+// Flush tracking before final process teardown; it is deliberately best-effort.
 let engineeringQuit = false
-app.on('before-quit', (event) => {
+// Overlay windows only allow a real close once a quit has started.
+app.on('before-quit', () => {
   isQuitting = true
-  flushAllActiveTurns('interrupted')
+})
+// Wait until windows accept closing, including unsaved-editor confirmation,
+// before shutting down services. A cancelled quit must leave Roxy operational.
+app.on('will-quit', (event) => {
   if (!engineeringQuit) {
     event.preventDefault()
     engineeringQuit = true
@@ -354,15 +369,13 @@ app.on('before-quit', (event) => {
     void shutdownEngineeringTools()
       .catch(console.error)
       .finally(() => app.quit())
+    return
   }
+  flushAllActiveTurns('interrupted')
   shutdownVoice()
   stopAutomation()
   stopAllTurns()
   shutdownTracking()
-})
-
-app.on('will-quit', () => {
-  flushAllActiveTurns('interrupted')
   killAllBackground()
   killAllShells()
   closeAllBrowsers()

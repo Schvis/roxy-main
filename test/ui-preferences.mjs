@@ -453,6 +453,10 @@ const makeOverride = new Function(
   'promptDialogOpen = false',
   'creatingPrompt = false',
   'setPromptDialogOpen = () => {}',
+  'query = ""',
+  'setQuery = () => {}',
+  'setSearchTarget = () => {}',
+  'searchRef = { current: null }',
   'return ' + escapeOverride
 )
 assert.equal(makeOverride(true, false, () => assert.fail('busy reset must not cancel'))(), true)
@@ -493,6 +497,37 @@ assert.equal(
   )(),
   true
 )
+let clearedQuery,
+  clearedTarget,
+  searchFocused = false
+assert.equal(
+  makeOverride(
+    false,
+    false,
+    () => assert.fail('no confirmation to cancel'),
+    false,
+    false,
+    () => assert.fail('no prompt dialog to close'),
+    'proxy',
+    (value) => {
+      clearedQuery = value
+    },
+    (value) => {
+      clearedTarget = value
+    },
+    {
+      current: {
+        focus() {
+          searchFocused = true
+        }
+      }
+    }
+  )(),
+  true
+)
+assert.equal(clearedQuery, '')
+assert.equal(clearedTarget, null)
+assert.equal(searchFocused, true)
 
 let backs = 0
 const page = render(pageUI.PageShell, { title: 'test', onBack: () => backs++ })
