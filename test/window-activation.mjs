@@ -55,7 +55,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
   const noop = () => {}
   const unused = new Proxy({}, { get: () => noop })
   const dependencies = {
-    electron: { app, BrowserWindow },
+    electron: { app, BrowserWindow, protocol: unused },
     path: { join: (...parts) => parts.join('/') },
     '@electron-toolkit/utils': { is: { dev: false }, optimizer: unused },
     './db/repo': { listConnectedProviders: () => [], getSettings: () => ({}) },
