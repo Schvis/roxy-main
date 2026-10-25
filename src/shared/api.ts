@@ -720,6 +720,7 @@ export interface BrowserState {
   canGoBack: boolean
   canGoForward: boolean
   loading: boolean
+  devToolsOpen: boolean
 }
 
 /** One open tab in the Roxy browser, for the toolbar's tab strip. */
@@ -1665,6 +1666,10 @@ export interface RoxyApi {
     forward(): Promise<void>
     reload(): Promise<void>
     stop(): Promise<void>
+    /** Toggle Chromium DevTools for the active page, not the browser toolbar. */
+    toggleDevTools(): Promise<void>
+    /** Open the active page's DevTools in element-picker mode. */
+    inspectElement(): Promise<void>
     /** Open a new tab (optionally at a URL) and make it active. */
     newTab(url?: string): Promise<void>
     closeTab(id: string): Promise<void>

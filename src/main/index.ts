@@ -14,7 +14,11 @@ import { stopAllTurns } from './services/turn-state'
 import { listModels } from './services/models'
 import { backfillUsageFromHistory } from './services/usage'
 import { listConnectedProviders } from './db/repo'
-import { setAppIcon, closeAll as closeAllBrowsers } from './services/browser'
+import {
+  setAppIcon,
+  closeAll as closeAllBrowsers,
+  keyForContents as browserKeyForContents
+} from './services/browser'
 import {
   BROWSER_PARTITION,
   credentialsFor as browserProxyCredentials
@@ -272,7 +276,11 @@ if (!gotTheLock) {
     }
 
     app.on('browser-window-created', (_, window) => {
-      optimizer.watchWindowShortcuts(window)
+      // Browser sessions register their own page-targeted F12 handler after construction.
+      queueMicrotask(() => {
+        if (!window.isDestroyed() && browserKeyForContents(window.webContents) === null)
+          optimizer.watchWindowShortcuts(window)
+      })
     })
 
     app.on('login', (event, webContents, _details, authInfo, callback) => {

@@ -568,7 +568,10 @@
     "cookies": "Cookies",
     "closeCookies": "Close cookies",
     "proxy": "Browser proxy",
-    "closeProxy": "Close browser proxy"
+    "closeProxy": "Close browser proxy",
+    "developerTools": "Developer tools",
+    "closeDeveloperTools": "Close developer tools",
+    "inspectElement": "Inspect element"
   },
   "chat": {
     "deleteConfirm": "Delete chat \"{{title}}\"? This cannot be undone.",
