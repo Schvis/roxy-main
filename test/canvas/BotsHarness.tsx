@@ -407,6 +407,7 @@ if (workspaceFixture) {
           {
             id: 'roxy',
             name: 'roxy',
+            directory: 'D:/roxy',
             branch: 'roxy/git-changes-and-file-explorer',
             isRepo: true,
             unavailable: false,

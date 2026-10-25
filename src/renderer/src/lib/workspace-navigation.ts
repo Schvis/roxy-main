@@ -26,23 +26,19 @@ export async function resolveWorkspaceFile(
   const insensitive = document.documentElement.dataset.platform === 'win32'
   const compare = (value: string): string => (insensitive ? value.toLowerCase() : value)
   const base = normalize(workspaceRoot)
-  let path = normalize(file).replace(/^\.\//, '')
-  if (compare(path).startsWith(compare(base) + '/')) path = path.slice(base.length + 1)
-  if (
-    path.startsWith('/') ||
-    /^[a-z]:\//i.test(path) ||
-    path.split('/').some((part) => part === '..')
-  )
-    return null
-  const workspace = inspection.roots.find((root) => root.id === 'workspace')
-  if (workspace) return { rootId: workspace.id, path }
-  const repositories = await api.git.repositories(workspaceRoot)
-  const absolute = `${base}/${path}`
-  const candidates = repositories
-    .map((repository, index) => ({ root: normalize(repository), index }))
-    .filter(({ root }) => compare(absolute).startsWith(compare(root) + '/'))
-    .sort((a, b) => b.root.length - a.root.length)
-  const match = candidates[0]
-  if (!match || !inspection.roots.some((root) => root.id === String(match.index))) return null
-  return { rootId: String(match.index), path: absolute.slice(match.root.length + 1) }
+  const path = normalize(file).replace(/^\.\//, '')
+  if (!path || path.split('/').some((part) => part === '..')) return null
+  const isAbsolute = path.startsWith('/') || /^[a-z]:\//i.test(path)
+  const absolute = isAbsolute ? path : `${base}/${path}`
+  // Root ids are opaque hashes from main; match on the directory each root covers,
+  // preferring the deepest so a nested repo wins over its enclosing folder.
+  const match = inspection.roots
+    .map((root) => ({ id: root.id, directory: normalize(root.directory) }))
+    .filter(({ directory }) => directory && compare(absolute).startsWith(compare(directory) + '/'))
+    .sort((a, b) => b.directory.length - a.directory.length)[0]
+  if (match) return { rootId: match.id, path: absolute.slice(match.directory.length + 1) }
+  // Spelling differences (symlinks, short names) can defeat the prefix match; with a
+  // single root, a relative path is unambiguous anyway.
+  if (!isAbsolute && inspection.roots.length === 1) return { rootId: inspection.roots[0].id, path }
+  return null
 }

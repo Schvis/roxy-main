@@ -283,6 +283,7 @@ async function inspectRoot(
   const result: WorkspaceRoot = {
     id: root.id,
     name: root.name,
+    directory: root.directory,
     branch: null,
     isRepo: false,
     unavailable: false,

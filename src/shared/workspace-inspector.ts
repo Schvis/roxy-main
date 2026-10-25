@@ -9,6 +9,8 @@ export interface WorkspaceChange {
 export interface WorkspaceRoot {
   id: string
   name: string
+  /** Absolute directory, for mapping agent/tool paths onto a root. Never trusted by main. */
+  directory: string
   branch: string | null
   isRepo: boolean
   unavailable: boolean
