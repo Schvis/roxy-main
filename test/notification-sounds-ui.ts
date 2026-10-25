@@ -37,6 +37,12 @@ async function button(label: string): Promise<void> {
   )
   await wait()
 }
+// Keyboard input only reaches a focused WebContents. A hidden window under a
+// window-manager-less Xvfb never receives OS focus, so claim it explicitly.
+function key(event: Electron.KeyboardInputEvent): void {
+  window.webContents.focus()
+  window.webContents.sendInputEvent(event)
+}
 
 async function run(): Promise<void> {
   const base = 'http://127.0.0.1:3101'
@@ -134,13 +140,13 @@ async function run(): Promise<void> {
   assert.equal(getSoundLibrary().selectedId, null)
   assert.equal(getSettings().notifyOnComplete, false)
   await until(`document.activeElement === document.querySelector('[role=menuitemradio]')`)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'End' })
+  key({ type: 'keyDown', keyCode: 'End' })
   await until(`document.activeElement.getAttribute('aria-label') === 'Delete Demo sound'`)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Up' })
+  key({ type: 'keyDown', keyCode: 'Up' })
   await until(`document.activeElement.textContent.trim() === 'Demo sound'`)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
-  window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
-  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+  key({ type: 'keyDown', keyCode: 'Enter' })
+  key({ type: 'char', keyCode: '\r' })
+  key({ type: 'keyUp', keyCode: 'Enter' })
   await until(
     `document.querySelector('#notification-sound-value').textContent.trim() === 'Demo sound' && document.querySelector('#notification-sound').getAttribute('aria-disabled') === 'false'`
   )
@@ -241,15 +247,15 @@ async function run(): Promise<void> {
     'delete is only visible inside the menu'
   )
   await evaluate(`document.querySelector('#notification-sound').focus()`)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
+  key({ type: 'keyDown', keyCode: 'Down' })
   await until(
     `document.querySelector('[role=menuitemradio][aria-checked=true]') === document.activeElement`
   )
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
+  key({ type: 'keyDown', keyCode: 'Down' })
   await until(`document.activeElement.getAttribute('aria-label') === 'Delete Demo sound'`)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Home' })
+  key({ type: 'keyDown', keyCode: 'Home' })
   await until(`document.activeElement.textContent.trim() === 'Default'`)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+  key({ type: 'keyDown', keyCode: 'Escape' })
   await until(`!document.querySelector('[role=menu]')`)
   assert.equal(await evaluate(`return document.activeElement.id`), 'notification-sound')
   await evaluate(`document.querySelector('#notification-sound').click()`)
