@@ -362,7 +362,7 @@ app.on('window-all-closed', () => {
 // cancel any in-flight background subagent tasks (Phase 11), and shut down any
 // warm language servers (Phase 12).
 // Flush tracking before final process teardown; it is deliberately best-effort.
-let engineeringQuit = false
+let shutdownStarted = false
 // Overlay windows only allow a real close once a quit has started.
 app.on('before-quit', () => {
   isQuitting = true
@@ -370,29 +370,39 @@ app.on('before-quit', () => {
 // Wait until windows accept closing, including unsaved-editor confirmation,
 // before shutting down services. A cancelled quit must leave Roxy operational.
 app.on('will-quit', (event) => {
-  if (!engineeringQuit) {
-    event.preventDefault()
-    engineeringQuit = true
-    shutdownCheatTools()
-    void shutdownEngineeringTools()
-      .catch(console.error)
-      .finally(() => app.quit())
-    return
-  }
-  flushAllActiveTurns('interrupted')
-  shutdownVoice()
-  stopAutomation()
-  stopAllTurns()
-  shutdownTracking()
-  killAllBackground()
-  killAllShells()
-  closeAllBrowsers()
-  shutdownAllLsp()
-  void shutdownAllMcp()
-  shutdownRemote()
-  // The Codex sidecar holds the user's subscription tokens - never leave it
-  // running (and listening on loopback) after the app that owns it is gone.
-  shutdownCliProxy()
-  void stopLocalTtsServer()
-  shutdownDiscordRpc()
+  event.preventDefault()
+  if (shutdownStarted) return
+  shutdownStarted = true
+
+  // A stalled installer or worker must not leave a windowless app running.
+  const deadline = setTimeout(() => app.exit(0), 10_000)
+  const cleanup = [
+    () => flushAllActiveTurns('interrupted'),
+    shutdownCheatTools,
+    shutdownEngineeringTools,
+    shutdownVoice,
+    stopAutomation,
+    stopAllTurns,
+    shutdownTracking,
+    killAllBackground,
+    killAllShells,
+    closeAllBrowsers,
+    shutdownAllLsp,
+    shutdownAllMcp,
+    shutdownRemote,
+    // Never leave the token-owning Codex sidecar listening after Roxy exits.
+    shutdownCliProxy,
+    stopLocalTtsServer,
+    shutdownDiscordRpc
+  ]
+  void Promise.allSettled(cleanup.map((stop) => Promise.resolve().then(() => stop()))).then(
+    (results) => {
+      for (const result of results) {
+        if (result.status === 'rejected') console.error(result.reason)
+      }
+      clearTimeout(deadline)
+      // Windows have already accepted closing; avoid restarting the quit cycle.
+      app.exit(0)
+    }
+  )
 })

@@ -146,4 +146,91 @@ const mac = harness('darwin')
 mac.win.close()
 assert.equal(mac.destroyed, true)
 assert.equal(mac.quits, 0, 'macOS preserves close-without-quit behavior')
+const shutdownStart = source.indexOf('let shutdownStarted = false')
+assert.ok(shutdownStart >= 0, 'Quit handler exists')
+const shutdownCode = transformSync(source.slice(shutdownStart), {
+  loader: 'ts',
+  format: 'cjs'
+}).code
+const cleanupNames = [
+  'flushAllActiveTurns',
+  'shutdownCheatTools',
+  'shutdownEngineeringTools',
+  'shutdownVoice',
+  'stopAutomation',
+  'stopAllTurns',
+  'shutdownTracking',
+  'killAllBackground',
+  'killAllShells',
+  'closeAllBrowsers',
+  'shutdownAllLsp',
+  'shutdownAllMcp',
+  'shutdownRemote',
+  'shutdownCliProxy',
+  'stopLocalTtsServer',
+  'shutdownDiscordRpc'
+]
+function shutdownHarness(overrides = {}) {
+  const app = new EventEmitter()
+  const calls = []
+  const exits = []
+  const timers = new Map()
+  const errors = []
+  app.exit = (code) => exits.push(code)
+  const context = {
+    app,
+    console: { error: (error) => errors.push(error) },
+    setTimeout: (callback, delay) => {
+      timers.set(callback, delay)
+      return callback
+    },
+    clearTimeout: (timer) => timers.delete(timer)
+  }
+  for (const name of cleanupNames) {
+    context[name] = () => {
+      calls.push(name)
+      return overrides[name]?.()
+    }
+  }
+  runInNewContext(shutdownCode, context)
+  const quit = () => {
+    let prevented = false
+    app.emit('will-quit', { preventDefault: () => (prevented = true) })
+    assert.equal(prevented, true, 'Quit waits for cleanup')
+  }
+  return { calls, exits, timers, errors, quit }
+}
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+const cleanQuit = shutdownHarness()
+cleanQuit.quit()
+await settle()
+assert.deepEqual(cleanQuit.calls, cleanupNames, 'All services shut down')
+assert.deepEqual(cleanQuit.exits, [0], 'Cleanup finishes without another quit cycle')
+assert.equal(cleanQuit.timers.size, 0, 'Successful cleanup clears the deadline')
+
+const stalledQuit = shutdownHarness({ shutdownEngineeringTools: () => new Promise(() => {}) })
+stalledQuit.quit()
+stalledQuit.quit()
+await settle()
+assert.deepEqual(stalledQuit.calls, cleanupNames, 'Stalled cleanup does not block other services')
+assert.deepEqual(stalledQuit.exits, [])
+assert.equal(stalledQuit.timers.size, 1, 'Repeated quits do not restart cleanup')
+for (const [callback, delay] of stalledQuit.timers) {
+  assert.equal(delay, 10_000, 'Shutdown has a bounded deadline')
+  callback()
+}
+assert.deepEqual(stalledQuit.exits, [0], 'Stalled cleanup cannot keep the app running')
+
+const failedQuit = shutdownHarness({
+  shutdownCheatTools: () => {
+    throw new Error('Cleanup failed')
+  },
+  shutdownAllMcp: () => Promise.reject(new Error('Async cleanup failed'))
+})
+failedQuit.quit()
+await settle()
+assert.deepEqual(failedQuit.calls, cleanupNames, 'Cleanup failures do not skip other services')
+assert.equal(failedQuit.errors.length, 2, 'Cleanup failures are reported')
+assert.deepEqual(failedQuit.exits, [0], 'Cleanup failures do not prevent exit')
 console.log('APP LIFECYCLE OK')
