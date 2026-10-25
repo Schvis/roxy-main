@@ -10,7 +10,8 @@ import {
   GitBranch,
   GitCompareArrows,
   PanelRight,
-  Pencil
+  Pencil,
+  Search
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Chat } from '@shared/types'
@@ -692,35 +693,47 @@ export function WorkspaceInspector({
             panel.current?.querySelector<HTMLButtonElement>(`#inspector-tab-${next}`)?.focus()
           }}
         >
-          {(['changes', 'files', 'git', 'search'] as const).map((value) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === value}
-              key={value}
-              id={`inspector-tab-${value}`}
-              aria-controls="inspector-content"
-              tabIndex={tab === value ? 0 : -1}
-              onClick={() => {
-                setTab(value)
-              }}
-              className={cn(
-                'press-scale flex h-7 min-w-0 items-center gap-1 sq sq-md rounded-md px-1.5 text-xs',
-                tab === value ? 'bg-elevated text-text' : 'text-text-subtle hover:text-text'
-              )}
-            >
-              <span className="truncate">
-                {value === 'git'
-                  ? t('ide.gitTab')
-                  : value === 'search'
-                    ? t('ide.searchTab')
-                    : t(`inspector.${value}`)}
-              </span>
-              {value === 'changes' && (
-                <span className="text-[10px] tabular-nums text-text-subtle">{summary.count}</span>
-              )}
-            </button>
-          ))}
+          {(['changes', 'files', 'git', 'search'] as const).map((value) => {
+            const Icon =
+              value === 'changes'
+                ? GitCompareArrows
+                : value === 'files'
+                  ? FolderOpen
+                  : value === 'git'
+                    ? GitBranch
+                    : Search
+            const label =
+              value === 'git'
+                ? t('ide.gitTab')
+                : value === 'search'
+                  ? t('ide.searchTab')
+                  : t(`inspector.${value}`)
+            return (
+              <button
+                type="button"
+                role="tab"
+                title={label}
+                aria-label={label}
+                aria-selected={tab === value}
+                key={value}
+                id={`inspector-tab-${value}`}
+                aria-controls="inspector-content"
+                tabIndex={tab === value ? 0 : -1}
+                onClick={() => {
+                  setTab(value)
+                }}
+                className={cn(
+                  'press-scale flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 sq sq-md rounded-md px-1.5 text-xs',
+                  tab === value ? 'bg-elevated text-text' : 'text-text-subtle hover:text-text'
+                )}
+              >
+                <Icon aria-hidden="true" className="h-3.5 w-3.5" />
+                {value === 'changes' && (
+                  <span className="text-[10px] tabular-nums text-text-subtle">{summary.count}</span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
       <div

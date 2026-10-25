@@ -12,6 +12,7 @@ import type { TFunction } from 'i18next'
 import { useMotion } from '../lib/motion'
 import {
   FolderOpen,
+  FolderPlus,
   Search,
   GitBranch,
   GitFork,
@@ -539,9 +540,10 @@ export function Sidebar({
         <button
           onClick={newSession}
           title={t('sidebar.newProject')}
+          aria-label={t('sidebar.newProject')}
           className="press-scale mt-2 flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
         >
-          <FolderOpen className="h-4 w-4" />
+          <FolderPlus aria-hidden="true" className="h-4 w-4" />
         </button>
 
         {tools(true)}
@@ -591,7 +593,7 @@ export function Sidebar({
           title={t('sidebar.newProjectTitle')}
           className="press-scale flex h-9 w-full items-center justify-center gap-2 sq sq-lg rounded-lg bg-white text-sm font-medium text-black hover:bg-white/90"
         >
-          <FolderOpen className="h-4 w-4" /> {t('sidebar.newProject')}
+          <FolderPlus aria-hidden="true" className="h-4 w-4" /> {t('sidebar.newProject')}
         </button>
         <BotsSection />
       </div>
