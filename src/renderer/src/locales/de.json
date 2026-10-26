@@ -158,6 +158,8 @@
     "inspectElement": "Inspect element",
     "newTab": "Neuer Tab",
     "proxy": "Browser-Proxy",
+    "reload": "Reload",
+    "stop": "Stop",
     "urlPlaceholder": "Suchen oder URL eingeben"
   },
   "catalog": {
@@ -345,8 +347,9 @@
     "queuePlaceholderStop": "Eine Folgeanfrage einreihen… (Esc zum Stoppen)",
     "removeImage": "Bild entfernen",
     "send": "Senden",
+    "sendOnlyTo": "Send only to @{{username}}",
     "sendTo": "Senden an @{{username}}",
-    "sendToHint": "Nur an diesen Kollaborateur senden. Enter sendet weiterhin an Roxy.",
+    "sendToRoxy": "Send to Roxy",
     "stop": "Stopp (Esc)"
   },
   "configBackup": {
