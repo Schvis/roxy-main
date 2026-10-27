@@ -135,7 +135,7 @@ Object.assign(window.roxy, {
       return () => changed.delete(callback)
     }
   },
-  automation: { wake: async () => {} },
+  automation: { wake: async () => {}, snapshot: async () => [] },
   projects: { listOrder: async () => [] },
   messages: { list: async (id: string) => messages.filter((message) => message.chatId === id) },
   queue: {
