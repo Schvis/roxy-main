@@ -31,6 +31,9 @@ const AppearanceHarness = lazy(() =>
 const SidebarHarness = lazy(() =>
   import('./SidebarHarness').then((module) => ({ default: module.SidebarHarness }))
 )
+const NarreteHarness = lazy(() =>
+  import('./NarreteHarness').then((module) => ({ default: module.NarreteHarness }))
+)
 const VoiceHarness = lazy(() =>
   import('./VoiceHarness').then((module) => ({ default: module.VoiceHarness }))
 )
@@ -225,7 +228,11 @@ function CopilotHarness(): JSX.Element {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {new URLSearchParams(location.search).has('voice') ? (
+    {new URLSearchParams(location.search).has('narrete') ? (
+      <Suspense>
+        <NarreteHarness />
+      </Suspense>
+    ) : new URLSearchParams(location.search).has('voice') ? (
       <Suspense>
         <VoiceHarness />
       </Suspense>
