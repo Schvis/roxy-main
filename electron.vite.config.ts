@@ -16,7 +16,7 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin({ exclude: ['@electron-toolkit/preload'] })]
   },
   renderer: {
     publicDir: resolve('src/renderer/public'),
@@ -32,7 +32,8 @@ export default defineConfig({
         input: {
           // The main app + the browser window's chrome (tab strip + URL bar).
           index: resolve('src/renderer/index.html'),
-          browser: resolve('src/renderer/browser.html')
+          browser: resolve('src/renderer/browser.html'),
+          narrete: resolve('src/renderer/narrete.html')
         }
       }
     }

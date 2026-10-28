@@ -10,6 +10,7 @@ import {
 } from '../../src/renderer/src/components/diff/model'
 import { layoutDiffViewer } from '../../src/renderer/src/components/diff/layout'
 import { Builder } from '../../src/renderer/src/canvas/builder'
+import { SPACE } from '../../src/renderer/src/canvas/metrics'
 import { font, wrapSpans, type TextMetrics } from '../../src/renderer/src/canvas/text'
 import {
   formatElapsed,
@@ -22,7 +23,13 @@ import {
 import { layoutMarkdown, layoutPlainText } from '../../src/renderer/src/canvas/prose'
 import { BlockCache, layoutTranscript } from '../../src/renderer/src/canvas/transcript'
 import { linkUrl } from '../../src/renderer/src/canvas/links'
-import { visibleImages, type Scene, type ViewState } from '../../src/renderer/src/canvas/scene'
+import {
+  forEachNode,
+  visibleImages,
+  type Node,
+  type Scene,
+  type ViewState
+} from '../../src/renderer/src/canvas/scene'
 import type { CanvasTheme } from '../../src/renderer/src/canvas/theme'
 import source from '../../src/renderer/src/locales/default.json'
 import { FIXTURES, LARGE_DIFF } from './fixtures'
@@ -568,6 +575,117 @@ const longInput = (messages: Message[], state = view()) => ({
   canCancel: () => true,
   t,
   viewport: { top: 0, height: 600, tail: true, targetId: undefined as string | undefined }
+})
+
+check('human prompts stay linear and unboxed in retained and windowed layouts', () => {
+  for (const width of [320, 800]) {
+    for (const text of [
+      'push and merge',
+      'A longer request with **literal markup** and `code`. '.repeat(12),
+      'x'.repeat(500)
+    ]) {
+      const prompt: Message = {
+        ...longMessages[0],
+        id: 'plain-prompt',
+        content: text,
+        parts: [{ type: 'text', text }]
+      }
+      const layouts = [false, true].map((windowed) => {
+        const scene = layoutTranscript(
+          { ...longInput(windowed ? [...longMessages, prompt] : [prompt]), width, streaming: [] },
+          new BlockCache()
+        )
+        const block = scene.blocks.at(-2)!
+        const nodes: Node[] = []
+        forEachNode(block.nodes, (node) => nodes.push(node))
+        const frames = nodes.filter((node) => node.kind === 'rect')
+        assert.equal(frames.length, 1, 'only the avatar has a background')
+        assert.equal(frames[0].w, SPACE.avatar)
+        assert.equal(frames[0].h, SPACE.avatar)
+        assert.ok(nodes.some((node) => node.kind === 'icon' && node.name === 'user'))
+        const header = nodes.find(
+          (node) => node.kind === 'text' && node.text === t('transcript.you')
+        )
+        assert.ok(header?.kind === 'text')
+        const body = block.selectable
+        assert.equal(body.map((line) => line.text).join(''), text)
+        for (const line of body) assert.equal(line.x, header.x)
+        const assistantNodes: Node[] = []
+        forEachNode(scene.blocks.at(-1)!.nodes, (node) => assistantNodes.push(node))
+        const assistantHeader = assistantNodes.find(
+          (node) => node.kind === 'text' && node.text === '@roxy'
+        )
+        assert.ok(assistantHeader?.kind === 'text')
+        assert.equal(body[0].x, assistantHeader.x)
+        assert.ok(scene.blocks.at(-1)!.y >= block.y + block.height, 'thinking follows the prompt')
+        return {
+          height: block.height,
+          lines: block.selectable.map((line) => [line.x, line.y - block.y, line.text])
+        }
+      })
+      assert.deepEqual(layouts[0], layouts[1], 'history windowing preserves the linear layout')
+    }
+  }
+})
+check('plain prompt attachments wrap in the text column and keep their click targets', () => {
+  const prompt: Message = {
+    ...longMessages[0],
+    id: 'images',
+    parts: [
+      ...Array.from({ length: 5 }, (_, i) => ({
+        type: 'image' as const,
+        dataUrl: `image-${i}`,
+        mediaType: 'image/png'
+      })),
+      { type: 'text', text: 'Describe these images.' }
+    ]
+  }
+  for (const messages of [[prompt], [...longMessages, prompt]]) {
+    const scene = layoutTranscript({ ...longInput(messages), width: 320 }, new BlockCache())
+    const block = scene.blocks.at(-1)!
+    const nodes: Node[] = []
+    forEachNode(block.nodes, (node) => nodes.push(node))
+    const header = nodes.find((node) => node.kind === 'text' && node.text === t('transcript.you'))
+    assert.ok(header?.kind === 'text')
+    const body = block.selectable[0]
+    assert.equal(nodes.filter((node) => node.kind === 'rect').length, 1)
+    assert.equal(block.regions.filter((region) => region.action.type === 'image').length, 5)
+    for (const image of nodes.filter((node) => node.kind === 'image')) {
+      assert.ok(image.x >= header.x && image.x + image.w <= 320 - SPACE.columnPadX)
+    }
+    assert.equal(body.x, header.x)
+    const images = block.regions.filter((region) => region.action.type === 'image')
+    assert.ok(images.every((image) => image.y + image.h < body.y))
+    assert.ok(new Set(images.map((image) => image.y)).size > 1, 'attachments wrap onto rows')
+  }
+})
+check('plain prompts keep theme-aware text without a message surface', () => {
+  const prompt: Message = { ...longMessages[0], parts: [{ type: 'text', text: 'Short prompt' }] }
+  for (const paletteTheme of [
+    theme,
+    {
+      ...theme,
+      epoch: 2,
+      appearance: 'light' as const,
+      palette: { ...theme.palette, surface2: '#efeff1', white: '#18181b', text: '#1a1a1c' }
+    },
+    { ...theme, epoch: 3, palette: { ...theme.palette, surface2: '#3d2942' } }
+  ]) {
+    for (const messages of [[prompt], [...longMessages, prompt]]) {
+      const scene = layoutTranscript(
+        { ...longInput(messages), theme: paletteTheme },
+        new BlockCache()
+      )
+      const block = scene.blocks.at(-1)!
+      const nodes: Node[] = []
+      forEachNode(block.nodes, (node) => nodes.push(node))
+      const frames = nodes.filter((node) => node.kind === 'rect')
+      assert.equal(frames.length, 1)
+      assert.equal(frames[0].w, SPACE.avatar)
+      assert.equal(frames[0].fill, paletteTheme.palette.surface2)
+      assert.equal(block.selectable[0].runs[0].color, paletteTheme.palette.text)
+    }
+  }
 })
 
 check('tool images follow disclosure state in retained and windowed transcripts', () => {

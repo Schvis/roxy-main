@@ -19,6 +19,7 @@ import {
   LoaderCircle,
   Mic,
   Monitor,
+  MousePointer2,
   Plus,
   Square,
   Terminal,
@@ -109,6 +110,17 @@ export function Composer({
       images: typeof next === 'function' ? next(current.images) : next
     }))
   }
+  const narreteEnabled = useRoxyStore((s) => s.settings?.narreteEnabled ?? false)
+  const [narreteOpen, setNarreteOpen] = useState(false)
+  const captureId = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    setNarreteOpen(false)
+    return () => {
+      const id = captureId.current
+      captureId.current = null
+      if (id) void api.narrete.cancel(id).catch(() => undefined)
+    }
+  }, [chatId])
   const [dragging, setDragging] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   // Auto-send and wake phrases submit the draft the voice hook just wrote.
@@ -462,8 +474,10 @@ export function Composer({
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      const isForce = event.ctrlKey || event.metaKey || event.altKey
-      void submit(undefined, isForce)
+      // Ctrl/Cmd+Enter targets the picked bot; otherwise Ctrl/Cmd/Alt+Enter force-sends.
+      const modified = event.ctrlKey || event.metaKey
+      if (modified && sendTarget) void submit(sendTarget.id)
+      else void submit(undefined, modified || event.altKey)
     }
   }
 
@@ -978,6 +992,64 @@ export function Composer({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {narreteEnabled && (
+              <button
+                type="button"
+                aria-label={t('narrete.start')}
+                title={t('narrete.start')}
+                aria-haspopup="dialog"
+                aria-pressed={narreteOpen}
+                disabled={narreteOpen}
+                onClick={async () => {
+                  if (captureId.current) return
+                  voice.interrupt()
+                  const id = crypto.randomUUID()
+                  captureId.current = id
+                  setNarreteOpen(true)
+                  setError('')
+                  try {
+                    const result = await api.narrete.start(id, chatId)
+                    if (captureId.current !== id || useRoxyStore.getState().activeChatId !== chatId)
+                      return
+                    if (result.ok) {
+                      const image: ComposerImage = {
+                        ...result.image,
+                        id: crypto.randomUUID(),
+                        name: result.image.name ?? 'Narrete.png'
+                      }
+                      updateDraft((current) => ({
+                        value: [current.value, result.text].filter(Boolean).join('\n\n'),
+                        images: [...current.images, image]
+                      }))
+                      requestAnimationFrame(() => ref.current?.focus())
+                    }
+                    if (!result.ok && result.error !== 'cancelled')
+                      setError(
+                        t(
+                          result.error === 'sendFailed'
+                            ? 'narrete.errors.draftFailed'
+                            : `narrete.errors.${result.error}`
+                        )
+                      )
+                  } catch {
+                    if (captureId.current === id) setError(t('narrete.errors.captureFailed'))
+                  } finally {
+                    if (captureId.current === id) {
+                      captureId.current = null
+                      setNarreteOpen(false)
+                    }
+                  }
+                }}
+                className={cn(
+                  'press-scale flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  narreteOpen
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-text-muted hover:bg-white/5 hover:text-text'
+                )}
+              >
+                <MousePointer2 aria-hidden className="h-4 w-4" />
+              </button>
+            )}
             {voice.enabled && (
               <button
                 type="button"
@@ -1077,8 +1149,8 @@ export function Composer({
                       type="button"
                       onClick={() => void submit(sendTarget.id)}
                       disabled={!canSend || submitting}
-                      title={t('composer.sendToHint')}
-                      className="press-scale h-8 shrink-0 rounded-lg bg-accent/15 px-2.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:opacity-30"
+                      title={t('composer.sendOnlyTo', { username: sendTarget.username })}
+                      className="press-scale h-8 shrink-0 sq sq-lg rounded-lg bg-accent/15 px-2.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:opacity-30"
                     >
                       {t('composer.sendTo', { username: sendTarget.username })}
                     </button>
@@ -1086,6 +1158,7 @@ export function Composer({
                   <button
                     onClick={() => void submit()}
                     disabled={!canSend || submitting}
+                    aria-label={sending ? t('composer.addToQueue') : t('composer.send')}
                     title={sending ? t('composer.addToQueue') : t('composer.send')}
                     className="press-scale flex h-8 w-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30"
                   >

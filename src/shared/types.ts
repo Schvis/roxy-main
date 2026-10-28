@@ -615,6 +615,8 @@ export interface AppSettings {
    * `shouldNotify` rather than in settings.
    */
   notifyOnComplete: boolean
+  /** Show the opt-in visual feedback capture control in the composer. */
+  narreteEnabled: boolean
 }
 
 /**

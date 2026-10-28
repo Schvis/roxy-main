@@ -41,6 +41,12 @@ export function useVoiceState(): VoiceState | null {
 export function useVoiceComposer(
   chatId: string,
   textarea: RefObject<HTMLTextAreaElement>,
+  target?: {
+    read: () => string
+    write: (value: string) => void
+    standalone?: boolean
+    maxLength?: number
+  },
   extension?: VoiceComposerExtension // fork: routes, auto-stop, auto-send
 ): {
   enabled: boolean
@@ -50,7 +56,10 @@ export function useVoiceComposer(
   fallback: boolean
   toggle: () => void
   interrupt: () => void
+  finish: () => Promise<boolean>
 } {
+  const textTarget = useRef(target)
+  textTarget.current = target
   const state = useVoiceState()
   const enabled =
     !!state?.settings.enabled &&
@@ -67,12 +76,32 @@ export function useVoiceComposer(
   }, [phase])
   const [error, setError] = useState<VoiceError | null>(null)
   const [fallback, setFallback] = useState(false)
-  const owned = useRef<{ id: string; start: number; text: string; sequence: number } | null>(null)
+  const owned = useRef<{
+    id: string
+    start: number
+    text: string
+    sequence: number
+    failed?: boolean
+  } | null>(null)
   const latest = useRef<() => void>(() => {})
+  const finish = async (): Promise<boolean> => {
+    const recording = owned.current
+    if (!recording) return true
+    setPhase('stopping')
+    try {
+      await api.voice.stop(recording.id, true)
+      return !recording.failed
+    } catch {
+      interrupt()
+      setError('engineFailed')
+      return false
+    }
+  }
   const interrupt = (): void => {
     const recording = owned.current
     owned.current = null
     if (!recording) return
+    recording.failed = true
     setPhase('idle')
     void api.voice.stop(recording.id, false).catch(() => undefined)
   }
@@ -103,13 +132,14 @@ export function useVoiceComposer(
     const current = useRoxyStore.getState()
     if (
       !(extension?.routes ?? ['/']).includes(pathname) ||
-      current.activeChatId !== chatId ||
+      (!textTarget.current?.standalone && current.activeChatId !== chatId) ||
+      textarea.current?.disabled ||
       !textarea.current?.getClientRects().length ||
       getComputedStyle(textarea.current).visibility === 'hidden'
     )
       return
     const id = crypto.randomUUID()
-    const value = current.composerDrafts[chatId]?.value ?? ''
+    const value = textTarget.current?.read() ?? current.composerDrafts[chatId]?.value ?? ''
     owned.current = {
       id,
       start: textarea.current.selectionStart ?? value.length,
@@ -148,7 +178,9 @@ export function useVoiceComposer(
         if (
           element &&
           getComputedStyle(element).visibility !== 'hidden' &&
-          !document.querySelector('[role="dialog"], [aria-modal="true"]')
+          (textTarget.current
+            ? !!element.closest('[role="dialog"], dialog[open]')
+            : !document.querySelector('[role="dialog"], [aria-modal="true"]'))
         )
           latest.current()
         return
@@ -157,6 +189,7 @@ export function useVoiceComposer(
       if (!recording || !('recordingId' in event) || event.recordingId !== recording.id) return
       if (event.type === 'recording') {
         if (event.phase === 'stopped') {
+          recording.failed = !!event.error
           owned.current = null
           setPhase('idle')
           if (event.error) setError(event.error)
@@ -167,6 +200,20 @@ export function useVoiceComposer(
         }
       } else if (event.type === 'transcript' && event.sequence > recording.sequence) {
         recording.sequence = event.sequence
+        if (textTarget.current) {
+          const merged = mergeVoiceDraft(
+            textTarget.current.read(),
+            recording,
+            event.text,
+            textTarget.current.maxLength
+          )
+          if (!merged) interrupt()
+          else {
+            recording.text = merged.text
+            textTarget.current.write(merged.value)
+          }
+          return
+        }
         let conflict = false
         useRoxyStore.setState((store) => ({
           composerDrafts: updateComposerDraft(
@@ -202,6 +249,7 @@ export function useVoiceComposer(
     error,
     fallback,
     toggle,
+    finish,
     interrupt
   }
 }

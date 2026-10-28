@@ -55,6 +55,7 @@ import { initPortableMode } from './services/portable-mode'
 
 let isQuitting = false
 import { setVoiceWindow, shutdownVoice } from './services/voice'
+import { isNarreteCapturing, setNarreteWindow } from './services/narrete'
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin'
@@ -179,6 +180,7 @@ function createWindow(): BrowserWindow {
   // happens to be first in getAllWindows() (the agent browser opens its own).
   setToastWindow(mainWindow)
   setVoiceWindow(mainWindow)
+  setNarreteWindow(mainWindow)
 
   return mainWindow
 }
@@ -188,6 +190,7 @@ function createWindow(): BrowserWindow {
  * Never raises the agent browser, overlay, VTuber or terminal windows instead.
  */
 function raiseMainWindow(): void {
+  if (isNarreteCapturing()) return
   const win = getMainWindow()
   if (!win) {
     createWindow()

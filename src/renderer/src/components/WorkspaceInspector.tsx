@@ -1,7 +1,6 @@
 import { resolveWorkspaceFile } from '../lib/workspace-navigation'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft,
   Check,
   ChevronRight,
   Copy,
@@ -11,7 +10,8 @@ import {
   GitCompareArrows,
   PanelRight,
   Pencil,
-  Search
+  Search,
+  X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Chat } from '@shared/types'
@@ -153,8 +153,10 @@ export function WorkspaceSummary({
       }
       onClick={onToggle}
       className={cn(
-        'press-scale flex h-7 shrink-0 items-center gap-2 sq sq-lg rounded-lg px-2 text-xs hover:bg-white/5',
-        open ? 'bg-elevated text-text' : 'text-text-muted'
+        'press-scale flex h-7 shrink-0 items-center gap-2 sq sq-lg sq-ring edge rounded-lg border px-2 text-xs tabular-nums transition-colors',
+        open
+          ? 'border-border-strong [--sq-ring:var(--edge-strong)] bg-elevated text-text'
+          : 'border-border bg-surface text-text-muted hover:border-border-strong hover:[--sq-ring:var(--edge-strong)] hover:text-text'
       )}
     >
       {failed || summary.unavailable ? (
@@ -441,11 +443,11 @@ export function WorkspaceFileCanvas({
         <button
           type="button"
           onClick={onBack}
-          title={t('inspector.backToChat')}
-          aria-label={t('inspector.backToChat')}
+          title={t('common.close')}
+          aria-label={t('common.close')}
           className="press-scale rounded p-1 text-text-muted hover:bg-white/5 hover:text-text"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <X className="h-3.5 w-3.5" />
         </button>
         <FileIcon path={selection.path} />
         <span title={selection.path} className="min-w-0 flex-1 truncate font-mono text-[11px]">
@@ -603,6 +605,7 @@ export function WorkspaceInspector({
       ref={panel}
       tabIndex={-1}
       id="workspace-inspector"
+      data-sidebar-surface
       aria-label={t('inspector.open')}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !event.defaultPrevented) {
@@ -611,7 +614,7 @@ export function WorkspaceInspector({
         }
       }}
       style={{ width }}
-      className="workspace-inspector absolute inset-y-0 right-0 z-30 flex max-w-full shrink-0 flex-col border-l border-border bg-bg shadow-[-12px_0_32px_#00000018] outline-none"
+      className="workspace-inspector absolute inset-y-0 right-0 z-30 flex max-w-full shrink-0 flex-col border-l border-border bg-surface shadow-[-12px_0_32px_#00000018] outline-none"
     >
       <div
         role="separator"
@@ -666,7 +669,7 @@ export function WorkspaceInspector({
           onClick={onClose}
           className="press-scale shrink-0 rounded p-1.5 text-text-subtle hover:bg-white/5 hover:text-text"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <X className="h-3.5 w-3.5" />
         </button>
         <div
           className="flex min-w-0 flex-1 gap-1"

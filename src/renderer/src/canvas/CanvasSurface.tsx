@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
@@ -223,7 +224,7 @@ export function CanvasSurface({
     const textHit =
       inside && !region && hitText(scene.current, pos.x, pos.y + el.scrollTop, metrics)
     el.style.cursor = region?.cursor ?? (textHit || press.current?.dragged ? 'text' : 'default')
-    el.title = region?.title ?? ''
+    el.title = press.current ? '' : (region?.title ?? '')
   }, [metrics])
 
   useEffect(() => observeTheme(setTheme), [])
@@ -236,7 +237,8 @@ export function CanvasSurface({
           ? old
           : { width: el.clientWidth, height: el.clientHeight }
       )
-    const observer = new ResizeObserver(measure)
+    // ResizeObserver runs before paint; do not show the old bitmap in the new viewport.
+    const observer = new ResizeObserver(() => flushSync(measure))
     observer.observe(el)
     measure()
     return () => observer.disconnect()
@@ -275,7 +277,7 @@ export function CanvasSurface({
     const resume = (): void => {
       cancelAnimationFrame(frame.current)
       frame.current = 0
-      if (!document.hidden) requestPaint()
+      if (!document.hidden) layoutRef.current()
     }
     const motionChanged = (): void => {
       reducedMotion.current = prefersReducedMotion()
@@ -283,12 +285,14 @@ export function CanvasSurface({
     }
     const stopMotion = subscribeMotion(motionChanged)
     document.addEventListener('visibilitychange', resume)
+    window.addEventListener('focus', resume)
     return () => {
       mounted.current = false
       copyAttempt.current++
       clearTimeout(copyTimer.current)
       stopMotion()
       document.removeEventListener('visibilitychange', resume)
+      window.removeEventListener('focus', resume)
       cancelAnimationFrame(frame.current)
       frame.current = 0
     }
@@ -300,12 +304,15 @@ export function CanvasSurface({
       const target = canvas.current
       const range = spacer.current
       if (!el || !target || !range || !size.width || !size.height) return
-      // Commit the scroll range and initial offset together, before painting any messages.
-      range.style.height = `${Math.max(0, scene.current.height - size.height)}px`
       if (el.clientWidth !== size.width || el.clientHeight !== size.height) {
         setSize({ width: el.clientWidth, height: el.clientHeight })
         return
       }
+      // Validate geometry before changing the scroll range. Hidden/restored
+      // windows can briefly report stale sizes and clamp the native offset.
+      const previousTop = el.scrollTop
+      range.style.height = `${Math.max(0, scene.current.height - size.height)}px`
+      if (el.scrollTop !== previousTop) ownScrollTop.current = el.scrollTop
       const measured = scene.current.window
       if (
         !position &&
@@ -690,9 +697,20 @@ export function CanvasSurface({
           role="region"
           aria-label={t('transcript.history')}
           className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none"
-          style={{ overflowAnchor: 'none', scrollBehavior: 'auto', userSelect: 'none' }}
+          style={{
+            overflowAnchor: 'none',
+            scrollBehavior: 'auto',
+            scrollbarGutter: 'stable',
+            userSelect: 'none'
+          }}
           onScroll={() => {
             const el = scroller.current!
+            // Occlusion and resize clamping are not intent to leave the tail.
+            if (document.hidden) return
+            if (el.clientWidth !== size.width || el.clientHeight !== size.height) {
+              setSize({ width: el.clientWidth, height: el.clientHeight })
+              return
+            }
             // A self-write is not user intent to detach from the live tail.
             if (ownScrollTop.current === null || Math.abs(el.scrollTop - ownScrollTop.current) > 1)
               stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
@@ -776,7 +794,7 @@ export function CanvasSurface({
           }}
           onPointerMove={(event) => {
             const pos = point(event)
-            pointer.current = pos
+            pointer.current = event.pointerType === 'touch' ? null : pos
             const pending = press.current
             if (pending?.pointerId === event.pointerId) {
               if (Math.hypot(pos.x - pending.x, pos.y - pending.y) >= 4) pending.dragged = true

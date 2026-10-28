@@ -394,7 +394,8 @@ function decisions({
     'ownsCompletionNotifications',
     `
     let automationSnapshotEvents = null;
-        const automationTurnRevisions = new Map();
+    const automationEnded = new Set();
+    const automationTurnRevisions = new Map();
     const applyRemoteDelta = () => {};
     const rememberMessage = () => {};
     const loadTranscript = async () => {};

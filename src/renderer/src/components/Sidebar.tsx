@@ -529,22 +529,28 @@ export function Sidebar({
 
   if (railed) {
     return (
-      <aside className="sidebar-rail flex h-full shrink-0 flex-col items-center border-r border-border bg-surface py-2">
-        <button
-          onClick={() => setRailed(false)}
-          title={t('sidebar.expand')}
-          className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-        >
-          <PanelLeftOpen className="h-4 w-4" />
-        </button>
-        <button
-          onClick={newSession}
-          title={t('sidebar.newProject')}
-          aria-label={t('sidebar.newProject')}
-          className="press-scale mt-2 flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
-        >
-          <FolderPlus aria-hidden="true" className="h-4 w-4" />
-        </button>
+      <aside
+        data-sidebar-surface
+        className="sidebar-rail relative flex h-full shrink-0 flex-col items-center border-r border-border bg-surface"
+      >
+        <div className="titlebar reserve-controls-left h-[54px] w-full shrink-0" />
+        <div className="flex flex-col items-center gap-1 pt-1">
+          <button
+            onClick={() => setRailed(false)}
+            title={t('sidebar.expand')}
+            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
+          <button
+            onClick={newSession}
+            title={t('sidebar.newProject')}
+            aria-label={t('sidebar.newProject')}
+            className="press-scale flex h-8 w-8 items-center justify-center sq sq-lg rounded-lg text-text-muted hover:bg-white/5 hover:text-text"
+          >
+            <FolderPlus aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
 
         {tools(true)}
         <BotsSection rail />

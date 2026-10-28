@@ -66,7 +66,7 @@ export function useVoiceHandsFree(
       if (!error && settings.current?.autoSend && text.trim()) setTimeout(() => send.current(), 0)
     }
   }).current
-  const voice = useVoiceComposer(chatId, textarea, extension)
+  const voice = useVoiceComposer(chatId, textarea, undefined, extension)
   const latest = useRef(voice)
   latest.current = voice
 

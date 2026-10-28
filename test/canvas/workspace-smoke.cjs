@@ -27,6 +27,17 @@ async function until(code) {
   throw Error(`Timed out: ${code}`)
 }
 async function click(selector) {
+  if (
+    selector === '[aria-label="Close files and changes"]' ||
+    selector.includes('[aria-label="Close"]')
+  ) {
+    assert(
+      await evaluate(
+        `return !!document.querySelector(${JSON.stringify(selector)})?.querySelector('svg.lucide-x')`
+      ),
+      'workspace exit controls use an X icon'
+    )
+  }
   await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
   await wait()
 }
@@ -68,6 +79,14 @@ app.whenReady().then(async () => {
     await win.loadURL(`${process.env.CANVAS_TEST_URL || 'http://localhost:3101/'}?workspace`)
     await until(`document.querySelector('[data-workspace-toggle]')?.textContent.includes('+126')`)
     assert.equal(await evaluate(`return !!document.querySelector('#workspace-inspector')`), false)
+    const matchingHeaderPills = () =>
+      evaluate(`await new Promise(resolve => setTimeout(resolve, 200));
+        const usage = document.querySelector('header button[title*="API spend"]');
+        const workspace = document.querySelector('[data-workspace-toggle]');
+        return ['backgroundColor', 'borderColor', 'borderWidth', 'borderRadius', 'height', 'color', '--sq-ring', '--sq-bevel'].every(property =>
+          getComputedStyle(usage).getPropertyValue(property.replace(/[A-Z]/g, c => '-' + c.toLowerCase())) ===
+          getComputedStyle(workspace).getPropertyValue(property.replace(/[A-Z]/g, c => '-' + c.toLowerCase())));`)
+    assert(await matchingHeaderPills(), 'usage and changes pills match when neither is toggled')
     await evaluate(
       `window.__chatCanvas = document.querySelector('[data-canvas-surface]'); const el = document.querySelector('textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, 'Preserve my draft'); el.dispatchEvent(new Event('input', {bubbles:true}));`
     )
@@ -77,6 +96,9 @@ app.whenReady().then(async () => {
     )
     await click('[data-workspace-toggle]')
     await until(`!!document.querySelector('#workspace-inspector button[title="src"]')`)
+    await click('header button[title*="API spend"]')
+    assert(await matchingHeaderPills(), 'usage and changes pills match when both are toggled')
+    await click('header button[title*="API spend"]')
     assert.equal(
       await evaluate(
         `return document.querySelector('#inspector-tab-files').getAttribute('aria-selected')`
@@ -99,6 +121,103 @@ app.whenReady().then(async () => {
       await evaluate(
         `const panel = document.querySelector('#workspace-inspector').getBoundingClientRect(); const sidebar = document.querySelector('[data-sidebar-frame]').getBoundingClientRect(); return panel.top === sidebar.top && panel.bottom === innerHeight && sidebar.bottom === innerHeight && !document.elementFromPoint(panel.left + 4, sidebar.top - 1)?.closest('#workspace-inspector')`
       )
+    )
+    const base = '/@fs/' + path.resolve('src/renderer/src').replaceAll('\\', '/')
+    const shared = '/@fs/' + path.resolve('src/shared/theme.ts').replaceAll('\\', '/')
+    win.webContents.debugger.attach('1.3')
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-transparency', value: 'no-preference' }]
+    })
+    const matchingSidebarSurfaces = () =>
+      evaluate(`const left = document.querySelector('[data-sidebar-frame], .sidebar-rail');
+        const right = document.querySelector('#workspace-inspector');
+        return ['backgroundColor', 'color', 'borderLeftColor'].every(property =>
+          getComputedStyle(left)[property] === getComputedStyle(right)[property]) &&
+          getComputedStyle(left, '::before').backdropFilter === getComputedStyle(right, '::before').backdropFilter;`)
+    assert(await matchingSidebarSurfaces(), 'the file explorer uses the sidebar surface by default')
+    await evaluate(`const { applyBackground } = await import(${JSON.stringify(base + '/lib/background.ts')});
+      const { DEFAULT_BACKGROUND } = await import(${JSON.stringify('/@fs/' + path.resolve('src/shared/background.ts').replaceAll('\\', '/'))});
+      const image = document.createElement('canvas'); image.width = image.height = 80;
+      const context = image.getContext('2d'); context.fillStyle = '#23536a'; context.fillRect(0, 0, 80, 80);
+      window.__workspaceBackground = settings => applyBackground({settings: {...DEFAULT_BACKGROUND, ...settings}, image: image.toDataURL()});`)
+    for (const appearance of ['dark', 'light']) {
+      await evaluate(`const { applyTheme } = await import(${JSON.stringify(base + '/lib/theme.ts')});
+        const { BUILT_IN_THEMES, resolveTheme } = await import(${JSON.stringify(shared)});
+        applyTheme(resolveTheme(BUILT_IN_THEMES.find(theme => theme.id === 'roxy-${appearance}')));`)
+      for (const sidebarStyle of ['glass', 'dimmed']) {
+        await evaluate(
+          `window.__workspaceBackground({sidebarStyle:'${sidebarStyle}', sidebarOpacity:25})`
+        )
+        await until(`document.querySelector('[data-sidebar-style="${sidebarStyle}"]')`)
+        assert(
+          await matchingSidebarSurfaces(),
+          appearance + ' ' + sidebarStyle + ' matches both sidebars'
+        )
+        assert.equal(
+          await evaluate(
+            `return getComputedStyle(document.querySelector('#workspace-inspector'), '::before').backdropFilter`
+          ),
+          sidebarStyle === 'glass' ? 'blur(18px) saturate(1.2)' : 'none'
+        )
+        assert.equal(
+          await evaluate(`const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+            const context = canvas.getContext('2d'); context.fillStyle = getComputedStyle(document.querySelector('#workspace-inspector')).backgroundColor;
+            context.fillRect(0, 0, 1, 1); return context.getImageData(0, 0, 1, 1).data[3]`),
+          64,
+          'the explorer honors sidebar opacity'
+        )
+        win.setContentSize(1100, 900)
+        await wait()
+        assert.equal(
+          await evaluate(
+            `return getComputedStyle(document.querySelector('#workspace-inspector')).position`
+          ),
+          'absolute',
+          'glass does not override the narrow explorer overlay position'
+        )
+        assert(await evaluate(`return document.documentElement.scrollWidth <= innerWidth`))
+        win.setContentSize(1440, 900)
+        await wait()
+        await screenshot('sidebar-' + appearance + '-' + sidebarStyle)
+      }
+    }
+    await evaluate(`window.__workspaceBackground({sidebarStyle:'glass', sidebarOpacity:25})`)
+    await click('[title="Collapse sidebar"]')
+    await until(`!!document.querySelector('.sidebar-rail')`)
+    assert(await matchingSidebarSurfaces(), 'the collapsed rail and explorer share glass styling')
+    await click('[title="Expand sidebar"]')
+    await until(`!!document.querySelector('[data-sidebar-frame]')`)
+    for (const [name, value] of [
+      ['prefers-reduced-transparency', 'reduce'],
+      ['prefers-contrast', 'more']
+    ]) {
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+        features: [{ name, value }]
+      })
+      assert(await matchingSidebarSurfaces(), name + ' applies to both sidebars')
+      assert.equal(
+        await evaluate(
+          `return getComputedStyle(document.querySelector('#workspace-inspector'), '::before').backdropFilter`
+        ),
+        'none'
+      )
+      if (name === 'prefers-contrast') {
+        assert(
+          await evaluate(
+            `return !getComputedStyle(document.querySelector('#workspace-inspector')).backgroundColor.includes('0.25')`
+          )
+        )
+      }
+    }
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] })
+    win.webContents.debugger.detach()
+    await evaluate(`const { applyBackground } = await import(${JSON.stringify(base + '/lib/background.ts')});
+      const { DEFAULT_BACKGROUND } = await import(${JSON.stringify('/@fs/' + path.resolve('src/shared/background.ts').replaceAll('\\', '/'))});
+      const { clearTheme } = await import(${JSON.stringify(base + '/lib/theme.ts')});
+      applyBackground({settings: DEFAULT_BACKGROUND, image: null}); clearTheme();`)
+    assert(
+      await matchingSidebarSurfaces(),
+      'removing the wallpaper restores matching solid surfaces'
     )
     assert.equal(
       await evaluate(`return document.body.textContent.includes('Read-only preview')`),
@@ -227,7 +346,7 @@ app.whenReady().then(async () => {
     )
     await screenshot('diff')
     // A slow read survives repeated snapshot refreshes instead of restarting forever.
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await evaluate(`window.__slowOriginalRead = window.roxy.workspace.read;
       window.__slowReads = [];
       window.roxy.workspace.read = (...args) => new Promise(resolve => {
@@ -378,7 +497,7 @@ app.whenReady().then(async () => {
         )
       )
       await screenshot('preview-' + file)
-      await click('[aria-label="Back to chat"]')
+      await click('[data-workspace-canvas] [aria-label="Close"]')
     }
     for (const [file, tag] of [
       ['clip.mp4', 'video'],
@@ -393,16 +512,16 @@ app.whenReady().then(async () => {
         `const media = document.querySelector('[data-workspace-media] ${tag}'); media.muted = true; await media.play(); media.pause()`
       )
       await screenshot('preview-' + tag)
-      await click('[aria-label="Back to chat"]')
+      await click('[data-workspace-canvas] [aria-label="Close"]')
     }
     await click('#workspace-inspector button[title="document.pdf"]')
     await until(`!!document.querySelector('[data-workspace-media] iframe[title="document.pdf"]')`)
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await click('#workspace-inspector button[title="broken.png"]')
     await until(
       `document.querySelector('[data-workspace-media] [role=status]')?.textContent.includes('could not be displayed')`
     )
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     assert.equal(await evaluate('return window.__mediaReads'), 0)
     await evaluate('window.roxy.workspace.read = window.__mediaOriginalRead')
     await evaluate(`window.__mediaOriginalInspect = window.roxy.workspace.inspect;
@@ -416,7 +535,7 @@ app.whenReady().then(async () => {
         `return document.querySelector('[data-workspace-media]').textContent.includes('Showing the current working file')`
       )
     )
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await evaluate(
       `window.roxy.workspace.inspect = window.__mediaOriginalInspect; window.dispatchEvent(new Event('focus'))`
     )
@@ -431,6 +550,25 @@ app.whenReady().then(async () => {
       )
     )
     await screenshot('file-canvas')
+    await evaluate(`const { monaco } = await import(${JSON.stringify(base + '/lib/workspace-editor.ts')});
+      window.__themedEditor = monaco.editor.getEditors()[0];`)
+    for (const appearance of ['dark', 'light']) {
+      await evaluate(`const { applyTheme } = await import(${JSON.stringify(base + '/lib/theme.ts')});
+        const { BUILT_IN_THEMES, resolveTheme } = await import(${JSON.stringify(shared)});
+        applyTheme(resolveTheme(BUILT_IN_THEMES.find(theme => theme.id === 'roxy-${appearance}')));`)
+      await until(`(() => { const probe = document.createElement('span'); probe.style.backgroundColor = 'var(--color-bg)'; document.body.append(probe);
+        const matches = getComputedStyle(probe).backgroundColor === getComputedStyle(document.querySelector('[data-workspace-editor] .monaco-editor')).backgroundColor;
+        probe.remove(); return matches; })()`)
+      assert(await matchingSidebarSurfaces(), 'theme changes reach the explorer while editing')
+      assert(
+        await evaluate(`const { monaco } = await import(${JSON.stringify(base + '/lib/workspace-editor.ts')});
+        return window.__themedEditor === monaco.editor.getEditors()[0]`),
+        'theme changes preserve the mounted editor'
+      )
+    }
+    await evaluate(
+      `const { clearTheme } = await import(${JSON.stringify(base + '/lib/theme.ts')}); clearTheme()`
+    )
     assert.equal(
       await evaluate(
         `return document.querySelector('.workspace-file-toolbar svg[aria-hidden="true"][focusable="false"]').innerHTML`
@@ -440,7 +578,7 @@ app.whenReady().then(async () => {
     )
     await click('[aria-label="Copy file contents"]')
     assert(await evaluate(`return window.__canvasTest.copied.some(text => text.includes('roxy'))`))
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     assert.equal(
       await evaluate('return document.activeElement.hasAttribute("data-workspace-toggle")'),
       true
@@ -511,7 +649,7 @@ app.whenReady().then(async () => {
         ),
         'none'
       )
-      await click('[aria-label="Back to chat"]')
+      await click('[data-workspace-canvas] [aria-label="Close"]')
     }
     await evaluate(`document.querySelector('#workspace-inspector').focus()`)
     await key('Escape')
@@ -530,8 +668,6 @@ app.whenReady().then(async () => {
       )
     )
     win.setContentSize(1440, 900)
-    const base = '/@fs/' + path.resolve('src/renderer/src').replaceAll('\\', '/')
-    const shared = '/@fs/' + path.resolve('src/shared/theme.ts').replaceAll('\\', '/')
     await evaluate(`const { applyTheme } = await import(${JSON.stringify(base + '/lib/theme.ts')});
       const { BUILT_IN_THEMES, resolveTheme } = await import(${JSON.stringify(shared)});
       applyTheme(resolveTheme(BUILT_IN_THEMES.find(theme => theme.id === 'roxy-light')));`)
@@ -601,10 +737,10 @@ app.whenReady().then(async () => {
     await evaluate('window.dispatchEvent(new Event("focus"))')
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert.equal(await evaluate('return window.__editor.getValue()'), edited)
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await click('#workspace-inspector button[title="package.json"]')
     await until('window.__monaco.editor.getEditors().length === 1')
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await click('#workspace-inspector button[title="tsconfig.json"]')
     await until('window.__monaco.editor.getEditors().length === 1')
     await evaluate(
@@ -651,7 +787,7 @@ app.whenReady().then(async () => {
     await screenshot('editor-conflict')
     await click('[aria-label="Reload file from disk"]')
     await until(`window.__editor.getValue() === '{"external":true}'`)
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await evaluate(
       `window.roxy.workspace.read = async () => ({ok:true,before:'',after:'function example() {}',revision:'typescript'});`
     )
@@ -681,7 +817,7 @@ app.whenReady().then(async () => {
     )
     await click('[aria-label="Reload file from disk"]')
     await until(`!document.querySelector('[aria-label="Unsaved changes"]')`)
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     // Existing tab indentation and BOM/CRLF survive editor round trips.
     await evaluate(
       `window.roxy.workspace.read = async () => ({ok:true,before:'',after:'\\ufefffunction tabs() {\\r\\n\\treturn 1\\r\\n}\\r\\n',revision:'tabs'});`
@@ -693,7 +829,7 @@ app.whenReady().then(async () => {
         `window.__editor = window.__monaco.editor.getEditors()[0]; return window.__editor.getModel().getValue(undefined,true).startsWith('\\ufeff') && window.__editor.getModel().getEOL() === '\\r\\n' && !window.__editor.getModel().getOptions().insertSpaces`
       )
     )
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await evaluate(
       `window.roxy.workspace.read = async () => ({ok:true,before:'',after:'first\\r\\nsecond\\n',revision:'mixed'});`
     )
@@ -704,7 +840,7 @@ app.whenReady().then(async () => {
         'return window.__monaco.editor.getEditors()[0].getOption(window.__monaco.editor.EditorOption.readOnly)'
       )
     )
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await evaluate('window.roxy.workspace.read = window.__originalRead')
     // Reload remains locked across navigation, then redetects the new indentation.
     await click('button[title="test/workspace-inspector.ts"]')
@@ -714,7 +850,7 @@ app.whenReady().then(async () => {
     )
     await click('[aria-label="Reload file from disk"]')
     await until('window.__reloadReads.length > 0')
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await click('button[title="test/workspace-inspector.ts"]')
     await until('window.__monaco.editor.getEditors().length === 1')
     assert(
@@ -734,7 +870,7 @@ app.whenReady().then(async () => {
       ),
       false
     )
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     // A save completed while closed must release its clean model and reopen safely in StrictMode.
     await click('button[title="tsconfig.json"]')
     await until('window.__monaco.editor.getEditors().length === 1')
@@ -743,14 +879,14 @@ app.whenReady().then(async () => {
     )
     await click('[aria-label="Save file"]')
     await until('!!window.__finishSave')
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     await evaluate(
       'await window.__finishSave(); window.roxy.workspace.write = window.__originalWrite'
     )
     await click('button[title="tsconfig.json"]')
     await until('window.__monaco.editor.getEditors().length === 1')
     assert(await evaluate('return !window.__monaco.editor.getEditors()[0].getModel().isDisposed()'))
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     for (const [additions, deletions] of [
       [0, 0],
       [5, 0],
@@ -798,7 +934,7 @@ app.whenReady().then(async () => {
     await until(
       'window.__monaco.editor.getEditors()[0]?.getModel()?.getLanguageId() === "typescript"'
     )
-    await click('[aria-label="Back to chat"]')
+    await click('[data-workspace-canvas] [aria-label="Close"]')
     console.log(
       'WORKSPACE UI OK: layout/diff/tree/icons, responsive PNG/JPEG previews/actual size, video/audio playback, PDF frame, media failures, editor virtualization/shortcuts/drafts/conflicts, TS completions/diagnostics, BOM/CRLF/tabs, mixed-EOL protection'
     )

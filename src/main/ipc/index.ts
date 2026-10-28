@@ -22,6 +22,7 @@ import {
 import createDiagnosticsWorker from '../services/file-diagnostics-worker?nodeWorker'
 import { DiagnosticsWorkerClient } from '../services/diagnostics-worker-client'
 import { registerVoiceIpc, resetVoice } from '../services/voice'
+import { registerNarreteIpc } from '../services/narrete'
 import { CHANNELS } from '../../shared/ipc'
 import { CatalogClient } from '../services/catalog'
 import { WallpaperClient, WallpaperFailure, validWallpaperId } from '../services/wallpapers'
@@ -460,6 +461,7 @@ export function registerIpc(): void {
     }
   )
   registerVoiceIpc()
+  registerNarreteIpc()
   registerNotificationSoundIpc()
   registerEngineeringIpc()
   registerCheatIpc()

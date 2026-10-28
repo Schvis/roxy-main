@@ -314,11 +314,16 @@ export function ChatView({
   // Wait for history even when live tokens are available, so arrival paints the complete tail once.
   const loading = !messagesError && messagesChatId !== activeChatId
   const isEmpty = !hasContent && !loading
+  // History loading must not remove/reload media or flash a different opacity.
+  const [lastBackgroundEmpty, setLastBackgroundEmpty] = useState(true)
+  const backgroundEmpty = loading ? lastBackgroundEmpty : isEmpty
+  if (!loading && !messagesError && lastBackgroundEmpty !== isEmpty) {
+    setLastBackgroundEmpty(isEmpty)
+  }
   const wallpaper =
     !!background.rendered &&
-    !loading &&
     !messagesError &&
-    backgroundOpacity(background.settings, isEmpty) > 0
+    backgroundOpacity(background.settings, backgroundEmpty) > 0
   const botSettings = useRoxyStore((s) => s.botSettings)
   const setBotSettings = useRoxyStore((s) => s.setBotSettings)
   const botCloseRequest = useRef<(() => void) | null>(null)
@@ -608,13 +613,13 @@ export function ChatView({
         data-wallpaper={wallpaper || undefined}
         style={
           {
-            '--chat-wallpaper-opacity': backgroundOpacity(background.settings, isEmpty)
+            '--chat-wallpaper-opacity': backgroundOpacity(background.settings, backgroundEmpty)
           } as React.CSSProperties
         }
         data-glass={(wallpaper && background.settings.glass) || undefined}
       >
         {wallpaper && (isOverlay || background.settings.sidebarStyle === 'default') && (
-          <ChatBackground empty={isEmpty} />
+          <ChatBackground empty={backgroundEmpty} />
         )}
         <header
           {...(fileSelection ? { inert: '' } : {})}

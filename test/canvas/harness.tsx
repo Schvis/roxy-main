@@ -12,6 +12,7 @@ import { FIXTURES, STREAMING, LARGE_DIFF, HISTORY_FIXTURES, TERMINAL_FIXTURES } 
 import { PerformanceHarness } from './PerformanceHarness'
 import { AnimationHarness } from './AnimationHarness'
 import { startMotion } from '../../src/renderer/src/lib/motion'
+import { startAutoHideScrollbars } from '../../src/renderer/src/lib/scrollbars'
 import { CopilotReconnect } from '../../src/renderer/src/components/CopilotReconnect'
 import { useRoxyStore } from '../../src/renderer/src/lib/store'
 
@@ -30,6 +31,9 @@ const AppearanceHarness = lazy(() =>
 const SidebarHarness = lazy(() =>
   import('./SidebarHarness').then((module) => ({ default: module.SidebarHarness }))
 )
+const NarreteHarness = lazy(() =>
+  import('./NarreteHarness').then((module) => ({ default: module.NarreteHarness }))
+)
 const VoiceHarness = lazy(() =>
   import('./VoiceHarness').then((module) => ({ default: module.VoiceHarness }))
 )
@@ -37,6 +41,8 @@ const VoiceHarness = lazy(() =>
 document.documentElement.dataset.platform = 'win32'
 const stopMotion = startMotion()
 import.meta.hot?.dispose(stopMotion)
+const stopScrollbars = startAutoHideScrollbars()
+import.meta.hot?.dispose(stopScrollbars)
 
 function Harness(): JSX.Element {
   const [streaming, setStreaming] = useState(false)
@@ -222,7 +228,11 @@ function CopilotHarness(): JSX.Element {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {new URLSearchParams(location.search).has('voice') ? (
+    {new URLSearchParams(location.search).has('narrete') ? (
+      <Suspense>
+        <NarreteHarness />
+      </Suspense>
+    ) : new URLSearchParams(location.search).has('voice') ? (
       <Suspense>
         <VoiceHarness />
       </Suspense>

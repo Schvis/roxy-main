@@ -109,6 +109,20 @@ assert.deepEqual(matchWakeWord('hey jarvis do it', ['hey jarvis']), {
 })
 assert.equal(matchWakeWord('hello there').matched, false)
 assert.equal(matchWakeWord('').matched, false)
+const existingNote = 'x'.repeat(795)
+for (const start of [0, existingNote.length]) {
+  const first = mergeVoiceDraft(existingNote, { start, text: '' }, 'Make this button', 800)!
+  assert.equal(first.value.length, 800)
+  assert.equal(first.value.replace(/[^x]/g, '').length, 795, 'Length limit preserves existing note')
+  const final = mergeVoiceDraft(
+    first.value,
+    { start, text: first.text },
+    'Make this button red.',
+    800
+  )!
+  assert.equal(final.value.length, 800)
+  assert.equal(final.value.replace(/[^x]/g, '').length, 795)
+}
 console.log(
   'VOICE OK: default-off normalization, streaming catalog, revision snapshots, range conflicts, Unicode, wake phrases'
 )

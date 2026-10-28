@@ -2,6 +2,7 @@ import type { CheatState } from '../shared/cheat'
 import type { EngineeringState } from '../shared/engineering-tools'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { exposeNarrete } from './narrete'
 import { CHANNELS } from '../shared/ipc'
 import type {
   AutomationDelta,
@@ -82,6 +83,10 @@ const roxy: RoxyApi = {
       return () => ipcRenderer.removeListener(CHANNELS.engineeringChanged, handler)
     }
   },
+  narrete: {
+    start: (id, chatId) => ipcRenderer.invoke(CHANNELS.narreteStart, id, chatId),
+    cancel: (id) => ipcRenderer.invoke(CHANNELS.narreteCancel, id)
+  },
   voice: {
     state: () => ipcRenderer.invoke(CHANNELS.voiceState),
     update: (patch) => ipcRenderer.invoke(CHANNELS.voiceUpdate, patch),
@@ -151,6 +156,7 @@ const roxy: RoxyApi = {
     setBranchPrefix: (prefix) => ipcRenderer.invoke(CHANNELS.settingsSetBranchPrefix, prefix),
     setNotifyOnComplete: (enabled) =>
       ipcRenderer.invoke(CHANNELS.settingsSetNotifyOnComplete, enabled),
+    setNarreteEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetNarreteEnabled, enabled),
     setLanguage: (language) => ipcRenderer.invoke(CHANNELS.settingsSetLanguage, language),
     setMotion: (motion) => ipcRenderer.invoke(CHANNELS.settingsSetMotion, motion),
     setTtsEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsEnabled, enabled),
@@ -731,7 +737,9 @@ const roxy: RoxyApi = {
 
 // With context isolation on (the secure default) we expose the bridge through
 // the contextBridge. The `else` branch is only a fallback for sandbox-off dev.
-if (process.contextIsolated) {
+if (process.argv.includes('--narrete-overlay')) {
+  exposeNarrete()
+} else if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('roxy', roxy)

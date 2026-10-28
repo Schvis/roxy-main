@@ -280,7 +280,8 @@ export class TranscriptWindow {
           .map(([id, state]) => `${id}:${state.left}:${state.top}`)
           .join(',')
         const live = message.id === '__streaming__'
-        const key = `${format}:${item.kind === 'header' ? (messageBotUsername(input, message) ?? '') : ''}:${opened}:${diffs}:${scrolls}:${live && item.part === message.parts.length - 1}:${part?.type === 'tool' ? part.state : ''}`
+        const username = messageBotUsername(input, message)
+        const key = `${format}:${username ?? ''}:${opened}:${diffs}:${scrolls}:${live && item.part === message.parts.length - 1}:${part?.type === 'tool' ? part.state : ''}`
         const hit = this.entries.get(item.id)
         let block: Block
         if (!live && hit?.key === key && sameSource(hit.source, source)) {
@@ -296,7 +297,6 @@ export class TranscriptWindow {
             input.bots?.map((bot) => bot.username)
           )
           let height: number
-          const username = messageBotUsername(input, message)
           if (item.kind === 'header') {
             height = layoutMessageHeader(
               builder,
