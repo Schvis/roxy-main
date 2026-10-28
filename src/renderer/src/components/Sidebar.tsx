@@ -23,6 +23,7 @@ import {
   Settings,
   Square,
   SquarePen,
+  SquareTerminal,
   Trash2
 } from 'lucide-react'
 import { MorphIcon } from 'morphicons/react'
@@ -134,7 +135,21 @@ function FolderMorph({ open, className }: { open: boolean; className?: string })
   )
 }
 
-export type SidebarTool = 'files' | 'search' | 'git'
+export type SidebarTool = 'files' | 'search' | 'git' | 'terminal'
+
+const TOOL_ICON = {
+  files: FolderOpen,
+  search: Search,
+  git: GitBranch,
+  terminal: SquareTerminal
+} as const satisfies Record<SidebarTool, unknown>
+
+const TOOL_LABEL = {
+  files: 'ide.filesTab',
+  search: 'ide.searchTab',
+  git: 'ide.gitTab',
+  terminal: 'ide.terminalTab'
+} as const satisfies Record<SidebarTool, string>
 
 interface SidebarProps {
   changedFileCount?: number
@@ -152,11 +167,9 @@ export function Sidebar({
   const tools = (rail: boolean): JSX.Element | null =>
     onToolChange ? (
       <div className={cn('flex gap-1', rail ? 'mt-2 flex-col' : 'px-3 pt-2')}>
-        {(['files', 'search', 'git'] as const).map((tab) => {
-          const Icon = tab === 'files' ? FolderOpen : tab === 'search' ? Search : GitBranch
-          const label = t(
-            tab === 'files' ? 'ide.filesTab' : tab === 'search' ? 'ide.searchTab' : 'ide.gitTab'
-          )
+        {(['files', 'search', 'git', 'terminal'] as const).map((tab) => {
+          const Icon = TOOL_ICON[tab]
+          const label = t(TOOL_LABEL[tab])
           return (
             <button
               key={tab}

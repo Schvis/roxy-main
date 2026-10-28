@@ -57,7 +57,7 @@ import type {
   LlmStartInput,
   McpServerView,
   RemoteStartInput,
-  ShellType,
+  ShellStartOptions,
   SkillView,
   SkillWriteInput,
   SyncOutcome,
@@ -186,7 +186,10 @@ import {
   restartShell,
   clearShell,
   resizeShell,
-  getShellState
+  getShellState,
+  listShellSessions,
+  listShellProfiles,
+  killShellsForChat
 } from '../services/shell-session'
 import { checkForUpdates, quitAndInstall, getUpdateState } from '../services/updater'
 import {
@@ -863,6 +866,8 @@ export function registerIpc(): void {
     // subagents started, while deleting a sub session matches nothing and leaves
     // its parent's servers alone. Without this they'd live until app quit.
     killSessionBackground(id)
+    // And its integrated terminals (the chat's own and every extra tab).
+    killShellsForChat(id)
     // Close this session's browser window (if any) so it doesn't linger orphaned.
     browser.disposeSession(id)
     void closeEngineeringSession(id)
@@ -2724,8 +2729,8 @@ export function registerIpc(): void {
   })
 
   // ---- persistent shell session ----
-  ipcMain.handle(CHANNELS.shellStart, (_e, sessionId: string, shellType?: ShellType) => {
-    return startShell(sessionId, shellType)
+  ipcMain.handle(CHANNELS.shellStart, (_e, sessionId: string, options?: ShellStartOptions) => {
+    return startShell(sessionId, options)
   })
   ipcMain.handle(CHANNELS.shellInput, (_e, sessionId: string, data: string) => {
     return writeShell(sessionId, data)
@@ -2733,11 +2738,17 @@ export function registerIpc(): void {
   ipcMain.handle(CHANNELS.shellKill, (_e, sessionId: string) => {
     return killShell(sessionId)
   })
-  ipcMain.handle(CHANNELS.shellRestart, (_e, sessionId: string, shellType?: ShellType) => {
-    return restartShell(sessionId, shellType)
+  ipcMain.handle(CHANNELS.shellRestart, (_e, sessionId: string, options?: ShellStartOptions) => {
+    return restartShell(sessionId, options)
   })
   ipcMain.handle(CHANNELS.shellState, (_e, sessionId: string) => {
     return getShellState(sessionId)
+  })
+  ipcMain.handle(CHANNELS.shellList, (_e, chatId: string) => {
+    return listShellSessions(chatId)
+  })
+  ipcMain.handle(CHANNELS.shellProfiles, () => {
+    return listShellProfiles()
   })
   ipcMain.handle(CHANNELS.shellClear, (_e, sessionId: string) => {
     return clearShell(sessionId)

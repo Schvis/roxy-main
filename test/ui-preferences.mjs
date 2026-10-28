@@ -668,6 +668,27 @@ for (const tool of ['files', 'search', 'git']) {
   assert.equal(nodes(chat.tree).find((node) => node.type?.name === 'Sidebar').props.tool, tool)
   assert.ok(!nodes(chat.tree).some((node) => node.type?.name === 'IdeWorkspace'))
 }
+state.commandsOpen = true
+chat = render(chatUI.default, {}, chat.context)
+assert.equal(nodes(chat.tree).find((node) => node.type?.name === 'Sidebar').props.tool, 'terminal')
+state.commandsOpen = false
+for (const rail of [false, true]) {
+  state.sidebarRailed = rail
+  let pickedTool
+  const sidebar = render(sidebarUI.Sidebar, {
+    tool: 'terminal',
+    onToolChange: (next) => {
+      pickedTool = next
+    }
+  })
+  const terminalButton = nodes(sidebar.tree).find(
+    (node) => node.type === 'button' && node.props['aria-label'] === 'ide.terminalTab'
+  )
+  assert.ok(terminalButton, 'terminal is available in both sidebar layouts')
+  assert.equal(terminalButton.props['aria-pressed'], true)
+  terminalButton.props.onClick()
+  assert.equal(pickedTool, null, 'clicking the active terminal tool closes it')
+}
 const openedChanges = []
 state.messages = []
 state.streamingChats = {}

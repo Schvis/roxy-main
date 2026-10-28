@@ -7,7 +7,8 @@
   -webkit-app-region: no-drag;
 }
 @container chat (min-width: 960px) {
-  .workspace-inspector {
+  .workspace-inspector,
+  .terminal-dock {
     position: relative;
     box-shadow: none;
   }

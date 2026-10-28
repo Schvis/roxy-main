@@ -13,9 +13,13 @@ function Chat(): JSX.Element {
     tool: SidebarTool | null
   } | null>(null)
   const activeChatId = useRoxyStore((state) => state.activeChatId)
+  // The docked terminal also opens from the top bar, the composer and Ctrl+`,
+  // so the store — not the last rail click — says whether it is showing.
+  const terminalOpen = useRoxyStore((state) => state.commandsOpen)
   const background = useBackground()
   const shared = !!background.rendered && background.settings.sidebarStyle !== 'default'
-  const tool = selection?.sessionId === activeChatId ? selection.tool : null
+  const picked = selection?.sessionId === activeChatId ? selection.tool : null
+  const tool: SidebarTool | null = terminalOpen ? 'terminal' : picked === 'terminal' ? null : picked
   const changeTool = (next: SidebarTool | null): void => {
     setSelection({ sessionId: activeChatId, tool: next })
     window.dispatchEvent(

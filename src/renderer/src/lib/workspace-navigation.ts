@@ -3,7 +3,7 @@ import { api } from './api'
 
 export const WORKSPACE_OPEN_FILE = 'roxy:workspace-open-file'
 export const WORKSPACE_OPEN_TOOL = 'roxy:workspace-open-tool'
-export type WorkspaceTab = 'files' | 'search' | 'git' | 'changes'
+export type WorkspaceTab = 'files' | 'search' | 'git' | 'changes' | 'terminal'
 export interface WorkspaceFileRequest {
   sessionId: string
   path: string

@@ -341,8 +341,11 @@ export const CHANNELS = {
   shellState: 'shell:state',
   shellClear: 'shell:clear',
   shellResize: 'shell:resize',
+  shellList: 'shell:list',
+  shellProfiles: 'shell:profiles',
   shellOutput: 'shell:output',
   shellExit: 'shell:exit',
+  shellTitle: 'shell:title',
 
   queueList: 'queue:list',
   queueAdd: 'queue:add',

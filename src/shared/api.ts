@@ -990,13 +990,78 @@ export interface WorkspaceFileRenameResult {
 
 export type WorkspaceFileWrite = { status: 'saved'; revision: string } | { status: 'conflict' }
 
-export type ShellType = 'powershell' | 'cmd' | 'bash'
+/**
+ * A shell the integrated terminal can launch. These are persisted ids and
+ * compared with `===`, so they are never translated.
+ */
+export type ShellType =
+  | 'powershell' // Windows PowerShell 5.1
+  | 'pwsh' // PowerShell 7+
+  | 'cmd'
+  | 'gitbash'
+  | 'wsl'
+  | 'bash'
+  | 'zsh'
+  | 'fish'
+
+/** A shell detected on this machine. */
+export interface ShellProfile {
+  type: ShellType
+  /** Absolute path of the executable that will be spawned. */
+  path: string
+  /** The platform default — what a new terminal opens when nothing is chosen. */
+  isDefault: boolean
+}
+
+/**
+ * How the shell is attached. `conpty`/`winpty`/`unix` are real pseudoterminals;
+ * `pipe` is the degraded stdin/stdout fallback used only when node-pty fails.
+ */
+export type ShellBackend = 'conpty' | 'winpty' | 'unix' | 'pipe'
+
+export interface ShellStartOptions {
+  shellType?: ShellType
+  /** Initial size, so the first prompt/banner is laid out at the real width. */
+  cols?: number
+  rows?: number
+  /** Display number for the tab ("PowerShell 2"); persisted with the session. */
+  ordinal?: number
+}
 
 export interface ShellState {
+  sessionId: string
   running: boolean
   shellType: ShellType
+  backend: ShellBackend
+  /** Windows build number, for xterm's ConPTY reflow heuristics. */
+  windowsBuild?: number
   cwd: string
-  output: string
+  /** Last OSC 0/2 title the shell set (e.g. `C:\WINDOWS\system32\cmd.exe`). */
+  title: string
+  ordinal: number
+  /** Exit code once the process has ended; null while running / never started. */
+  exitCode: number | null
+  /** Dimensions the snapshot was serialized at. */
+  cols: number
+  rows: number
+  /**
+   * The screen + scrollback serialized as VT sequences by a headless mirror in
+   * main. Writing it into a fresh xterm reproduces the terminal exactly
+   * (colors, cursor, alternate screen), so re-attaching loses nothing.
+   */
+  snapshot: string
+  /** Output sequence the snapshot includes; drop live chunks with seq <= this. */
+  seq: number
+}
+
+/** One live (or exited but not yet closed) terminal belonging to a chat. */
+export interface ShellSessionInfo {
+  sessionId: string
+  shellType: ShellType
+  running: boolean
+  title: string
+  ordinal: number
+  exitCode: number | null
 }
 
 export interface RoxyApi {
@@ -1564,24 +1629,41 @@ export interface RoxyApi {
     close(): Promise<void>
   }
   shell: {
-    /** Start or attach to a persistent shell session for this workspace/chat. */
-    start(sessionId: string, shellType?: ShellType): Promise<ShellState>
-    /** Write input or command to the shell stdin. Use '\x03' for Ctrl+C interrupt. */
+    /**
+     * Attach to the session, starting it if it is not running. Options only
+     * apply when a process is spawned: attaching never kills a live shell, so
+     * the returned `shellType` is authoritative.
+     */
+    start(sessionId: string, options?: ShellStartOptions): Promise<ShellState>
+    /** Write raw terminal input (keystrokes, pastes, `\x03` for Ctrl+C). */
     write(sessionId: string, data: string): Promise<boolean>
-    /** Kill the running shell process tree for this session. */
+    /** Kill the shell's process tree and forget the session. */
     kill(sessionId: string): Promise<boolean>
-    /** Terminate and immediately restart a fresh shell in this session's cwd. */
-    restart(sessionId: string, shellType?: ShellType): Promise<ShellState>
-    /** Get current shell running state and scrollback buffer. */
+    /** Kill and relaunch, optionally as a different shell. */
+    restart(sessionId: string, options?: ShellStartOptions): Promise<ShellState>
+    /** Current state plus a serialized snapshot of the screen. */
     getState(sessionId: string): Promise<ShellState>
-    /** Clear the persistent shell's scrollback buffer. */
+    /** Every terminal belonging to a chat (its own id and `chatId#…` tabs). */
+    list(chatId: string): Promise<ShellSessionInfo[]>
+    /** Shells installed on this machine, default first. */
+    profiles(): Promise<ShellProfile[]>
+    /** Clear the scrollback (the shell's own `cls`/`clear` is unaffected). */
     clear(sessionId: string): Promise<boolean>
     /** Resize the pseudoterminal dimensions. */
     resize(sessionId: string, cols: number, rows: number): Promise<boolean>
-    /** Subscribe to realtime stdout/stderr chunks from the persistent shell. */
-    onOutput(callback: (data: { sessionId: string; chunk: string }) => void): () => void
-    /** Subscribe to shell process exit events. */
+    /**
+     * Absolute path of a dropped file (Electron no longer exposes `File.path`).
+     * Synchronous; empty string when the file has no backing path.
+     */
+    pathForFile(file: File): string
+    /** Realtime output. `seq` increases monotonically per session. */
+    onOutput(
+      callback: (data: { sessionId: string; chunk: string; seq: number }) => void
+    ): () => void
+    /** The process ended (not fired for a deliberate kill/restart). */
     onExit(callback: (data: { sessionId: string; code: number | null }) => void): () => void
+    /** The shell changed its window title (OSC 0/2). */
+    onTitle(callback: (data: { sessionId: string; title: string }) => void): () => void
   }
   queue: {
     list(chatId: string): Promise<QueueItem[]>

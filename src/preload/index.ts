@@ -1,6 +1,6 @@
 import type { CheatState } from '../shared/cheat'
 import type { EngineeringState } from '../shared/engineering-tools'
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { exposeNarrete } from './narrete'
 import { CHANNELS } from '../shared/ipc'
@@ -535,17 +535,26 @@ const roxy: RoxyApi = {
     close: () => ipcRenderer.invoke(CHANNELS.terminalCloseWindow)
   },
   shell: {
-    start: (sessionId, shellType) => ipcRenderer.invoke(CHANNELS.shellStart, sessionId, shellType),
+    start: (sessionId, options) => ipcRenderer.invoke(CHANNELS.shellStart, sessionId, options),
     write: (sessionId, data) => ipcRenderer.invoke(CHANNELS.shellInput, sessionId, data),
     kill: (sessionId) => ipcRenderer.invoke(CHANNELS.shellKill, sessionId),
-    restart: (sessionId, shellType) =>
-      ipcRenderer.invoke(CHANNELS.shellRestart, sessionId, shellType),
+    restart: (sessionId, options) => ipcRenderer.invoke(CHANNELS.shellRestart, sessionId, options),
     getState: (sessionId) => ipcRenderer.invoke(CHANNELS.shellState, sessionId),
+    list: (chatId) => ipcRenderer.invoke(CHANNELS.shellList, chatId),
+    profiles: () => ipcRenderer.invoke(CHANNELS.shellProfiles),
     clear: (sessionId) => ipcRenderer.invoke(CHANNELS.shellClear, sessionId),
     resize: (sessionId, cols, rows) =>
       ipcRenderer.invoke(CHANNELS.shellResize, sessionId, cols, rows),
+    pathForFile: (file) => {
+      try {
+        return webUtils.getPathForFile(file)
+      } catch {
+        return ''
+      }
+    },
     onOutput: (handler) => {
-      const fn = (_e: unknown, data: { sessionId: string; chunk: string }): void => handler(data)
+      const fn = (_e: unknown, data: { sessionId: string; chunk: string; seq: number }): void =>
+        handler(data)
       ipcRenderer.on(CHANNELS.shellOutput, fn)
       return () => ipcRenderer.removeListener(CHANNELS.shellOutput, fn)
     },
@@ -554,6 +563,11 @@ const roxy: RoxyApi = {
         handler(data)
       ipcRenderer.on(CHANNELS.shellExit, fn)
       return () => ipcRenderer.removeListener(CHANNELS.shellExit, fn)
+    },
+    onTitle: (handler) => {
+      const fn = (_e: unknown, data: { sessionId: string; title: string }): void => handler(data)
+      ipcRenderer.on(CHANNELS.shellTitle, fn)
+      return () => ipcRenderer.removeListener(CHANNELS.shellTitle, fn)
     }
   },
   queue: {

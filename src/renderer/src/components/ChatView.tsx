@@ -41,7 +41,7 @@ import { cn } from '../lib/cn'
 import { api } from '../lib/api'
 import { writeClipboardText } from '../lib/clipboard'
 import { CanvasTranscript } from '../canvas/CanvasTranscript'
-import { CommandsDialog } from './CommandsDialog'
+import { TerminalDock } from './TerminalDock'
 import { ContextFilePickerModal } from './ContextFilePickerModal'
 import { Composer } from './Composer'
 import { BotSettingsPane } from './BotSettingsPane'
@@ -383,19 +383,35 @@ export function ChatView({
   // IDE mode has its own file tree, editor and git views; the inspector is the
   // lightweight equivalent for the regular chat layout only.
   const [inspectorSession, setInspectorSession] = useState<string | null>(null)
-  const [requestedTab, setRequestedTab] = useState<{ tab: WorkspaceTab }>()
+  const [requestedTab, setRequestedTab] = useState<{ tab: Exclude<WorkspaceTab, 'terminal'> }>()
+  const [terminalSession, setTerminalSession] = useState<string | null>(null)
+  useEffect(() => {
+    if (commandsOpen) setTerminalSession(activeChatId)
+  }, [commandsOpen, activeChatId])
+  useEffect(() => {
+    const toggleTerminal = (event: KeyboardEvent): void => {
+      if (event.ctrlKey && event.code === 'Backquote' && !event.altKey && !event.metaKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (activeChatId) setCommandsOpen(!useRoxyStore.getState().commandsOpen)
+      }
+    }
+    window.addEventListener('keydown', toggleTerminal, true)
+    return () => window.removeEventListener('keydown', toggleTerminal, true)
+  }, [activeChatId, setCommandsOpen])
   useEffect(() => {
     const open = (event: Event): void => {
       const detail = (event as CustomEvent<{ sessionId: string; tab: WorkspaceTab | null }>).detail
       if (detail.sessionId !== activeChatId) return
-      setInspectorSession(detail.tab ? activeChatId : null)
-      if (detail.tab) setRequestedTab({ tab: detail.tab })
+      setCommandsOpen(detail.tab === 'terminal')
+      setInspectorSession(detail.tab && detail.tab !== 'terminal' ? activeChatId : null)
+      if (detail.tab && detail.tab !== 'terminal') setRequestedTab({ tab: detail.tab })
       else setSelectedFile(null)
     }
     window.addEventListener(WORKSPACE_OPEN_TOOL, open)
     return () => window.removeEventListener(WORKSPACE_OPEN_TOOL, open)
   }, [activeChatId])
-  const inspectorOpen = inspectorSession === activeChatId && !!activeChatId
+  const inspectorOpen = !commandsOpen && inspectorSession === activeChatId && !!activeChatId
   const inspection = useWorkspaceInspection(activeChat, inspectorOpen)
   const [selectedFile, setSelectedFile] = useState<{
     sessionId: string
@@ -768,6 +784,7 @@ export function ChatView({
                   failed={inspection.failed}
                   open={inspectorOpen}
                   onToggle={() => {
+                    setCommandsOpen(false)
                     setInspectorSession(inspectorOpen ? null : activeChat.id)
                     if (inspectorOpen) setSelectedFile(null)
                   }}
@@ -1125,8 +1142,10 @@ export function ChatView({
         />
       )}
 
-      {commandsOpen && activeChat && (
-        <CommandsDialog
+      {(commandsOpen || terminalSession === activeChat.id) && activeChat && (
+        <TerminalDock
+          key={activeChat.id}
+          open={commandsOpen}
           chat={activeChat}
           onClose={() => {
             setCommandsOpen(false)
