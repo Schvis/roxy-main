@@ -546,8 +546,7 @@ export function Sidebar({
         data-sidebar-surface
         className="sidebar-rail relative flex h-full shrink-0 flex-col items-center border-r border-border bg-surface"
       >
-        <div className="titlebar reserve-controls-left h-[54px] w-full shrink-0" />
-        <div className="flex flex-col items-center gap-1 pt-1">
+        <div className="flex flex-col items-center gap-1 pt-2.5">
           <button
             onClick={() => setRailed(false)}
             title={t('sidebar.expand')}
