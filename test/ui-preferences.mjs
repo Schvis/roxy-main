@@ -783,7 +783,7 @@ assert.equal(
 const chatViewSource = readFileSync('src/renderer/src/components/ChatView.tsx', 'utf8')
 const localBackgroundConditions = [
   ...chatViewSource.matchAll(
-    /\{([^{}\n]+) && (?:\(\s*)?<ChatBackground empty(?:=\{isEmpty\})?\s*\/>/g
+    /\{([^{}\n]+) && (?:\(\s*)?<ChatBackground empty(?:=\{(?:isEmpty|backgroundEmpty)\})?\s*\/>/g
   )
 ].map((match) => match[1])
 assert.equal(localBackgroundConditions.length, 2, 'empty and active chat background guards found')
