@@ -507,7 +507,8 @@ export function Composer({
     if (nonImages.length > 0 && activeChatId) {
       event.preventDefault()
       for (const f of nonImages) {
-        const diskPath = (f as { path?: string }).path || f.name
+        const diskPath = api.shell.pathForFile(f)
+        if (!diskPath) continue
         addPendingContextAttachment(
           activeChatId,
           createContextAttachment('file', diskPath, effectiveRoot)

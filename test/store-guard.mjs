@@ -1403,6 +1403,44 @@ const chatView = readFileSync(
   new URL('../src/renderer/src/components/ChatView.tsx', import.meta.url),
   'utf8'
 ).replace(/\r\n/g, '\n')
+const dropHandler = composer.match(
+  /  const onDrop = \(event: DragEvent<HTMLDivElement>\): void => \{[\s\S]*?\n  \}/
+)?.[0]
+if (!dropHandler) throw new Error('Missing composer drop handler')
+const droppedPaths = []
+const droppedFile = { name: 'notes.txt', type: 'text/plain' }
+const unresolvedFile = { name: 'unresolved.txt', type: 'text/plain' }
+const drop = new Function(
+  'setDragging',
+  'imageMode',
+  'imageFilesFrom',
+  'addFiles',
+  'activeChatId',
+  'api',
+  'addPendingContextAttachment',
+  'createContextAttachment',
+  'effectiveRoot',
+  `${transformSync(dropHandler, { loader: 'ts' }).code}; return onDrop`
+)(
+  () => {},
+  false,
+  () => [],
+  () => {},
+  'chat',
+  { shell: { pathForFile: (file) => (file === droppedFile ? 'C:/outside/notes.txt' : '') } },
+  (_id, path) => droppedPaths.push(path),
+  (_type, path) => path,
+  'C:/workspace'
+)
+drop({ dataTransfer: { files: [droppedFile, unresolvedFile] }, preventDefault() {} })
+check(
+  'dropped external files use their actual disk path, not a workspace-relative basename',
+  droppedPaths[0] === 'C:/outside/notes.txt'
+)
+check(
+  'dropped files without a disk path do not invent a workspace attachment',
+  droppedPaths.length === 1
+)
 check(
   'ChatView identifies the composer with the active chat',
   /<Composer\s+[\s\S]*?chatId=\{activeChat\.id\}/.test(chatView)
