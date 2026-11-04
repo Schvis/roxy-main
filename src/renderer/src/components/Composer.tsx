@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { useVoiceHandsFree } from '../lib/voice-handsfree'
 import { ModelPicker } from './ModelPicker'
+import { VoiceMeter } from './VoiceMeter'
 import {
   ContextMeter,
   ContextPicker,
@@ -1049,6 +1050,9 @@ export function Composer({
               >
                 <MousePointer2 aria-hidden className="h-4 w-4" />
               </button>
+            )}
+            {voice.enabled && voice.phase === 'recording' && (
+              <VoiceMeter subscribe={voice.subscribeLevel} className="px-1 text-accent" />
             )}
             {voice.enabled && (
               <button

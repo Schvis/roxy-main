@@ -23,7 +23,8 @@ import {
   type VoiceEvent,
   type VoiceResult,
   type VoiceSettings,
-  type VoiceState
+  type VoiceState,
+  voiceLevel
 } from '../../shared/voice'
 import { getChat, getVoiceSettings, setVoiceSettings } from '../db/repo'
 import { createHandsFree } from './voice-handsfree'
@@ -443,6 +444,7 @@ async function startVoice(id: string, chatId: string, owner: WebContents): Promi
           void stopVoice(false, 'tooSlow')
           return
         }
+        emit({ type: 'level', recordingId: id, level: voiceLevel(samples) })
         try {
           worker.postMessage({ type: 'audio', recordingId: id, samples })
         } catch {
