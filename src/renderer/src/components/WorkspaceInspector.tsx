@@ -2,9 +2,7 @@ import { resolveWorkspaceFile } from '../lib/workspace-navigation'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Check,
-  ChevronRight,
   Copy,
-  Folder,
   FolderOpen,
   GitBranch,
   GitCompareArrows,
@@ -19,8 +17,6 @@ import { workspaceMedia } from '@shared/workspace-inspector'
 import type {
   InspectionResult,
   WorkspaceChange,
-  WorkspaceEntry,
-  WorkspaceRoot,
   WorkspaceSnapshot
 } from '@shared/workspace-inspector'
 import { statusKeyForSession } from '@shared/workstream'
@@ -31,7 +27,7 @@ import { DiffViewer } from './diff/DiffViewer'
 import { FileIcon } from './FileIcon'
 import { WorkspaceMediaPreview } from './WorkspaceMediaPreview'
 import { WorkspaceSearch } from './WorkspaceSearch'
-import { WorkspaceFileActions } from './WorkspaceFileActions'
+import { WorkspaceFileTree, WorkspaceRootHeader } from './WorkspaceFileTree'
 const FileEditor = lazy(() => import('./WorkspaceFileEditor'))
 const GitRepositoriesView = lazy(() =>
   import('./GitRepositoriesView').then((module) => ({ default: module.GitRepositoriesView }))
@@ -230,120 +226,6 @@ function ChangeRow({
   )
 }
 
-function Directory({
-  sessionId,
-  root,
-  directory = '',
-  depth = 0,
-  onSelect
-}: {
-  sessionId: string
-  root: WorkspaceRoot
-  directory?: string
-  depth?: number
-  onSelect: (selection: WorkspaceSelection) => void
-}): JSX.Element | null {
-  const { t } = useTranslation()
-  const [result, setResult] = useState<InspectionResult<{
-    entries: WorkspaceEntry[]
-    partial: boolean
-  }> | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    void api.workspace
-      .list(sessionId, root.id, directory)
-      .then((value) => {
-        if (!cancelled) setResult(value)
-      })
-      .catch(() => {
-        if (!cancelled) setResult({ ok: false, reason: 'unavailable' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [sessionId, root, directory])
-  if (!result) return null
-  if (!result.ok)
-    return (
-      <div role="status" className="px-3 py-2 text-[11px] text-text-subtle">
-        {t(`inspector.${result.reason}`)}
-      </div>
-    )
-  return (
-    <>
-      {result.entries.map((entry) =>
-        entry.kind === 'directory' ? (
-          <DirectoryBranch key={entry.path} {...{ sessionId, root, depth, entry, onSelect }} />
-        ) : (
-          <button
-            type="button"
-            key={entry.path}
-            disabled={entry.kind === 'link'}
-            title={entry.path}
-            onClick={() => onSelect({ rootId: root.id, path: entry.path, comparison: false })}
-            className="flex h-7 w-full items-center gap-2 rounded-md pr-2 text-left text-xs hover:bg-white/5 disabled:opacity-40"
-            style={{ paddingLeft: 24 + depth * 14 }}
-          >
-            <FileIcon path={entry.name} />
-            <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-            {root.changes.some((change) => change.path === entry.path) && (
-              <span className="h-1 w-1 shrink-0 rounded-full bg-success" />
-            )}
-          </button>
-        )
-      )}
-      {result.partial && (
-        <p className="p-3 text-[11px] text-text-subtle">{t('inspector.partial')}</p>
-      )}
-      {!result.entries.length && (
-        <p className="px-3 py-2 text-[11px] text-text-subtle">{t('inspector.emptyFolder')}</p>
-      )}
-    </>
-  )
-}
-
-function DirectoryBranch({
-  sessionId,
-  root,
-  depth,
-  entry,
-  onSelect
-}: {
-  sessionId: string
-  root: WorkspaceRoot
-  depth: number
-  entry: WorkspaceEntry
-  onSelect: (selection: WorkspaceSelection) => void
-}): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const changed = root.changes.some((change) => change.path.startsWith(entry.path + '/'))
-  return (
-    <>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        title={entry.path}
-        className="flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs hover:bg-white/5"
-        style={{ paddingLeft: 6 + depth * 14 }}
-      >
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-text-subtle', open && 'rotate-90')} />
-        {open ? (
-          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-        ) : (
-          <Folder className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-        )}
-        <span className={cn('min-w-0 flex-1 truncate', changed && 'text-warning')}>
-          {entry.name}
-        </span>
-      </button>
-      {open && (
-        <Directory {...{ sessionId, root, onSelect }} directory={entry.path} depth={depth + 1} />
-      )}
-    </>
-  )
-}
-
 export function WorkspaceFileCanvas({
   sessionId,
   selection,
@@ -525,7 +407,6 @@ export function WorkspaceInspector({
   useEffect(() => {
     if (requestedTab) setTab(requestedTab.tab)
   }, [requestedTab])
-  const [treeVersion, setTreeVersion] = useState(0)
   const workspaceRoot = useRoxyStore((state) => {
     const chat = state.chats.find((candidate) => candidate.id === sessionId)
     const owner = chat?.parentId
@@ -750,14 +631,6 @@ export function WorkspaceInspector({
             {t('inspector.unavailable')}
           </p>
         )}
-        {tab === 'files' && (
-          <WorkspaceFileActions
-            sessionId={sessionId}
-            onChanged={() => {
-              setTreeVersion((value) => value + 1)
-            }}
-          />
-        )}
         {tab === 'search' && snapshot?.roots[0] && (
           <WorkspaceSearch
             sessionId={sessionId}
@@ -780,56 +653,44 @@ export function WorkspaceInspector({
         )}
         {tab !== 'git' &&
           tab !== 'search' &&
-          snapshot?.roots.map((root) => (
-            <section key={root.id} className="mb-3">
-              <div className="flex h-8 items-center gap-1.5 px-2 text-[10px] text-text-subtle">
-                <ChevronRight className="h-3 w-3 rotate-90" />
-                <span className="min-w-0 truncate font-semibold uppercase tracking-wider text-text-muted">
-                  {root.name}
-                </span>
-                {root.branch && (
-                  <span
-                    title={root.branch}
-                    className="ml-auto flex min-w-0 items-center gap-1 truncate"
-                  >
-                    <GitBranch className="h-3 w-3 shrink-0" />
-                    <span className="max-w-28 truncate">{root.branch}</span>
-                  </span>
+          snapshot?.roots.map((root) =>
+            tab === 'files' && !root.unavailable ? (
+              <WorkspaceFileTree key={root.id} {...{ sessionId, root, onSelect }} />
+            ) : (
+              <section key={root.id} className="mb-3">
+                <WorkspaceRootHeader root={root} />
+                {root.unavailable ? (
+                  <p className="p-3 text-xs text-text-subtle">{t('inspector.unavailable')}</p>
+                ) : (
+                  <>
+                    {root.changes.map((change) => (
+                      <ChangeRow
+                        key={change.path}
+                        change={change}
+                        onSelect={() =>
+                          onSelect({ rootId: root.id, path: change.path, comparison: true })
+                        }
+                      />
+                    ))}
+                    {!root.changes.length && (
+                      <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                        <GitCompareArrows className="mb-1 h-5 w-5 text-text-subtle/60" />
+                        <span className="text-xs text-text-muted">
+                          {t(root.isRepo ? 'inspector.clean' : 'inspector.noGit')}
+                        </span>
+                        <span className="text-[11px] text-text-subtle">
+                          {t(root.isRepo ? 'inspector.cleanBody' : 'inspector.noGitBody')}
+                        </span>
+                      </div>
+                    )}
+                    {root.partial && (
+                      <p className="p-3 text-[11px] text-text-subtle">{t('inspector.partial')}</p>
+                    )}
+                  </>
                 )}
-              </div>
-              {root.unavailable ? (
-                <p className="p-3 text-xs text-text-subtle">{t('inspector.unavailable')}</p>
-              ) : tab === 'files' ? (
-                <Directory key={`${root.id}:${treeVersion}`} {...{ sessionId, root, onSelect }} />
-              ) : (
-                <>
-                  {root.changes.map((change) => (
-                    <ChangeRow
-                      key={change.path}
-                      change={change}
-                      onSelect={() =>
-                        onSelect({ rootId: root.id, path: change.path, comparison: true })
-                      }
-                    />
-                  ))}
-                  {!root.changes.length && (
-                    <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-                      <GitCompareArrows className="mb-1 h-5 w-5 text-text-subtle/60" />
-                      <span className="text-xs text-text-muted">
-                        {t(root.isRepo ? 'inspector.clean' : 'inspector.noGit')}
-                      </span>
-                      <span className="text-[11px] text-text-subtle">
-                        {t(root.isRepo ? 'inspector.cleanBody' : 'inspector.noGitBody')}
-                      </span>
-                    </div>
-                  )}
-                  {root.partial && (
-                    <p className="p-3 text-[11px] text-text-subtle">{t('inspector.partial')}</p>
-                  )}
-                </>
-              )}
-            </section>
-          ))}
+              </section>
+            )
+          )}
       </div>
     </aside>
   )
