@@ -140,9 +140,9 @@ window.roxy = {
   clipboard: {
     hasContent: async () => false,
     exec: async () => {},
-    writeText: async (text: string) => {
-      window.__canvasTest.copied.push(text)
-    },
+    // Delegate to the page clipboard so tests that stub navigator.clipboard (failures,
+    // pending writes) also govern the bridge that lib/clipboard tries first.
+    writeText: (text: string) => navigator.clipboard.writeText(text),
     writeImage: async (dataUrl: string) => {
       window.__canvasTest.copiedImages.push(dataUrl)
     }

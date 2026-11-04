@@ -1102,7 +1102,9 @@ export function Composer({
                   type="button"
                   onClick={() => void submit()}
                   disabled={!canSend}
-                  title={t('composer.addToQueue')}
+                  aria-label={t('composer.addToQueue')}
+                  aria-keyshortcuts="Enter"
+                  title={t('composer.addToQueueHint')}
                   className={cn(
                     'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg border border-border bg-surface text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-30',
                     isCompact ? 'w-8' : 'gap-1.5 px-2.5 text-xs font-medium'
@@ -1115,6 +1117,8 @@ export function Composer({
                   type="button"
                   onClick={() => void submit(undefined, true)}
                   disabled={!canSend}
+                  aria-label={t('composer.forceSendLabel')}
+                  aria-keyshortcuts="Control+Enter Meta+Enter"
                   title={t('composer.forceSend')}
                   className={cn(
                     'press-scale flex h-8 shrink-0 items-center justify-center sq sq-lg rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-30',
