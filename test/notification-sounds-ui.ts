@@ -22,8 +22,8 @@ const errors: string[] = []
 const wait = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50))
 const evaluate = (code: string): Promise<any> =>
   window.webContents.executeJavaScript(`(async () => { ${code} })()`, true)
-async function until(code: string): Promise<void> {
-  for (let i = 0; i < 200; i++) {
+async function until(code: string, attempts = 200): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
     if (await evaluate(`return !!(${code})`)) return
     await wait()
   }
@@ -42,6 +42,25 @@ async function button(label: string): Promise<void> {
 function key(event: Electron.KeyboardInputEvent): void {
   window.webContents.focus()
   window.webContents.sendInputEvent(event)
+}
+// Focusing a hidden window is asynchronous on Windows, so a key sent right after can
+// be dropped before it reaches the page. Resend a navigation key only while focus has
+// provably not moved: a delivered key always moves it, so it never applies twice.
+let pressCount = 0
+async function press(keyCode: string, expected: string): Promise<void> {
+  const mark = `press-${++pressCount}`
+  await evaluate(`document.activeElement.dataset.pressMark = ${JSON.stringify(mark)}`)
+  for (let attempt = 0; attempt < 5; attempt++) {
+    key({ type: 'keyDown', keyCode })
+    try {
+      return await until(expected, 40)
+    } catch (error) {
+      const stuck = await evaluate(
+        `return document.activeElement?.dataset.pressMark === ${JSON.stringify(mark)}`
+      )
+      if (!stuck || attempt === 4) throw error
+    }
+  }
 }
 
 async function run(): Promise<void> {
@@ -140,10 +159,8 @@ async function run(): Promise<void> {
   assert.equal(getSoundLibrary().selectedId, null)
   assert.equal(getSettings().notifyOnComplete, false)
   await until(`document.activeElement === document.querySelector('[role=menuitemradio]')`)
-  key({ type: 'keyDown', keyCode: 'End' })
-  await until(`document.activeElement.getAttribute('aria-label') === 'Delete Demo sound'`)
-  key({ type: 'keyDown', keyCode: 'Up' })
-  await until(`document.activeElement.textContent.trim() === 'Demo sound'`)
+  await press('End', `document.activeElement.getAttribute('aria-label') === 'Delete Demo sound'`)
+  await press('Up', `document.activeElement.textContent.trim() === 'Demo sound'`)
   key({ type: 'keyDown', keyCode: 'Enter' })
   key({ type: 'char', keyCode: '\r' })
   key({ type: 'keyUp', keyCode: 'Enter' })
@@ -247,16 +264,13 @@ async function run(): Promise<void> {
     'delete is only visible inside the menu'
   )
   await evaluate(`document.querySelector('#notification-sound').focus()`)
-  key({ type: 'keyDown', keyCode: 'Down' })
-  await until(
+  await press(
+    'Down',
     `document.querySelector('[role=menuitemradio][aria-checked=true]') === document.activeElement`
   )
-  key({ type: 'keyDown', keyCode: 'Down' })
-  await until(`document.activeElement.getAttribute('aria-label') === 'Delete Demo sound'`)
-  key({ type: 'keyDown', keyCode: 'Home' })
-  await until(`document.activeElement.textContent.trim() === 'Default'`)
-  key({ type: 'keyDown', keyCode: 'Escape' })
-  await until(`!document.querySelector('[role=menu]')`)
+  await press('Down', `document.activeElement.getAttribute('aria-label') === 'Delete Demo sound'`)
+  await press('Home', `document.activeElement.textContent.trim() === 'Default'`)
+  await press('Escape', `!document.querySelector('[role=menu]')`)
   assert.equal(await evaluate(`return document.activeElement.id`), 'notification-sound')
   await evaluate(`document.querySelector('#notification-sound').click()`)
   await until(`document.querySelector('[role=menu]')`)
