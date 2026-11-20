@@ -331,6 +331,24 @@ const REPAIR_SCHEMA_SQL = /* sql */ `
 `
 
 /**
+ * The latest state of each assistant reply still streaming, rewritten while the
+ * turn runs. It is deleted in the same transaction that saves the final reply, so
+ * a row left over at startup means the app died mid-turn. It is kept apart from
+ * `messages` so the live UI, the history rebuild and the activity ledger never
+ * see half a reply as a finished one.
+ */
+const TURN_CHECKPOINTS_SQL = /* sql */ `
+  CREATE TABLE IF NOT EXISTS turn_checkpoints (
+    queue_id     TEXT PRIMARY KEY,
+    chat_id      TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    parts        TEXT NOT NULL,
+    bot_id       TEXT,
+    bot_username TEXT,
+    updated_at   INTEGER NOT NULL
+  );
+`
+
+/**
  * Migrations, applied in order. The array index + 1 is the schema version
  * tracked via SQLite's `PRAGMA user_version`. Append new migrations; never edit
  * an existing one once shipped.
@@ -764,6 +782,11 @@ export const MIGRATIONS: Migration[] = [
   // ---- v31: failed retries replace only their own response ----
   (db) => {
     addColumnIfMissing(db, 'queue', 'response_message_id', 'TEXT')
+  },
+
+  // ---- crash-safe checkpoints of in-flight assistant replies ----
+  (db) => {
+    db.exec(TURN_CHECKPOINTS_SQL)
   }
 ]
 
@@ -790,6 +813,7 @@ export const MIGRATIONS: Migration[] = [
  */
 export function repairSchema(db: Database): void {
   db.exec(REPAIR_SCHEMA_SQL)
+  db.exec(TURN_CHECKPOINTS_SQL)
   // Derived legacy account metadata is safe to repair, like project membership.
   // Never overwrite a migrated label or lower a persisted account counter.
   db.transaction(() => repairProviderAccounts(db))()

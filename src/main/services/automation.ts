@@ -29,6 +29,12 @@ import { subagentSnapshot } from './subagent-stream'
 import { runSessionTurn } from './session-turn'
 import { claimTurn, sessionBusy, queuePaused, resumeQueue, onTurnAvailable } from './turn-state'
 import {
+  createTurnCheckpointer,
+  clearTurnCheckpoint,
+  recoverTurnCheckpoints,
+  type TurnCheckpointer
+} from './turn-checkpoint'
+import {
   relayLocalTurnStart,
   relayLocalTurnEvent,
   relayLocalTurnEnd,
@@ -230,6 +236,10 @@ export function enqueuePrompt(
 
 export function startAutomation(): void {
   if (timer) return
+  // Keep whatever an interrupted turn had already done: its last checkpoint
+  // becomes an [interrupted] reply that later turns can see. It runs first so
+  // the reply is linked to the queue row that is about to be marked failed.
+  const recovered = recoverTurnCheckpoints()
   // Never replay uncertain tool side effects automatically after a crash.
   getDb()
     .prepare(
@@ -240,6 +250,7 @@ export function startAutomation(): void {
     .prepare("SELECT id, error FROM queue WHERE state = 'failed' AND message_id IS NULL")
     .all() as { id: string; error: string | null }[])
     repo.failQueueItem(row.id, row.error ?? 'Model request failed')
+  for (const chatId of recovered) notifyTranscriptChanged(chatId)
   timer = setInterval(wakeAutomation, 1000)
   unsubscribeTurns = onTurnAvailable(requestAutomationWake)
   wakeAutomation()
@@ -441,6 +452,7 @@ async function deliver(item: QueueItem): Promise<void> {
   let started = false
   let savedMessage: Message | undefined
   let relay: ReturnType<typeof relayLocalTurnStart> = null
+  let checkpoint: TurnCheckpointer | undefined
   try {
     relay = relayLocalTurnStart(item.chatId)
     // Read persisted handoff metadata before choosing the speaker and config.
@@ -486,6 +498,7 @@ async function deliver(item: QueueItem): Promise<void> {
         : undefined
     if (speaker) speakers.set(item.chatId, speaker)
     returnAuthor = speaker ?? {}
+    checkpoint = createTurnCheckpointer(item.id, item.chatId, speaker)
     // Clear only when admitted work starts, not when it is queued behind an active request.
     // Handoffs, background results, and tool replies continue the current request.
     const resetPlan = startsNewQueuedRequest(item)
@@ -636,6 +649,8 @@ async function deliver(item: QueueItem): Promise<void> {
             emit({ sessionId: item.chatId, kind: 'phase', phase: 'running' })
           }
           fold.apply(event)
+          // A finished tool is the costly part to lose, so it is saved right away.
+          checkpoint?.update(fold.parts, event.type === 'tool-end')
           if (
             event.type === 'tool-start' ||
             (event.type === 'tool-child' && event.event.type === 'tool-start')
@@ -659,7 +674,10 @@ async function deliver(item: QueueItem): Promise<void> {
         ? { botUsername: HOST_USERNAME }
         : {}
     returnAuthor = author
+    checkpoint?.close()
     savedMessage = getDb().transaction(() => {
+      // Rolled back with the rest if this save fails; the error path clears it.
+      clearTurnCheckpoint(item.id)
       if (!repo.getChat(item.chatId)) return
       const message = parts.length
         ? repo.addMessage({
@@ -736,7 +754,9 @@ async function deliver(item: QueueItem): Promise<void> {
     }
   } catch (error) {
     const message = redactImageData(error instanceof Error ? error.message : String(error))
+    checkpoint?.close()
     getDb().transaction(() => {
+      clearTurnCheckpoint(item.id)
       if (item.images?.length && !fold.parts.length && repo.getChat(item.chatId))
         savedMessage = repo.addMessage({
           chatId: item.chatId,
@@ -774,6 +794,7 @@ async function deliver(item: QueueItem): Promise<void> {
       repo.failQueueItem(item.id, message, savedMessage?.id)
     })()
   } finally {
+    checkpoint?.close()
     live.delete(item.chatId)
     activityStartedAt.delete(item.chatId)
     speakers.delete(item.chatId)
