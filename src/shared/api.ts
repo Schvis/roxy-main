@@ -1064,6 +1064,12 @@ export interface ShellSessionInfo {
   exitCode: number | null
 }
 
+export type WorktreeRootError = 'notAbsolute' | 'notWritable' | 'insideRepo' | 'validationFailed'
+
+export type SetWorktreeRootResult =
+  | { ok: true; settings: AppSettings }
+  | { ok: false; error: WorktreeRootError }
+
 export interface RoxyApi {
   files: {
     /** Root-relative or absolute contained path; '' and '.' select the session root.
@@ -1209,6 +1215,9 @@ export interface RoxyApi {
     /** Notify when a turn finishes: chime + OS toast, or nothing. */
     setNotifyOnComplete(enabled: boolean): Promise<AppSettings>
     setNarreteEnabled(enabled: boolean): Promise<AppSettings>
+    /** Only changes where future worktrees are created; never moves existing ones. */
+    setWorktreeRoot(dir: string | null): Promise<SetWorktreeRootResult>
+    defaultWorktreeRoot(): Promise<string>
     /** Set the UI language. An unknown code falls back to English. */
     setLanguage(language: Language): Promise<AppSettings>
     setMotion(motion: MotionPreference): Promise<AppSettings>
@@ -1595,6 +1604,8 @@ export interface RoxyApi {
     openWorkspace(): Promise<string | null>
     openFiles(options?: { title?: string; defaultPath?: string }): Promise<string[] | null>
     openFolders(options?: { title?: string; defaultPath?: string }): Promise<string[] | null>
+    /** Pick a parent folder and return its dedicated roxy subfolder for validation and creation. */
+    pickWorktreeRoot(): Promise<string | null>
   }
   config: {
     /** Export global skills + MCP configs to a file chosen via a save dialog. */

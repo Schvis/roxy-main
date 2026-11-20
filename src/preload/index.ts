@@ -157,6 +157,8 @@ const roxy: RoxyApi = {
     setNotifyOnComplete: (enabled) =>
       ipcRenderer.invoke(CHANNELS.settingsSetNotifyOnComplete, enabled),
     setNarreteEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetNarreteEnabled, enabled),
+    setWorktreeRoot: (dir) => ipcRenderer.invoke(CHANNELS.settingsSetWorktreeRoot, dir),
+    defaultWorktreeRoot: () => ipcRenderer.invoke(CHANNELS.settingsDefaultWorktreeRoot),
     setLanguage: (language) => ipcRenderer.invoke(CHANNELS.settingsSetLanguage, language),
     setMotion: (motion) => ipcRenderer.invoke(CHANNELS.settingsSetMotion, motion),
     setTtsEnabled: (enabled) => ipcRenderer.invoke(CHANNELS.settingsSetTtsEnabled, enabled),
@@ -492,7 +494,8 @@ const roxy: RoxyApi = {
   dialog: {
     openWorkspace: () => ipcRenderer.invoke(CHANNELS.dialogOpenWorkspace),
     openFiles: (options) => ipcRenderer.invoke(CHANNELS.dialogOpenFiles, options),
-    openFolders: (options) => ipcRenderer.invoke(CHANNELS.dialogOpenFolders, options)
+    openFolders: (options) => ipcRenderer.invoke(CHANNELS.dialogOpenFolders, options),
+    pickWorktreeRoot: () => ipcRenderer.invoke(CHANNELS.dialogPickWorktreeRoot)
   },
   config: {
     export: () => ipcRenderer.invoke(CHANNELS.configExport),

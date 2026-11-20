@@ -30,7 +30,7 @@ import {
 import { randomSlug, slugToBranchSegment } from '@shared/slugs'
 import { PageShell } from '../components/PageShell'
 import type { AppVersions } from '@shared/types'
-import type { UpdateInfo } from '@shared/api'
+import type { UpdateInfo, WorktreeRootError } from '@shared/api'
 import { resolveSeed } from '@shared/providers'
 import { LANGUAGES, SOURCE_LANGUAGE, normalizeLanguage } from '@shared/i18n'
 import { CodeHosts } from '../components/CodeHosts'
@@ -197,6 +197,10 @@ export default function Settings(): JSX.Element {
   const setTelemetryEnabled = useRoxyStore((s) => s.setTelemetryEnabled)
   const telemetryEnabled = useRoxyStore((s) => s.telemetryEnabled)
   const setBranchPrefix = useRoxyStore((s) => s.setBranchPrefix)
+  const setWorktreeRoot = useRoxyStore((s) => s.setWorktreeRoot)
+  const [defaultWorktreeRoot, setDefaultWorktreeRoot] = useState('')
+  const [worktreeRootBusy, setWorktreeRootBusy] = useState(false)
+  const [worktreeRootError, setWorktreeRootError] = useState<WorktreeRootError | null>(null)
   const setLanguage = useRoxyStore((s) => s.setLanguage)
   const setMotion = useRoxyStore((s) => s.setMotion)
   const setTtsEnabled = useRoxyStore((s) => s.setTtsEnabled)
@@ -379,6 +383,7 @@ export default function Settings(): JSX.Element {
   useEffect(() => {
     refreshProviders()
     api.system.getVersions().then(setVersions)
+    api.settings.defaultWorktreeRoot().then(setDefaultWorktreeRoot)
     api.updates.getState().then(setUpdate)
     const off = api.updates.onStatus((state) =>
       setUpdate((prev) => (prev ? { ...prev, state } : { version: '', packaged: true, state }))
@@ -392,6 +397,22 @@ export default function Settings(): JSX.Element {
     clearActive()
     await bootstrap()
     navigate('/onboarding')
+  }
+
+  const changeWorktreeRoot = async (reset = false): Promise<void> => {
+    if (worktreeRootBusy) return
+    setWorktreeRootBusy(true)
+    setWorktreeRootError(null)
+    try {
+      const dir = reset ? null : await api.dialog.pickWorktreeRoot()
+      if (!reset && dir === null) return
+      const result = await setWorktreeRoot(dir)
+      if (!result.ok) setWorktreeRootError(result.error)
+    } catch {
+      setWorktreeRootError('validationFailed')
+    } finally {
+      setWorktreeRootBusy(false)
+    }
   }
 
   const us = update?.state
@@ -1280,6 +1301,42 @@ export default function Settings(): JSX.Element {
             {prefixError && <p className="mt-2 text-xs text-danger">{prefixError}</p>}
             <p className="mt-2 text-xs text-text-subtle">
               {t('settings.workstreams.prefixFootnote')}
+            </p>
+          </div>
+          <div className="mt-3 sq sq-xl sq-ring rounded-xl border border-border bg-surface p-4">
+            <div id="settings-worktree-root" className="text-sm font-medium text-text">
+              {t('settings.workstreams.rootTitle')}
+            </div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {t('settings.workstreams.rootParentDescription')}
+            </p>
+            <div className="mt-3 break-all rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-text">
+              {settings?.worktreeRoot ?? (defaultWorktreeRoot || t('common.dash'))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                onClick={() => void changeWorktreeRoot()}
+                disabled={!settings || worktreeRootBusy}
+              >
+                {t('settings.workstreams.rootChange')}
+              </Button>
+              {settings?.worktreeRoot && (
+                <Button
+                  variant="ghost"
+                  onClick={() => void changeWorktreeRoot(true)}
+                  disabled={worktreeRootBusy}
+                >
+                  {t('settings.workstreams.rootReset')}
+                </Button>
+              )}
+            </div>
+            {worktreeRootError && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                {t(`settings.workstreams.rootError.${worktreeRootError}`)}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-text-subtle">
+              {t('settings.workstreams.rootFootnote')}
             </p>
           </div>
         </section>
