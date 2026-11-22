@@ -115,12 +115,29 @@ export interface QuotaRequest {
 
 export const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
 export const CLAUDE_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
-/** Tried in order: the daily endpoints answer for accounts the prod one rejects. */
+/**
+ * The grouped 5-hour/weekly limits Antigravity itself shows. Only the daily
+ * endpoints reflect real usage; prod answers but reports every group full.
+ */
+export const ANTIGRAVITY_SUMMARY_URLS = [
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+  'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary'
+]
+/**
+ * Per-model fallback for when the summary is unavailable. Tried in order: the
+ * daily endpoints answer for accounts the prod one rejects.
+ */
 export const ANTIGRAVITY_QUOTA_URLS = [
   'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
   'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
   'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
 ]
+/**
+ * Upstream gates models and quota groups on the client string: without `hub/`
+ * the Argon group and models are omitted, and the version must be full semver
+ * ("2.34" alone is treated as an old client).
+ */
+export const ANTIGRAVITY_USER_AGENT = 'antigravity/hub/2.34.0 windows/amd64'
 
 /** `$TOKEN$` is replaced by the sidecar; the literal never reaches upstream. */
 const BEARER = 'Bearer $TOKEN$'
@@ -157,15 +174,14 @@ export function quotaRequests(
         }
       ]
     case 'antigravity':
-      return ANTIGRAVITY_QUOTA_URLS.map((url) => ({
+      // The grouped summary first; the per-model list only if it yields nothing.
+      return [...ANTIGRAVITY_SUMMARY_URLS, ...ANTIGRAVITY_QUOTA_URLS].map((url) => ({
         method: 'POST' as const,
         url,
         header: {
           Authorization: BEARER,
           'Content-Type': 'application/json',
-          // Upstream gates newer models on this version; it must be full semver
-          // ("2.34" alone is treated as an old client).
-          'User-Agent': 'antigravity/2.34.0 windows/amd64'
+          'User-Agent': ANTIGRAVITY_USER_AGENT
         },
         data: '{}'
       }))
@@ -289,16 +305,88 @@ export function parseClaudeUsage(body: unknown): ParsedQuota {
   return { buckets }
 }
 
+type AntigravityGroup = 'argon' | 'gemini' | 'other'
+
+/** Which model family an upstream quota group meters. Argon first: its name also says Gemini. */
+function antigravityGroup(name: string): AntigravityGroup {
+  const n = name.toLowerCase()
+  if (n.includes('argon')) return 'argon'
+  if (n.includes('gemini')) return 'gemini'
+  return 'other'
+}
+
+const ANTIGRAVITY_GROUP_LABEL = {
+  argon: 'Argon',
+  gemini: 'Gemini',
+  other: 'Claude & GPT'
+} as const satisfies Record<AntigravityGroup, string>
+
 /**
- * How Antigravity actually meters: every Gemini model draws from one shared
- * pool, Argon has its own weekly pool, and the non-Gemini models (Claude,
- * GPT-OSS) share a third. Upstream still reports one entry per model id, so
- * the per-model entries are folded into these pools.
+ * `retrieveUserQuotaSummary`: the grouped limits Antigravity's own UI shows.
+ * Models in a group share a 5-hour and a weekly limit: one group for Gemini,
+ * one for Claude and GPT, and on Pro plans a separate weekly Argon group (Ultra
+ * plans fold Argon into the Gemini group, so it then meters Argon too).
+ */
+export function parseAntigravitySummary(body: unknown): ParsedQuota {
+  const payload = asObj(body)
+  const rawGroups = payload?.groups ?? asObj(payload?.quotaSummary)?.groups
+  if (!Array.isArray(rawGroups)) return { buckets: [] }
+  const groups = rawGroups.map(asObj).filter((g): g is Obj => !!g)
+  const kind = (g: Obj): AntigravityGroup =>
+    antigravityGroup(typeof g.displayName === 'string' ? g.displayName : '')
+  const separateArgon = groups.some((g) => kind(g) === 'argon')
+
+  const buckets: QuotaBucket[] = []
+  for (const group of groups) {
+    const family = kind(group)
+    const scope: Pick<QuotaBucket, 'family' | 'excludeFamilies'> =
+      family === 'argon'
+        ? { family: 'argon' }
+        : family === 'gemini'
+          ? { family: 'gemini', ...(separateArgon ? { excludeFamilies: ['argon'] } : {}) }
+          : { excludeFamilies: ['gemini'] }
+    const windows: QuotaBucket[] = []
+    for (const raw of Array.isArray(group.buckets) ? group.buckets : []) {
+      const b = asObj(raw)
+      if (!b) continue
+      const id = typeof b.bucketId === 'string' && b.bucketId ? b.bucketId : null
+      const window = String(b.window ?? '').toLowerCase()
+      const weekly = window === 'weekly' || /weekly/i.test(String(id ?? ''))
+      const fiveHour = window === '5h' || /(^|-)5h$/i.test(String(id ?? ''))
+      if (!id || (!weekly && !fiveHour)) continue
+      // Upstream disables the 5-hour window once the weekly one is spent; a
+      // disabled weekly window is not in force at all.
+      if (b.disabled === true && weekly) continue
+      const resetsAt = toEpochMs(b.resetTime ?? b.reset_time)
+      const fraction = num(b.remainingFraction ?? b.remaining_fraction)
+      // Proto JSON drops a zero fraction, so a window with a reset but no
+      // fraction is exhausted, not full.
+      const remaining =
+        b.disabled === true ? 0 : fraction !== null ? fraction * 100 : resetsAt ? 0 : null
+      if (remaining === null) continue
+      windows.push({
+        id,
+        label: `${ANTIGRAVITY_GROUP_LABEL[family]} ${weekly ? 'Weekly' : '5-hour'}`,
+        remaining: clampPct(remaining),
+        ...(resetsAt ? { resetsAt } : {}),
+        ...scope
+      })
+    }
+    // Shorter window first, as the other upstreams list them.
+    windows.sort((a, b) => Number(/weekly/i.test(a.label)) - Number(/weekly/i.test(b.label)))
+    buckets.push(...windows)
+  }
+  return { buckets }
+}
+
+/**
+ * Fallback when the summary is unavailable: `fetchAvailableModels` reports one
+ * entry per model id, folded here into the same families as the summary.
  */
 const ANTIGRAVITY_POOLS = [
   { id: 'gemini', label: 'Gemini', family: 'gemini', excludeFamilies: ['argon'] },
-  { id: 'gemini-argon', label: 'Weekly Argon', family: 'argon' },
-  { id: 'non-gemini', label: 'Non-Gemini models', excludeFamilies: ['gemini'] }
+  { id: 'gemini-argon', label: 'Argon Weekly', family: 'argon' },
+  { id: 'non-gemini', label: 'Claude & GPT', excludeFamilies: ['gemini'] }
 ] as const
 
 type AntigravityPool = (typeof ANTIGRAVITY_POOLS)[number]['id']
@@ -388,8 +476,11 @@ export function parseQuota(
       return parseCodexUsage(body, now)
     case 'claude':
       return parseClaudeUsage(body)
-    case 'antigravity':
-      return parseAntigravityModels(body)
+    case 'antigravity': {
+      // One upstream, two endpoints: the grouped summary or the per-model list.
+      const summary = parseAntigravitySummary(body)
+      return summary.buckets.length ? summary : parseAntigravityModels(body)
+    }
     default:
       return { buckets: [] }
   }

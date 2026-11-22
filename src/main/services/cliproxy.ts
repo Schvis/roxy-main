@@ -1132,8 +1132,9 @@ async function fetchConnectionQuota(connectionId: string): Promise<ConnectionQuo
     const status = res.status_code ?? 0
     if (status < 200 || status >= 300) {
       error = quotaErrorMessage(status, res.body ?? '')
-      // An auth failure won't improve on the next fallback URL.
-      if (status === 401 || status === 403) break
+      // An expired sign-in won't improve on the next fallback URL. A 403 may:
+      // Antigravity's fallbacks are different endpoints, not mirrors.
+      if (status === 401) break
       continue
     }
     const parsed = parseQuota(upstream, res.body ?? '')

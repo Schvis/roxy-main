@@ -51,8 +51,10 @@ import {
   copilotTokenCost,
   parseCopilotUser,
   parseAntigravityModels,
+  parseAntigravitySummary,
   parseClaudeUsage,
   parseCodexUsage,
+  parseQuota,
   quotaErrorMessage,
   quotaRequests
 } from '../src/shared/quota'
@@ -6949,7 +6951,7 @@ async function main(): Promise<void> {
     check(
       'quota: antigravity argon keeps its own weekly reset',
       pool('gemini-argon')?.resetsAt === Date.parse('2026-10-05T00:00:00Z') &&
-        pool('gemini-argon')?.label === 'Weekly Argon'
+        pool('gemini-argon')?.label === 'Argon Weekly'
     )
     check(
       'quota: antigravity skips tab/chat/internal/unmetered',
@@ -6992,6 +6994,121 @@ async function main(): Promise<void> {
         },
         'claude-opus-4-5'
       ).length === 1
+    )
+
+    // retrieveUserQuotaSummary, as a Pro account returns it.
+    const summaryBody = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              window: 'weekly',
+              resetTime: '2026-11-29T01:58:20Z',
+              remainingFraction: 0.91117376
+            },
+            {
+              bucketId: 'gemini-5h',
+              window: '5h',
+              resetTime: '2026-11-22T23:14:42Z',
+              remainingFraction: 1
+            }
+          ]
+        },
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', resetTime: '2026-11-29T18:14:42Z' },
+            { bucketId: '3p-5h', window: '5h', resetTime: '2026-11-22T23:14:42Z', disabled: true }
+          ]
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            {
+              bucketId: 'gemini-argon-wtu-weekly',
+              window: 'weekly',
+              resetTime: '2026-11-29T17:59:13Z',
+              remainingFraction: 0.99776655
+            }
+          ]
+        }
+      ]
+    }
+    const summary = parseQuota('antigravity', JSON.stringify(summaryBody))
+    const win = (id: string): QuotaBucket | undefined => summary.buckets.find((b) => b.id === id)
+    check(
+      'quota: antigravity summary lists each group 5-hour first',
+      summary.buckets.map((b) => b.id).join() ===
+        'gemini-5h,gemini-weekly,3p-5h,3p-weekly,gemini-argon-wtu-weekly',
+      JSON.stringify(summary)
+    )
+    check(
+      'quota: antigravity summary labels and percentages',
+      win('gemini-weekly')?.label === 'Gemini Weekly' &&
+        win('gemini-weekly')?.remaining === 91 &&
+        win('gemini-5h')?.label === 'Gemini 5-hour' &&
+        win('gemini-argon-wtu-weekly')?.label === 'Argon Weekly' &&
+        win('gemini-argon-wtu-weekly')?.remaining === 100 &&
+        win('3p-weekly')?.label === 'Claude & GPT Weekly'
+    )
+    check(
+      'quota: antigravity summary missing fraction with a reset means exhausted',
+      win('3p-weekly')?.remaining === 0
+    )
+    check(
+      'quota: antigravity summary disabled 5-hour window reads as exhausted',
+      win('3p-5h')?.remaining === 0
+    )
+    check(
+      'quota: antigravity summary keeps the Argon reset',
+      win('gemini-argon-wtu-weekly')?.resetsAt === Date.parse('2026-11-29T17:59:13Z')
+    )
+    const sq = { connectionId: 'c', upstream: 'antigravity' as const, fetchedAt: now, ...summary }
+    const limitsFor = (model: string | undefined): string =>
+      bucketsForModel(sq, model)
+        .map((b) => b.id)
+        .sort()
+        .join()
+    check(
+      'quota: summary Argon draws only from its weekly group',
+      limitsFor('roxy-abc/gemini-4-argon-high') === 'gemini-argon-wtu-weekly'
+    )
+    check(
+      'quota: summary Gemini draws from both Gemini windows',
+      limitsFor('gemini-3.8-flash-high') === 'gemini-5h,gemini-weekly'
+    )
+    check(
+      'quota: summary Claude and GPT share their group',
+      limitsFor('claude-opus-5-5-high') === '3p-5h,3p-weekly' &&
+        limitsFor('gpt-oss-120b-medium') === '3p-5h,3p-weekly'
+    )
+    check('quota: summary with no model has no applicable limit', limitsFor(undefined) === '')
+    const ultra = parseAntigravitySummary({ groups: summaryBody.groups.slice(0, 2) })
+    check(
+      'quota: without a separate Argon group, Argon draws from the Gemini group',
+      bucketsForModel({ ...sq, ...ultra }, 'gemini-4-argon-high')
+        .map((b) => b.id)
+        .sort()
+        .join() === 'gemini-5h,gemini-weekly'
+    )
+    check(
+      'quota: a per-model body still parses through the fallback',
+      parseQuota('antigravity', {
+        models: { 'gemini-3-flash': { quotaInfo: { remainingFraction: 0.5 } } }
+      }).buckets[0]?.id === 'gemini'
+    )
+    check(
+      'quota: an empty summary falls through to the per-model endpoint',
+      parseQuota('antigravity', { groups: [] }).buckets.length === 0
+    )
+    const agReqs = quotaRequests('antigravity')
+    check(
+      'quota: antigravity asks the grouped summary first, then the per-model list',
+      agReqs[0].url.endsWith(':retrieveUserQuotaSummary') &&
+        agReqs.at(-1)!.url.endsWith(':fetchAvailableModels') &&
+        agReqs.every((r) => r.header['User-Agent'].startsWith('antigravity/hub/'))
     )
 
     check(
