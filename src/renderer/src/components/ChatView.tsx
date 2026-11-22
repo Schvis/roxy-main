@@ -14,8 +14,6 @@ import {
   Check,
   ChevronRight,
   CornerUpLeft,
-  Edit3,
-  ExternalLink,
   FolderOpen,
   Hammer,
   ListTree,
@@ -23,11 +21,9 @@ import {
   RotateCw,
   Settings,
   Square,
-  Terminal,
-  Trash2,
-  X
+  Trash2
 } from 'lucide-react'
-import type { Chat, MessagePart } from '@shared/types'
+import type { Chat } from '@shared/types'
 import { isVisibleQueueItem } from '@shared/queue'
 import { backgroundOpacity } from '@shared/background'
 import { useBackground } from '../lib/background'
@@ -73,7 +69,6 @@ import {
   QueueSectionTrigger
 } from './Queue'
 import { Button } from './ui'
-import { extractTerminalInputOptions } from '../lib/agent-input-options'
 import roxy from '../assets/roxy.png'
 
 /**
@@ -101,129 +96,6 @@ import roxy from '../assets/roxy.png'
  * markdown and syntax-highlighting layers, the tool-card layouts, and the
  * painter.
  */
-
-export function findRunningTool(
-  parts: MessagePart[] | null
-): { tool: string; title: string; callId?: string; output?: string } | null {
-  if (!parts) return null
-  for (const p of parts) {
-    if (p.type === 'tool' && p.state === 'running') {
-      const title =
-        p.tool === 'bash'
-          ? typeof p.input?.command === 'string'
-            ? p.input.command
-            : (p.title ?? 'bash')
-          : (p.title ?? p.tool)
-      return { tool: p.tool, title, callId: p.callId, output: p.output }
-    }
-    if (p.type === 'tool' && p.children) {
-      for (const c of p.children) {
-        if (c.type === 'tool' && c.state === 'running') {
-          const title =
-            c.tool === 'bash'
-              ? typeof c.input?.command === 'string'
-                ? c.input.command
-                : (c.title ?? 'bash')
-              : (c.title ?? c.tool)
-          return { tool: c.tool, title, callId: c.callId, output: c.output }
-        }
-      }
-    }
-  }
-  return null
-}
-
-function findLatestTool(
-  streaming: MessagePart[] | null,
-  messages: Array<{ parts?: MessagePart[] }>
-): { tool: string; title: string; state: 'running' | 'done' | 'error'; callId?: string } | null {
-  const running = findRunningTool(streaming)
-  if (running) return { ...running, state: 'running' }
-
-  if (streaming) {
-    for (let i = streaming.length - 1; i >= 0; i--) {
-      const p = streaming[i]
-      if (p.type === 'tool') {
-        if (p.children) {
-          for (let j = p.children.length - 1; j >= 0; j--) {
-            const c = p.children[j]
-            if (c.type === 'tool') {
-              const title =
-                c.tool === 'bash'
-                  ? typeof c.input?.command === 'string'
-                    ? c.input.command
-                    : (c.title ?? 'bash')
-                  : (c.title ?? c.tool)
-              return { tool: c.tool, title, state: c.state, callId: c.callId }
-            }
-          }
-        }
-        const title =
-          p.tool === 'bash'
-            ? typeof p.input?.command === 'string'
-              ? p.input.command
-              : (p.title ?? 'bash')
-            : (p.title ?? p.tool)
-        return { tool: p.tool, title, state: p.state, callId: p.callId }
-      }
-    }
-  }
-
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]
-    if (m?.parts) {
-      for (let j = m.parts.length - 1; j >= 0; j--) {
-        const p = m.parts[j]
-        if (p.type === 'tool') {
-          if (p.children) {
-            for (let k = p.children.length - 1; k >= 0; k--) {
-              const c = p.children[k]
-              if (c.type === 'tool') {
-                const title =
-                  c.tool === 'bash'
-                    ? typeof c.input?.command === 'string'
-                      ? c.input.command
-                      : (c.title ?? 'bash')
-                    : (c.title ?? c.tool)
-                return { tool: c.tool, title, state: c.state, callId: c.callId }
-              }
-            }
-          }
-          const title =
-            p.tool === 'bash'
-              ? typeof p.input?.command === 'string'
-                ? p.input.command
-                : (p.title ?? 'bash')
-              : (p.title ?? p.tool)
-          return { tool: p.tool, title, state: p.state, callId: p.callId }
-        }
-      }
-    }
-  }
-
-  return null
-}
-
-/** Sessions where user dismissed command line bar for the remainder of the session. */
-const dismissedCommandLineSessions = new Set<string>()
-
-function isCommandLineDismissedForSession(chatId: string): boolean {
-  if (dismissedCommandLineSessions.has(chatId)) return true
-  try {
-    return sessionStorage.getItem(`roxy.dismissedCommandLine.${chatId}`) === '1'
-  } catch {
-    return false
-  }
-}
-
-function dismissCommandLineForSession(chatId: string): void {
-  dismissedCommandLineSessions.add(chatId)
-  try {
-    sessionStorage.setItem(`roxy.dismissedCommandLine.${chatId}`, '1')
-  } catch {
-    // Ignore storage quota or security errors
-  }
-}
 
 export function ChatView({
   isOverlay: propIsOverlay
@@ -333,11 +205,6 @@ export function ChatView({
   const contextPickerOpen = useRoxyStore((s) => s.contextPickerOpen)
   const setContextPickerOpen = useRoxyStore((s) => s.setContextPickerOpen)
   const [commandsInitialTab, setCommandsInitialTab] = useState<'agent' | 'user' | undefined>()
-  const [dismissedCommand, setDismissedCommand] = useState<string | null>(null)
-  const [askingSessionDismiss, setAskingSessionDismiss] = useState(false)
-  const [, setSessionDismissNonce] = useState(0)
-
-  const isSessionDismissed = Boolean(activeChatId && isCommandLineDismissedForSession(activeChatId))
 
   const openIndependentTerminal = (): void => {
     if (activeChat) {
@@ -345,35 +212,6 @@ export function ChatView({
       void api.terminal.open(activeChat.id)
     }
   }
-
-  const runningCommand = findRunningTool(streaming)
-  const latestCommand = findLatestTool(streaming, messages)
-
-  const runningCommandOptions = runningCommand
-    ? extractTerminalInputOptions(runningCommand.output ?? '')
-    : []
-
-  const sendRunningCommandInput = async (val: string): Promise<void> => {
-    if (runningCommand?.callId && activeChatId) {
-      try {
-        await api.tools.input(runningCommand.callId, val, activeChatId)
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  // Reset dismissed banner when a new command runs
-  useEffect(() => {
-    if (runningCommand) {
-      setDismissedCommand(null)
-      setAskingSessionDismiss(false)
-    }
-  }, [runningCommand?.title])
-
-  useEffect(() => {
-    setAskingSessionDismiss(false)
-  }, [activeChatId, latestCommand?.callId, latestCommand?.title])
 
   // The keyed canvas owns bottom-first arrival and resize anchoring. Queue changes must not re-pin it.
   useLayoutEffect(() => {
@@ -939,154 +777,12 @@ export function ChatView({
               />
             )}
 
-            {/* A subagent's session can now be stopped from its own composer: the Stop
-              cancels the DELEGATE (there is no local request here to abort), which
-              is what the button visibly means in this view. */}
-            {latestCommand && !isSessionDismissed && dismissedCommand !== latestCommand.title && (
-              <div className={cn('command-line-gutter px-4 pb-1.5', !wallpaper && 'bg-bg')}>
-                <div className="mx-auto max-w-3xl">
-                  <div
-                    className={cn(
-                      'command-line-panel flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs backdrop-blur-md shadow-sm transition-colors',
-                      runningCommand
-                        ? 'border-accent/30 bg-surface/90 text-accent'
-                        : 'border-border bg-surface-2/80 text-text-muted hover:bg-surface-2 hover:text-text'
-                    )}
-                  >
-                    {askingSessionDismiss ? (
-                      <div className="flex w-full items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <Terminal className="h-3.5 w-3.5 shrink-0 text-accent" />
-                          <span className="truncate text-xs font-medium text-text">
-                            {t('commands.dontShowAgainSession')}
-                          </span>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (activeChatId) {
-                                dismissCommandLineForSession(activeChatId)
-                                setSessionDismissNonce((n) => n + 1)
-                              }
-                              setAskingSessionDismiss(false)
-                            }}
-                            className="press-scale rounded px-2 py-0.5 text-[11px] font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
-                          >
-                            {t('commands.dontShowAgain')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDismissedCommand(latestCommand.title)
-                              setAskingSessionDismiss(false)
-                            }}
-                            className="press-scale rounded px-2 py-0.5 text-[11px] font-medium text-text-muted hover:bg-white/5 hover:text-text transition-colors"
-                          >
-                            {t('commands.justOnce')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAskingSessionDismiss(false)}
-                            title={t('common.cancel')}
-                            className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex w-full items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCommandsInitialTab(runningCommand ? 'agent' : 'user')
-                              setCommandsOpen(true)
-                            }}
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          >
-                            <Terminal
-                              className={cn(
-                                'h-3.5 w-3.5 shrink-0',
-                                runningCommand ? 'animate-pulse text-accent' : 'text-text-subtle'
-                              )}
-                            />
-                            <span className="shrink-0 font-medium">
-                              {runningCommand
-                                ? `${t('commands.runningNow')}:`
-                                : latestCommand.state === 'done'
-                                  ? `${t('commands.completed')}:`
-                                  : `${t('commands.error')}:`}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
-                              {latestCommand.title}
-                            </span>
-                            {runningCommand ? (
-                              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-accent ml-auto" />
-                            ) : (
-                              <span className="shrink-0 text-[11px] text-accent underline underline-offset-2 ml-auto">
-                                {t('commands.openCommandLine')}
-                              </span>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openIndependentTerminal}
-                            title={t('commands.popOut')}
-                            className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5 transition-colors"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </button>
-                          {!runningCommand && (
-                            <button
-                              type="button"
-                              onClick={() => setAskingSessionDismiss(true)}
-                              title={t('common.close')}
-                              className="press-scale flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-subtle hover:text-text hover:bg-white/5"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                        {runningCommand && runningCommandOptions.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-accent/20 w-full">
-                            <span className="text-[11px] font-medium text-text-subtle mr-0.5 select-none">
-                              {t('commands.suggestedOptions')}:
-                            </span>
-                            {runningCommandOptions.map((opt) => (
-                              <button
-                                key={opt.id || opt.value}
-                                type="button"
-                                onClick={() => void sendRunningCommandInput(opt.value)}
-                                className="press-scale flex items-center gap-1 rounded bg-surface border border-accent/40 px-2 py-0.5 text-[11px] font-mono text-text hover:bg-accent/20 hover:text-accent transition-colors"
-                              >
-                                <span>{opt.label}</span>
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCommandsInitialTab('agent')
-                                setCommandsOpen(true)
-                              }}
-                              className="press-scale flex items-center gap-1 rounded bg-surface/60 border border-border px-2 py-0.5 text-[11px] text-text-subtle hover:text-text transition-colors"
-                            >
-                              <Edit3 className="h-2.5 w-2.5" />
-                              <span>{t('commands.customInput')}</span>
-                            </button>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
             <AgentStepsPopup wallpaper={wallpaper} />
             <AgentQuestionPopup wallpaper={wallpaper} />
 
+            {/* A subagent's session can now be stopped from its own composer: the Stop
+              cancels the DELEGATE (there is no local request here to abort), which
+              is what the button visibly means in this view. */}
             <Composer
               key={activeChatId}
               chatId={activeChat.id}

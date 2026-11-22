@@ -45,6 +45,7 @@ import {
 import { modelLabel, pickDefaultModel, resolveProviderModel } from '../src/shared/models'
 import {
   bucketsForModel,
+  type QuotaBucket,
   copilotBucketsForModel,
   copilotOverageUsd,
   copilotTokenCost,
@@ -6908,116 +6909,89 @@ async function main(): Promise<void> {
 
     const anti = parseAntigravityModels({
       models: {
-        'gemini-3-pro-high': {
-          displayName: 'Gemini 3 Pro',
+        'gemini-3-flash': {
+          displayName: 'Gemini 3 Flash',
           quotaInfo: { remainingFraction: 0.42, resetTime: '2026-09-30T00:00:00Z' }
         },
-        'gemini-2.5-flash': { quotaInfo: { resetTime: '2026-09-30T00:00:00Z' } },
-        tab_flash_lite_preview: { quotaInfo: { remainingFraction: 1 } },
-        internal: { isInternal: true, quotaInfo: { remainingFraction: 1 } },
+        'gemini-3.8-flash-tiered': {
+          quotaInfo: { remainingFraction: 0.9, resetTime: '2026-09-30T00:00:00Z' }
+        },
+        'gemini-4-argon-high': {
+          quotaInfo: { remainingFraction: 0.7, resetTime: '2026-10-05T00:00:00Z' }
+        },
+        'gemini-4-argon-low': {
+          quotaInfo: { remainingFraction: 0.75, resetTime: '2026-10-05T00:00:00Z' }
+        },
+        'claude-opus-5-5-high': {
+          quotaInfo: { remainingFraction: 0.5, resetTime: '2026-09-30T00:00:00Z' }
+        },
+        'gpt-oss-120b-medium': {
+          quotaInfo: { remainingFraction: 0.6, resetTime: '2026-09-30T00:00:00Z' }
+        },
+        tab_flash_lite_preview: { quotaInfo: { remainingFraction: 0 } },
+        chat_123: { quotaInfo: { remainingFraction: 0 } },
+        internal: { isInternal: true, quotaInfo: { remainingFraction: 0 } },
         unmetered: { displayName: 'No quota' }
       }
     })
+    const pool = (id: string): QuotaBucket | undefined => anti.buckets.find((b) => b.id === id)
     check(
-      'quota: antigravity skips tab/internal/unmetered',
-      anti.buckets.length === 2,
+      'quota: antigravity folds models into gemini / argon / non-gemini pools',
+      anti.buckets.map((b) => b.id).join() === 'gemini,gemini-argon,non-gemini',
       JSON.stringify(anti)
     )
     check(
-      'quota: antigravity fraction becomes percent',
-      anti.buckets.find((b) => b.id === 'gemini-3-pro-high')?.remaining === 42
+      'quota: antigravity pool shows its most drained member',
+      pool('gemini')?.remaining === 42 &&
+        pool('gemini-argon')?.remaining === 70 &&
+        pool('non-gemini')?.remaining === 50
     )
+    check(
+      'quota: antigravity argon keeps its own weekly reset',
+      pool('gemini-argon')?.resetsAt === Date.parse('2026-10-05T00:00:00Z') &&
+        pool('gemini-argon')?.label === 'Weekly Argon'
+    )
+    check(
+      'quota: antigravity skips tab/chat/internal/unmetered',
+      !anti.buckets.some((b) => b.models?.some((m) => /^(tab_|chat_|internal|unmetered)/.test(m)))
+    )
+    const exhausted = parseAntigravityModels({
+      models: { 'gemini-2.5-flash': { quotaInfo: { resetTime: '2026-09-30T00:00:00Z' } } }
+    })
     check(
       'quota: antigravity missing fraction with reset means exhausted',
-      anti.buckets.find((b) => b.id === 'gemini-2.5-flash')?.remaining === 0
-    )
-    const aq = { connectionId: 'c', upstream: 'antigravity' as const, fetchedAt: now, ...anti }
-    check(
-      'quota: antigravity scopes to the session model',
-      bucketsForModel(aq, 'roxy-abc/gemini-3-pro-high')
-        .map((b) => b.id)
-        .join() === 'gemini-3-pro-high'
-    )
-    const tieredParsed = parseAntigravityModels({
-      models: {
-        'gemini-3.8-flash-tiered': {
-          quotaInfo: { remainingFraction: 0.98, resetTime: '2026-09-30T00:00:00Z' }
-        },
-        'gemini-3-flash': {
-          quotaInfo: { remainingFraction: 0.8, resetTime: '2026-09-30T00:00:00Z' }
-        },
-        'gemini-3-flash-agent': {
-          quotaInfo: { remainingFraction: 0.5, resetTime: '2026-09-30T00:00:00Z' }
-        },
-        'gemini-3.5-flash-low': {
-          quotaInfo: { remainingFraction: 0.6, resetTime: '2026-09-30T00:00:00Z' }
-        }
-      }
-    })
-    const tieredBucket = tieredParsed.buckets.find((b) => b.id === 'gemini-3.8-flash-tiered')
-    check(
-      'quota: antigravity tiered model without displayName derives label and includes high variant',
-      tieredBucket?.label === 'Gemini 3.8 Flash' &&
-        tieredBucket.models?.includes('gemini-3.8-flash-high') === true,
-      JSON.stringify(tieredBucket)
-    )
-    const tieredQuota = {
-      connectionId: 'c',
-      upstream: 'antigravity' as const,
-      fetchedAt: now,
-      ...tieredParsed
-    }
-    check(
-      'quota: antigravity tiered bucket meters high variant',
-      bucketsForModel(tieredQuota, 'roxy-x/gemini-3.8-flash-high')[0]?.id ===
-        'gemini-3.8-flash-tiered'
-    )
-    check(
-      'quota: antigravity exact model does not match agent variant',
-      bucketsForModel(tieredQuota, 'gemini-3-flash')
-        .map((b) => b.id)
-        .join() === 'gemini-3-flash'
-    )
-    check(
-      'quota: antigravity base model does not match low variant',
-      bucketsForModel(tieredQuota, 'gemini-3.5-flash').length === 0
+      exhausted.buckets[0]?.id === 'gemini' && exhausted.buckets[0].remaining === 0
     )
 
-    const tiered = {
-      connectionId: 'tiered',
-      upstream: 'antigravity' as const,
-      fetchedAt: now,
-      ...parseAntigravityModels({
-        models: {
-          'gemini-3.8-flash-tiered': { quotaInfo: { remainingFraction: 0.65 } },
-          'gemini-3.8-pro-tiered': { quotaInfo: { remainingFraction: 0.25 } }
-        }
-      })
-    }
+    const aq = { connectionId: 'c', upstream: 'antigravity' as const, fetchedAt: now, ...anti }
+    const poolFor = (model: string | undefined): string =>
+      bucketsForModel(aq, model)
+        .map((b) => b.id)
+        .join()
     for (const model of [
+      'roxy-abc/gemini-3-flash',
       'gemini-3.8-flash',
-      'roxy-abc/gemini-3.8-flash',
       'google/gemini-3.8-flash-high',
-      'gemini-3.8-flash-low',
-      'gemini-3.8-flash-tiered'
-    ]) {
-      const limits = bucketsForModel(tiered, model)
-      check(
-        `quota: ${model} uses its tiered allowance directly`,
-        limits.length === 1 &&
-          limits[0].id === 'gemini-3.8-flash-tiered' &&
-          limits[0].remaining === 65
-      )
-    }
-    for (const model of ['gemini-3.5-flash', 'gemini-3.8-flash-lite', 'claude-flash']) {
-      check(
-        `quota: tiered allowance excludes ${model}`,
-        bucketsForModel(tiered, model).length === 0
-      )
-    }
+      'gemini-3.5-flash-lite',
+      'gemini-4-hydrogen-high'
+    ])
+      check(`quota: ${model} draws from the shared Gemini pool`, poolFor(model) === 'gemini')
+    for (const model of ['gemini-4-argon-high', 'roxy-abc/gemini-4-argon-medium'])
+      check(`quota: ${model} draws from the weekly Argon pool`, poolFor(model) === 'gemini-argon')
+    for (const model of ['claude-opus-5-5-high', 'claude-sonnet-5-5-low', 'gpt-oss-120b-medium'])
+      check(`quota: ${model} draws from the non-Gemini pool`, poolFor(model) === 'non-gemini')
+    check('quota: antigravity with no model has no applicable pool', poolFor(undefined) === '')
     check(
-      'quota: Gemini Pro uses its own tiered allowance',
-      bucketsForModel(tiered, 'gemini-3.8-pro')[0]?.id === 'gemini-3.8-pro-tiered'
+      'quota: claude family buckets are unaffected by exclusions',
+      bucketsForModel(
+        {
+          connectionId: 'c',
+          upstream: 'claude',
+          fetchedAt: now,
+          buckets: [{ id: 'five_hour', label: '5-hour', remaining: 80 }]
+        },
+        'claude-opus-4-5'
+      ).length === 1
     )
 
     check(

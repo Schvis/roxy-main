@@ -80,7 +80,6 @@
   background: rgb(from var(--color-surface) r g b / var(--sidebar-opacity, 88%));
 }
 [data-wallpaper] .composer-gutter,
-[data-wallpaper] .command-line-gutter,
 [data-wallpaper] .agent-steps-gutter,
 [data-wallpaper] .agent-question-gutter,
 [data-wallpaper] .copilot-reconnect-gutter {
@@ -119,7 +118,6 @@
 }
 [data-glass] .background-preview-panel,
 [data-glass] .agent-steps-panel,
-[data-glass] .command-line-panel,
 [data-glass] .agent-question-panel,
 [data-glass] .agent-file-changes-panel {
   background: color-mix(in srgb, var(--color-surface-2) 78%, transparent);
@@ -133,7 +131,6 @@
   [data-glass] .composer-panel::before,
   [data-glass] .background-preview-panel,
   [data-glass] .agent-steps-panel,
-  [data-glass] .command-line-panel,
   [data-glass] .agent-question-panel,
   [data-glass] .agent-file-changes-panel {
     background: var(--color-surface-2);
@@ -180,7 +177,6 @@
   [data-glass] .composer-panel::before,
   [data-glass] .background-preview-panel,
   [data-glass] .agent-steps-panel,
-  [data-glass] .command-line-panel,
   [data-glass] .agent-question-panel,
   [data-glass] .agent-file-changes-panel {
     background: var(--color-surface-2);

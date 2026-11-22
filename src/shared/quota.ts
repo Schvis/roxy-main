@@ -32,6 +32,12 @@ export interface QuotaBucket {
    * that meter a family rather than exact ids (Claude's weekly Opus cap).
    */
   family?: string
+  /**
+   * Substrings (lowercase) of models this bucket never meters, e.g. Gemini's
+   * separately metered weekly Argon pool. With no `family`, the bucket meters
+   * every model outside these.
+   */
+  excludeFamilies?: string[]
 }
 
 /** Where a quota comes from: a sidecar upstream, or GitHub Copilot directly. */
@@ -157,7 +163,9 @@ export function quotaRequests(
         header: {
           Authorization: BEARER,
           'Content-Type': 'application/json',
-          'User-Agent': 'antigravity/1.11.5 windows/amd64'
+          // Upstream gates newer models on this version; it must be full semver
+          // ("2.34" alone is treated as an old client).
+          'User-Agent': 'antigravity/2.34.0 windows/amd64'
         },
         data: '{}'
       }))
@@ -281,11 +289,59 @@ export function parseClaudeUsage(body: unknown): ParsedQuota {
   return { buckets }
 }
 
-/** Cloud Code's `fetchAvailableModels`: one allowance per model id. */
+/**
+ * How Antigravity actually meters: every Gemini model draws from one shared
+ * pool, Argon has its own weekly pool, and the non-Gemini models (Claude,
+ * GPT-OSS) share a third. Upstream still reports one entry per model id, so
+ * the per-model entries are folded into these pools.
+ */
+const ANTIGRAVITY_POOLS = [
+  { id: 'gemini', label: 'Gemini', family: 'gemini', excludeFamilies: ['argon'] },
+  { id: 'gemini-argon', label: 'Weekly Argon', family: 'argon' },
+  { id: 'non-gemini', label: 'Non-Gemini models', excludeFamilies: ['gemini'] }
+] as const
+
+type AntigravityPool = (typeof ANTIGRAVITY_POOLS)[number]['id']
+
+function antigravityPool(modelId: string): AntigravityPool {
+  const id = modelId.toLowerCase()
+  if (id.includes('argon')) return 'gemini-argon'
+  if (id.startsWith('gemini')) return 'gemini'
+  return 'non-gemini'
+}
+
+/** Cloud Code's `fetchAvailableModels`, folded into its shared pools. */
 export function parseAntigravityModels(body: unknown): ParsedQuota {
+  const perModel = parseAntigravityModelEntries(body)
+  const buckets: QuotaBucket[] = []
+  for (const pool of ANTIGRAVITY_POOLS) {
+    const members = perModel.filter((b) => antigravityPool(b.id) === pool.id)
+    if (!members.length) continue
+    // A pool is only as full as its most drained member says it is.
+    const tightest = members.reduce((min, b) =>
+      b.remaining < min.remaining ||
+      (b.remaining === min.remaining && (b.resetsAt ?? Infinity) < (min.resetsAt ?? Infinity))
+        ? b
+        : min
+    )
+    buckets.push({
+      id: pool.id,
+      label: pool.label,
+      remaining: tightest.remaining,
+      ...(tightest.resetsAt ? { resetsAt: tightest.resetsAt } : {}),
+      models: [...new Set(members.flatMap((b) => b.models ?? [b.id]))],
+      ...('family' in pool ? { family: pool.family } : {}),
+      ...('excludeFamilies' in pool ? { excludeFamilies: [...pool.excludeFamilies] } : {})
+    })
+  }
+  return { buckets }
+}
+
+/** One allowance per model id, as upstream reports them. */
+function parseAntigravityModelEntries(body: unknown): QuotaBucket[] {
   const payload = asObj(body)
   const models = asObj(payload?.models)
-  if (!models) return { buckets: [] }
+  if (!models) return []
   const buckets: QuotaBucket[] = []
   for (const [key, raw] of Object.entries(models)) {
     const m = asObj(raw)
@@ -319,8 +375,7 @@ export function parseAntigravityModels(body: unknown): ParsedQuota {
       models: modelKeys
     })
   }
-  buckets.sort((a, b) => a.label.localeCompare(b.label))
-  return { buckets }
+  return buckets
 }
 
 export function parseQuota(
@@ -497,19 +552,22 @@ function bareModel(model: string): string {
 
 /** Whether a bucket meters this model. Account-wide buckets meter every model. */
 export function bucketAppliesTo(bucket: QuotaBucket, model: string | undefined): boolean {
-  if (!bucket.models && !bucket.family) return true
+  if (!bucket.models && !bucket.family && !bucket.excludeFamilies) return true
   if (!model) return false
   const bare = bareModel(model)
-  if (bucket.models)
-    return bucket.models.some((m) => {
-      const metered = bareModel(m)
-      if (metered === bare) return true
-      // Gemini tiered allowances cover every thinking level of the same model.
-      if (!metered.startsWith('gemini-') || !metered.endsWith('-tiered')) return false
-      const base = metered.slice(0, -'-tiered'.length)
-      return bare.replace(/-(?:minimal|low|medium|high)$/, '').replace(/-tiered$/, '') === base
-    })
-  return bare.includes(bucket.family!)
+  if (bucket.excludeFamilies?.some((f) => bare.includes(f))) return false
+  const listed = bucket.models?.some((m) => {
+    const metered = bareModel(m)
+    if (metered === bare) return true
+    // Gemini tiered allowances cover every thinking level of the same model.
+    if (!metered.startsWith('gemini-') || !metered.endsWith('-tiered')) return false
+    const base = metered.slice(0, -'-tiered'.length)
+    return bare.replace(/-(?:minimal|low|medium|high)$/, '').replace(/-tiered$/, '') === base
+  })
+  if (listed) return true
+  if (bucket.family) return bare.includes(bucket.family)
+  // Only exclusions: a catch-all for everything the excluded families don't cover.
+  return !!bucket.excludeFamilies
 }
 
 /**
