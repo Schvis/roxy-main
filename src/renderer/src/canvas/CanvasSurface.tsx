@@ -219,7 +219,7 @@ export function CanvasSurface({
     const pos = pointer.current
     const inside =
       pos && pos.x >= 0 && pos.x < el.clientWidth && pos.y >= 0 && pos.y < el.clientHeight
-    const region = inside ? hitTest(scene.current, pos.x, pos.y + el.scrollTop) : null
+    const region = inside ? hitTest(scene.current, pos.x, pos.y + el.scrollTop, el.scrollTop) : null
     hovered.current = region
     const textHit =
       inside && !region && hitText(scene.current, pos.x, pos.y + el.scrollTop, metrics)
@@ -730,7 +730,7 @@ export function CanvasSurface({
             el.focus({ preventScroll: true })
             setMenu(null)
             const y = pos.y + el.scrollTop
-            const region = hitTest(scene.current, pos.x, y)
+            const region = hitTest(scene.current, pos.x, y, el.scrollTop)
             const inner = scrollAt(pos.x, y)
             focusedScroll.current = inner?.id ?? null
             const anchor = hitText(scene.current, pos.x, y, metrics)
@@ -839,7 +839,8 @@ export function CanvasSurface({
               event.currentTarget.releasePointerCapture(event.pointerId)
             if (!pending.dragged && !pending.scrollbar && pending.action) {
               const pos = point(event)
-              const released = hitTest(scene.current, pos.x, pos.y + event.currentTarget.scrollTop)
+              const scrollTop = event.currentTarget.scrollTop
+              const released = hitTest(scene.current, pos.x, pos.y + scrollTop, scrollTop)
               if (released && JSON.stringify(released.action) === JSON.stringify(pending.action))
                 act(pending.action, released)
             }
@@ -931,7 +932,7 @@ export function CanvasSurface({
             event.currentTarget.focus({ preventScroll: true })
             const pos = point(event)
             const y = pos.y + event.currentTarget.scrollTop
-            const hit = hitTest(scene.current, pos.x, y)
+            const hit = hitTest(scene.current, pos.x, y, event.currentTarget.scrollTop)
             const selected =
               selection.current && !selectionCollapsed(selection.current)
                 ? selectionText(scene.current, selection.current)

@@ -10,7 +10,16 @@
  * `font`/`fillStyle` are tracked so redundant assignments are skipped.
  */
 
-import type { Block, HitRegion, Node, Rect, Scene, SelectableLine } from './scene'
+import {
+  regionRect,
+  stickyY,
+  type Block,
+  type HitRegion,
+  type Node,
+  type Rect,
+  type Scene,
+  type SelectableLine
+} from './scene'
 import { fontCss, type Font, type TextRun, type TextMetrics } from './text'
 import type { CanvasTheme } from './theme'
 import { alpha, mix } from './theme'
@@ -31,6 +40,12 @@ export interface PaintContext {
   /** Scroll offset — how far the transcript has moved up past the viewport. */
   scrollTop: number
   viewportHeight: number
+  /**
+   * The real viewport top in the current subtree's coordinates. Unlike
+   * `scrollTop`, which a clip narrows to its own visible range for culling, this
+   * only follows translations — it is what sticky controls pin against.
+   */
+  viewTop?: number
   now: number
   reducedMotion?: boolean
   transparent?: boolean
@@ -105,6 +120,7 @@ export function paintScene(scene: Scene, paint: PaintContext): void {
 
   ctx.translate(0, -scrollTop)
   const pen = new Pen(ctx)
+  paint = { ...paint, viewTop: scrollTop }
 
   const top = scrollTop
   const bottom = scrollTop + viewportHeight
@@ -117,7 +133,8 @@ export function paintScene(scene: Scene, paint: PaintContext): void {
 
   // The hover wash goes over the block that owns it, not under: a card's fill is
   // opaque, so washing first would be invisible.
-  if (paint.hovered && paint.hovered.hover !== 'none') paintHover(paint.hovered, paint, pen)
+  if (paint.hovered && paint.hovered.hover !== 'none')
+    paintHover(regionRect(paint.hovered, scrollTop), paint.hovered.hover, paint, pen)
   if (paint.selection) paintSelection(scene, paint, pen)
 
   const feedback = paint.copyFeedback
@@ -136,15 +153,17 @@ export function paintScene(scene: Scene, paint: PaintContext): void {
         action.command === 'patch' &&
         original.command === 'patch')
     if (region && matches) {
+      // A stuck button has moved since it was clicked; confirm where it is now.
+      const shown = regionRect(region, scrollTop)
       const color = feedback.success ? theme.palette.success : theme.palette.danger
-      drawCard(ctx, region.x, region.y, region.w, region.h, 4, theme.palette.surface, null, theme)
-      drawCard(ctx, region.x, region.y, region.w, region.h, 4, alpha(color, 0.1), null, theme)
-      const size = Math.min(14, region.w - 4, region.h - 4)
+      drawCard(ctx, shown.x, shown.y, shown.w, shown.h, 4, theme.palette.surface, null, theme)
+      drawCard(ctx, shown.x, shown.y, shown.w, shown.h, 4, alpha(color, 0.1), null, theme)
+      const size = Math.min(14, shown.w - 4, shown.h - 4)
       drawIcon(
         ctx,
         feedback.success ? 'check' : 'circleAlert',
-        region.x + (region.w - size) / 2,
-        region.y + (region.h - size) / 2,
+        shown.x + (shown.w - size) / 2,
+        shown.y + (shown.h - size) / 2,
         size,
         color
       )
@@ -154,12 +173,12 @@ export function paintScene(scene: Scene, paint: PaintContext): void {
   ctx.restore()
 }
 
-function paintHover(region: HitRegion, paint: PaintContext, pen: Pen): void {
+function paintHover(region: Rect, hover: HitRegion['hover'], paint: PaintContext, pen: Pen): void {
   const { ctx, theme } = paint
-  const wash = alpha(theme.palette.white, region.hover === 'card' ? 0.045 : 0.07)
+  const wash = alpha(theme.palette.white, hover === 'card' ? 0.045 : 0.07)
   ctx.fillStyle = wash
   pen.invalidate()
-  const radius = region.hover === 'card' ? 0 : 4
+  const radius = hover === 'card' ? 0 : 4
   if (radius > 0) ctx.fill(squircle(region.x, region.y, region.w, region.h, radius, theme))
   else ctx.fillRect(region.x, region.y, region.w, region.h)
 }
@@ -306,7 +325,15 @@ function paintNode(node: Node, paint: PaintContext, pen: Pen): void {
       if (node.offsetY) {
         ctx.save()
         ctx.translate(0, node.offsetY)
-        paintNodes(node.children, { ...paint, scrollTop: paint.scrollTop - node.offsetY }, pen)
+        paintNodes(
+          node.children,
+          {
+            ...paint,
+            scrollTop: paint.scrollTop - node.offsetY,
+            viewTop: (paint.viewTop ?? paint.scrollTop) - node.offsetY
+          },
+          pen
+        )
         ctx.restore()
         pen.invalidate()
       } else {
@@ -319,6 +346,27 @@ function paintNode(node: Node, paint: PaintContext, pen: Pen): void {
       ctx.save()
       ctx.globalAlpha *= pulseAlpha(paint.now)
       paintNodes(node.children, paint, pen)
+      ctx.restore()
+      pen.invalidate()
+      return
+    }
+
+    case 'sticky': {
+      // `viewTop` is already in this subtree's coordinate space (offset groups
+      // adjust it), so the slide matches `regionRect` on the transcript-space region.
+      const viewTop = paint.viewTop ?? paint.scrollTop
+      const dy = stickyY(node.y, node.slide, viewTop) - node.y
+      if (!dy) {
+        paintNodes(node.children, paint, pen)
+        return
+      }
+      ctx.save()
+      ctx.translate(0, dy)
+      paintNodes(
+        node.children,
+        { ...paint, scrollTop: paint.scrollTop - dy, viewTop: viewTop - dy },
+        pen
+      )
       ctx.restore()
       pen.invalidate()
       return
@@ -595,14 +643,20 @@ function charRange(
   return { x: startX, w: w > 0 ? w : 4 }
 }
 
-/** Which region a point lands in. Later regions win — they were drawn on top. */
-export function hitTest(scene: Scene, x: number, y: number): HitRegion | null {
+/**
+ * Which region a point lands in. Later regions win — they were drawn on top.
+ *
+ * `scrollTop` places sticky regions where they are currently painted; without
+ * it they are tested at their laid-out position.
+ */
+export function hitTest(scene: Scene, x: number, y: number, scrollTop?: number): HitRegion | null {
   for (let b = scene.blocks.length - 1; b >= 0; b--) {
     const block = scene.blocks[b]
     if (y < block.y || y > block.y + block.height) continue
     for (let i = block.regions.length - 1; i >= 0; i--) {
-      const r = block.regions[i]
-      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r
+      const region = block.regions[i]
+      const r = scrollTop === undefined ? region : regionRect(region, scrollTop)
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return region
     }
   }
   return null

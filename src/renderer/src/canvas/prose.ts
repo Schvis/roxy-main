@@ -6,7 +6,7 @@
  * the height each consumes so the caller can stack them.
  */
 
-import type { Builder } from './builder'
+import { COPY_BUTTON_SIZE, type Builder } from './builder'
 import type { MdBlock, MdInline } from './markdown'
 import { parseMarkdown } from './markdown'
 import { font, type Font, type InlineSpan } from './text'
@@ -270,27 +270,21 @@ export function layoutCodeBlock(
   const colors = tokenColors(builder.theme.appearance)
   const padY = 8
   const padX = 12
-  const labelHeight = lang ? 20 : 0
+  // The label bar is sized to hold the same corner copy button every other box
+  // uses, so a fence with a language gets the identical control, not a text link.
+  const labelHeight = lang ? COPY_BUTTON_SIZE + 10 : 0
   const height = padY * 2 + labelHeight + rows.length * lineHeight
 
   builder.rect(x, y, width, height, SPACE.radiusMd, palette.surface, palette.border)
   if (lang) {
-    builder.text(x + padX, y + 4, lang, font(FONT_SIZE.micro, 500, 'mono'), palette.textSubtle)
-    builder.hairline(x + 1, y + labelHeight - 1, width - 2, palette.border)
-    // Copying a block is the single most common thing anyone does with agent
-    // output, so it gets an affordance rather than requiring a text selection.
-    const label = builder.t('transcript.copy')
-    const labelFont = font(FONT_SIZE.micro, 500, 'sans')
-    const labelWidth = builder.metrics.measure(label, labelFont)
-    builder.text(x + width - padX - labelWidth, y + 4, label, labelFont, palette.textSubtle)
-    builder.region(
-      x + width - padX - labelWidth - 6,
-      y + 1,
-      labelWidth + 12,
-      labelHeight - 2,
-      { type: 'copy', text: code },
-      { hover: 'subtle', title: builder.t('transcript.copyCode') }
+    builder.text(
+      x + padX,
+      y + labelHeight / 2 - 6,
+      lang,
+      font(FONT_SIZE.micro, 500, 'mono'),
+      palette.textSubtle
     )
+    builder.hairline(x + 1, y + labelHeight - 1, width - 2, palette.border)
   }
 
   const textTop = y + padY + labelHeight
@@ -306,6 +300,24 @@ export function layoutCodeBlock(
       colors
     })
   })
+  // Copying a block is the single most common thing anyone does with agent
+  // output, so every block gets the same corner button. With a language it sits
+  // centred in the label bar; without one it floats over the code, painted after
+  // it so it stays on top.
+  if (code.trim()) {
+    const size = lang ? COPY_BUTTON_SIZE : Math.min(COPY_BUTTON_SIZE, height - 8)
+    builder.copyButton(
+      x + width - 6,
+      lang ? y + (labelHeight - size) / 2 : y + Math.max(4, Math.min(6, (height - size) / 2)),
+      code,
+      builder.t('transcript.copyCode'),
+      palette.surface,
+      size,
+      // A long block keeps its button in reach: it follows the viewport down
+      // the block's right edge as you scroll through it.
+      y + height
+    )
+  }
 
   // Each row is its own selectable line so a copy preserves the source exactly.
   const advance = builder.metrics.advance(codeFont)

@@ -18,7 +18,7 @@ import { Builder } from './builder'
 import type { Block, Scene, ViewState } from './scene'
 import { TextMetrics, font, type InlineSpan } from './text'
 import type { CanvasTheme } from './theme'
-import { alpha } from './theme'
+import { alpha, mix } from './theme'
 import { FONT_SIZE, SIZE, SPACE } from './metrics'
 import { layoutMarkdown, layoutPlainText } from './prose'
 import { layoutToolCard, type ToolCardInput } from './tool-card'
@@ -797,6 +797,21 @@ function layoutReasoning(
     { rotate: expanded ? Math.PI / 2 : 0 }
   )
   builder.region(x, y, width, headerHeight, { type: 'toggle', id }, { hover: 'subtle' })
+  // Registered after the toggle: later regions win hit testing, so a click on
+  // the button copies rather than collapsing the block.
+  if (expanded && !streaming && text.trim()) {
+    const size = 20
+    builder.copyButton(
+      x + width - SPACE.cardPadX - SIZE.iconSm - 6,
+      centerY - size / 2,
+      text,
+      builder.t('transcript.copyReasoning'),
+      // Opaque: once it slides off the header it sits over the reasoning text.
+      mix(palette.bg, palette.surface2, 0.4),
+      size,
+      y + height
+    )
+  }
   return height
 }
 

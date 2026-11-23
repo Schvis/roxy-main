@@ -19,7 +19,7 @@
 import type { TFunction } from 'i18next'
 import type { MessagePart, QueueItem } from '@shared/types'
 import { invokeChip, type InvokeChipKind } from './invoke-status'
-import type { Builder } from './builder'
+import { COPY_BUTTON_RESERVE, COPY_BUTTON_SIZE, type Builder } from './builder'
 import type { ViewState } from './scene'
 import type { IconName } from './icons'
 import { FONT_SIZE, SIZE, SPACE } from './metrics'
@@ -539,6 +539,16 @@ function layoutFileBody(
     })
   })
 
+  builder.copyButton(
+    x + width - 6,
+    y + 1 + 6,
+    contents,
+    builder.t('transcript.copyContents'),
+    palette.surface,
+    COPY_BUTTON_SIZE,
+    y + 1 + height
+  )
+
   const advance = builder.metrics.advance(codeFont)
   const visible = Math.ceil(height / lineHeight)
   rows.slice(0, visible).forEach((tokens, i) => {
@@ -613,6 +623,7 @@ function layoutNestedBody(
       labelFont,
       palette.textSubtle
     )
+    const buttonY = cursor + 2
     cursor += 22
     const bodyHeight = layoutPlainText(
       builder,
@@ -624,6 +635,17 @@ function layoutNestedBody(
       'mono'
     )
     cursor += bodyHeight + SPACE.bodyPadY
+    // Emitted after the body so that, sliding down a long report, it paints on
+    // top of the text rather than under it.
+    builder.copyButton(
+      x + width - 6,
+      buttonY,
+      report,
+      builder.t('transcript.copyReport'),
+      palette.surface2,
+      20,
+      cursor
+    )
   }
   return cursor - y
 }
@@ -647,8 +669,11 @@ function layoutOutputBody(
 
   // Wrapped, not clipped: unlike code, tool output is prose-shaped (a grep
   // result, an error, a JSON blob) and losing its right-hand side is worse than
-  // losing its alignment.
-  const measured = wrapMeasure(builder, text, codeFont, width - SPACE.bodyPadX * 2)
+  // losing its alignment. Real output gives up a strip on the right for its copy
+  // button, so no line ever runs underneath it.
+  const copyable = Boolean(body)
+  const textWidth = width - SPACE.bodyPadX * 2 - (copyable ? COPY_BUTTON_RESERVE : 0)
+  const measured = wrapMeasure(builder, text, codeFont, textWidth)
   const height = Math.min(SIZE.outputMax, measured * lineHeight + SPACE.bodyPadY * 2)
   builder.rect(x, top, width, height, 0, palette.surface)
   builder.clipped(x, top, width, height, 0, () => {
@@ -656,9 +681,21 @@ function layoutOutputBody(
       [{ text, font: codeFont, color: palette.textMuted, offset: 0 }],
       x + SPACE.bodyPadX,
       top + SPACE.bodyPadY,
-      width - SPACE.bodyPadX * 2
+      textWidth
     )
   })
+  if (copyable) {
+    const size = Math.min(COPY_BUTTON_SIZE, height - 8)
+    builder.copyButton(
+      x + width - 6,
+      top + Math.max(4, Math.min(6, (height - size) / 2)),
+      body,
+      builder.t('transcript.copyOutput'),
+      palette.surface,
+      size,
+      top + height
+    )
+  }
   if (state === 'running') builder.animate()
   return 1 + height
 }

@@ -6,7 +6,7 @@ import {
   parseAnsi,
   type AnsiSpan
 } from './ansi'
-import type { Builder } from './builder'
+import { COPY_BUTTON_RESERVE, COPY_BUTTON_SIZE, type Builder } from './builder'
 import type { MessagePart } from '@shared/types'
 import type { ViewState } from './scene'
 import { font, type TextMetrics, type TextRun, type WrappedLine } from './text'
@@ -145,7 +145,13 @@ export function layoutTerminalBody(
     const output = rows.map(ansiLineText).join('\n')
     if (prompt) rows.unshift(...prompt.split('\n').map((text) => [{ text, color: ANSI_PROMPT }]))
     if (!rows.length) rows.push([{ text: emptyLabel, color: FOOTER_COLOR }])
-    const lines = wrapRows(rows, Math.max(1, width - SPACE.bodyPadX * 2), builder.metrics)
+    // The copy button stays pinned while the pane scrolls, so every row gives up
+    // the strip it occupies rather than only the first few.
+    const lines = wrapRows(
+      rows,
+      Math.max(1, width - SPACE.bodyPadX * 2 - COPY_BUTTON_RESERVE),
+      builder.metrics
+    )
     cached = {
       width,
       epoch: builder.theme.epoch,
@@ -204,6 +210,20 @@ export function layoutTerminalBody(
         },
         breakAfter: line.breakAfter
       }
+    )
+  }
+  const copyText = cached.output || cached.copyCommand
+  if (copyText) {
+    const size = Math.min(COPY_BUTTON_SIZE, height - 8)
+    // Inset past the scrollbar track so the button never steals a thumb drag.
+    builder.copyButton(
+      x + width - 12,
+      y + 1 + Math.max(4, Math.min(6, (height - size) / 2)),
+      copyText,
+      builder.t(cached.output ? 'transcript.copyOutput' : 'transcript.copyCommand'),
+      ANSI_BG,
+      size,
+      y + 1 + height
     )
   }
   if (height < contentHeight) {

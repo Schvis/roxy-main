@@ -275,6 +275,60 @@ export class Builder {
     })
   }
 
+  /**
+   * A small icon button in a box's corner that copies `text`.
+   *
+   * Anchored by its RIGHT edge so callers place it against a box's inner edge
+   * without measuring. It paints an opaque backdrop because it sits over
+   * content (a code row, a terminal line); the painter's copy feedback then
+   * swaps the icon for a check in the same rect.
+   *
+   * Pass `bottom` — the box's lower edge — and on a tall box the button follows
+   * the viewport down as you scroll past the top, stopping at that edge, so it
+   * can be reached without scrolling back up. Callers must emit it AFTER the
+   * box's content so it paints on top of whatever it slides over.
+   */
+  copyButton(
+    right: number,
+    y: number,
+    text: string,
+    title: string,
+    background: string,
+    size = COPY_BUTTON_SIZE,
+    bottom?: number
+  ): void {
+    const x = right - size
+    const iconSize = Math.min(14, size - 8)
+    let slide = bottom === undefined ? 0 : Math.max(0, bottom - STICKY_GAP - (y + size))
+    // Never slide out of an enclosing clip: the paint would vanish under it and
+    // the hit region (clipped at its laid-out position) would no longer match.
+    if (this.clipRect)
+      slide = Math.min(slide, Math.max(0, this.clipRect.y + this.clipRect.h - y - size))
+    // A short box is on screen whole or not at all; a few pixels of travel would
+    // read as jitter, not as a button that follows you.
+    if (slide < STICKY_MIN_SLIDE) slide = 0
+
+    const children: Node[] = []
+    const previous = this.target
+    this.target = children
+    this.rect(x, y, size, size, 4, background, this.palette.border)
+    this.icon(
+      x + (size - iconSize) / 2,
+      y + (size - iconSize) / 2,
+      iconSize,
+      'copy',
+      this.palette.textSubtle
+    )
+    this.target = previous
+    if (slide) this.push({ kind: 'sticky', y, slide, children })
+    else for (const child of children) this.push(child)
+
+    const count = this.regions.length
+    this.region(x, y, size, size, { type: 'copy', text }, { hover: 'subtle', title })
+    // `region` drops a rect that a clip hides entirely, so only tag one it kept.
+    if (slide && this.regions.length > count) this.regions[count].slide = slide
+  }
+
   /** Paint, hit regions, and selections share the intersection of all parent clips. */
   clipped(x: number, y: number, w: number, h: number, radius: number, fill: () => void): void {
     const children: Node[] = []
@@ -321,6 +375,15 @@ export class Builder {
     }
   }
 }
+
+/** Side of the corner copy button. */
+export const COPY_BUTTON_SIZE = 22
+/** Width wrapped text gives up so its first line never runs under the button. */
+export const COPY_BUTTON_RESERVE = COPY_BUTTON_SIZE + 6
+/** Space a sliding copy button keeps from the bottom edge of its box. */
+const STICKY_GAP = 6
+/** Below this much travel a copy button just stays put. */
+const STICKY_MIN_SLIDE = 48
 
 function intersect(a: Rect, b: Rect): Rect {
   const x = Math.max(a.x, b.x)

@@ -72,6 +72,37 @@ export interface HitRegion {
   cursor?: 'pointer' | 'text' | 'default'
   /** Tooltip text, shown after a dwell. */
   title?: string
+  /**
+   * How far below its laid-out `y` this region may slide to stay in view — a
+   * copy button riding down a tall box as it scrolls. Relative, not absolute,
+   * so moving a cached block (which shifts `y`) keeps it correct for free.
+   * Resolve the live position with `regionRect`.
+   */
+  slide?: number
+}
+
+/** Gap kept between a stuck control and the top of the viewport. */
+export const STICKY_INSET = 8
+
+/**
+ * Where a control that slides down its box sits for a given scroll offset:
+ * its laid-out `y` until the viewport top passes it, then pinned just under
+ * that edge, then stopped at the bottom of its box. Paint and hit testing share
+ * this so the button is always clicked where it is drawn.
+ */
+export function stickyY(y: number, slide: number, viewTop: number): number {
+  if (!slide) return y
+  return y + Math.max(0, Math.min(slide, viewTop + STICKY_INSET - y))
+}
+
+/** A region's rectangle as currently shown, given the transcript scroll offset. */
+export function regionRect(region: HitRegion, scrollTop: number): Rect {
+  return {
+    x: region.x,
+    y: stickyY(region.y, region.slide ?? 0, scrollTop),
+    w: region.w,
+    h: region.h
+  }
 }
 
 /**
@@ -197,6 +228,11 @@ export type Node =
   | { kind: 'group'; children: Node[]; offsetY?: number }
   /** Pulsing opacity — `animate-pulse`. Repaints while on screen. */
   | { kind: 'pulse'; children: Node[] }
+  /**
+   * A subtree that slides down by up to `slide` px to stay in view, laid out
+   * at `y`. See `stickyY`; the matching hit region carries the same `slide`.
+   */
+  | { kind: 'sticky'; y: number; slide: number; children: Node[] }
 
 /**
  * A laid-out block with its own vertical extent.
@@ -231,7 +267,12 @@ export interface Scene {
 export function forEachNode(nodes: Node[], visit: (node: Node) => void): void {
   for (const node of nodes) {
     visit(node)
-    if (node.kind === 'clip' || node.kind === 'group' || node.kind === 'pulse') {
+    if (
+      node.kind === 'clip' ||
+      node.kind === 'group' ||
+      node.kind === 'pulse' ||
+      node.kind === 'sticky'
+    ) {
       forEachNode(node.children, visit)
     }
   }
@@ -250,7 +291,8 @@ export function visibleImages(scene: Scene, top: number, height: number): Set<st
       )
         sources.add(node.src)
       else if (node.kind === 'group') walk(node.children, offset + (node.offsetY ?? 0), start, end)
-      else if (node.kind === 'pulse') walk(node.children, offset, start, end)
+      else if (node.kind === 'pulse' || node.kind === 'sticky')
+        walk(node.children, offset, start, end)
       else if (node.kind === 'clip') {
         const clippedStart = Math.max(start, node.y + offset)
         const clippedEnd = Math.min(end, node.y + offset + node.h)
