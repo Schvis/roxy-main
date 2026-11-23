@@ -178,6 +178,8 @@ export type WorkspaceSelection = {
   path: string
   comparison: boolean
   line?: number
+  /** With `comparison`, show this before/after instead of reading Git. */
+  diff?: { before: string; after: string }
 }
 const STATUS = {
   added: { letter: 'A', color: 'text-success' },
@@ -260,6 +262,11 @@ export function WorkspaceFileCanvas({
   }, [])
   useEffect(() => {
     if (!selection.comparison || media) return
+    if (selection.diff) {
+      // A supplied diff is a fixed record of what changed; there is nothing to poll.
+      setResult({ ok: true, ...selection.diff })
+      return
+    }
     let cancelled = false
     let reading = false
     const refresh = (): void => {
@@ -285,7 +292,14 @@ export function WorkspaceFileCanvas({
       cancelled = true
       refreshComparison.current = null
     }
-  }, [sessionId, selection.rootId, selection.path, selection.comparison, media?.kind])
+  }, [
+    sessionId,
+    selection.rootId,
+    selection.path,
+    selection.comparison,
+    selection.diff,
+    media?.kind
+  ])
   useEffect(() => {
     refreshComparison.current?.()
   }, [snapshot])

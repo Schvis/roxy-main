@@ -311,7 +311,12 @@ export function ChatView({
           setInspectorSession(request.sessionId)
           setSelectedFile({
             sessionId: request.sessionId,
-            selection: { ...selection, line: request.line, comparison: Boolean(request.comparison) }
+            selection: {
+              ...selection,
+              line: request.line,
+              comparison: Boolean(request.comparison),
+              diff: request.diff
+            }
           })
         })
         .catch(console.error)
@@ -646,7 +651,12 @@ export function ChatView({
                   requestWorkspaceFile({
                     sessionId: activeChatId,
                     path: change.path,
-                    comparison: change.isDeleted
+                    // Always open the diff: the badge lists what changed, so a
+                    // click should show the change, not just the file. Use the
+                    // agent's own before/after so it matches the badge's counts
+                    // even when HEAD differs or the folder isn't a Git repo.
+                    comparison: true,
+                    diff: { before: change.initialBefore, after: change.latestAfter }
                   })
               }}
             />
@@ -814,7 +824,7 @@ export function ChatView({
             onEdit={() =>
               setSelectedFile({
                 sessionId: activeChat.id,
-                selection: { ...fileSelection, comparison: false }
+                selection: { ...fileSelection, comparison: false, diff: undefined }
               })
             }
             onBack={() => {

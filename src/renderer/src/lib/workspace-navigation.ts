@@ -9,6 +9,11 @@ export interface WorkspaceFileRequest {
   path: string
   line?: number
   comparison?: boolean
+  /**
+   * A known before/after to show instead of the Git comparison — e.g. the edits
+   * an agent made this session, which may not match HEAD (or live outside Git).
+   */
+  diff?: { before: string; after: string }
 }
 
 export function requestWorkspaceFile(request: WorkspaceFileRequest): void {
